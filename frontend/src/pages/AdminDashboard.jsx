@@ -277,8 +277,30 @@ export default function AdminDashboard() {
                         <div className="truncate">{b.pickup_location}</div>
                         <div className="text-xs text-white/50 truncate">→ {b.dropoff_location}</div>
                       </TableCell>
-                      <TableCell className="text-white/80">{b.vehicle_type}</TableCell>
-                      <TableCell className="text-white/80">{b.passengers}</TableCell>
+                      <TableCell className="text-white/80">
+                        {b.vehicle_type}
+                        {b.child_seat && (
+                          <div className="text-[10px] text-[#D4AF37] uppercase tracking-wider mt-1">
+                            + Child seat
+                          </div>
+                        )}
+                        {b.return_trip && (
+                          <div className="text-[10px] text-[#D4AF37] uppercase tracking-wider">
+                            Round trip
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-white/80">
+                        {b.passengers}
+                        {b.luggage_count > 0 && (
+                          <span className="text-xs text-white/50"> · {b.luggage_count} bags</span>
+                        )}
+                        {b.additional_stops?.length > 0 && (
+                          <div className="text-[10px] text-white/50 mt-1">
+                            +{b.additional_stops.length} stop{b.additional_stops.length > 1 ? "s" : ""}
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Badge className={`${STATUS_COLOR[b.status]} border rounded-full`}>
                           {b.status}

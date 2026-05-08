@@ -1,10 +1,11 @@
-import { Users, Sparkles } from "lucide-react";
+import { Users, Sparkles, Briefcase } from "lucide-react";
 
 const FLEET = [
   {
     name: "Executive Sedan",
     model: "Mercedes-Benz S-Class",
     pax: "1–3",
+    bags: "2",
     note: "Discreet. Effortless. The standard for daily executive transport.",
     img: "https://images.unsplash.com/photo-1772990914622-4ee26e085381?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwzfHxjaGF1ZmZldXIlMjBsdXh1cnklMjBjYXJ8ZW58MHx8fHwxNzc4MjM0MjkwfDA&ixlib=rb-4.1.0&q=85",
     span: "lg:col-span-2 lg:row-span-2",
@@ -13,6 +14,7 @@ const FLEET = [
     name: "Luxury SUV",
     model: "Cadillac Escalade",
     pax: "1–6",
+    bags: "6",
     note: "Captain's chairs, cavernous trunk, redefined comfort.",
     img: "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxibGFjayUyMHN1diUyMGx1eHVyeXxlbnwwfHx8fDE3NzgyMzQyOTB8MA&ixlib=rb-4.1.0&q=85",
     span: "lg:col-span-1 lg:row-span-1",
@@ -21,6 +23,7 @@ const FLEET = [
     name: "Premium SUV",
     model: "Lincoln Navigator L",
     pax: "1–7",
+    bags: "7",
     note: "Stretched wheelbase. Boardroom on wheels.",
     img: "https://images.unsplash.com/photo-1758223725140-3855ec687a16?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwzfHxibGFjayUyMHN1diUyMGx1eHVyeXxlbnwwfHx8fDE3NzgyMzQyOTB8MA&ixlib=rb-4.1.0&q=85",
     span: "lg:col-span-1 lg:row-span-1",
@@ -29,6 +32,7 @@ const FLEET = [
     name: "Stretch Limousine",
     model: "Cadillac XTS Stretch",
     pax: "8–10",
+    bags: "4",
     note: "Mood lighting, premium bar, weddings & celebrations.",
     img: "https://images.unsplash.com/photo-1583267746897-2cf415887172?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
     span: "lg:col-span-2 lg:row-span-1",
@@ -37,6 +41,7 @@ const FLEET = [
     name: "Sprinter Van",
     model: "Mercedes Sprinter Executive",
     pax: "10–14",
+    bags: "14",
     note: "Group travel without sacrifice. Wi-Fi, USB, leather lounge.",
     img: "https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
     span: "lg:col-span-1 lg:row-span-1",
@@ -80,9 +85,15 @@ export default function Fleet() {
                 </div>
                 <h3 className="font-serif text-2xl md:text-3xl mt-2">{v.name}</h3>
                 <p className="text-sm text-white/65 mt-2 leading-relaxed max-w-md">{v.note}</p>
-                <div className="mt-4 flex items-center gap-2 text-xs text-white/70">
-                  <Users className="w-3.5 h-3.5" />
-                  <span>{v.pax} passengers</span>
+                <div className="mt-4 flex items-center gap-5 text-xs text-white/70">
+                  <div className="flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    <span>{v.pax} pax</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Briefcase className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    <span>{v.bags} bags</span>
+                  </div>
                 </div>
               </div>
             </article>

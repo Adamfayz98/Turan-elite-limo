@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Menu, X, Phone } from "lucide-react";
+import { Menu, X, Phone, MessageCircle } from "lucide-react";
 
 const NAV_LINKS = [
   { label: "Fleet", href: "#fleet" },
   { label: "Services", href: "#services" },
+  { label: "About", href: "#about" },
   { label: "Coverage", href: "#coverage" },
   { label: "Reviews", href: "#testimonials" },
   { label: "Contact", href: "#contact" },
@@ -34,7 +34,7 @@ export default function Navbar() {
           </span>
         </a>
 
-        <div className="hidden lg:flex items-center gap-10">
+        <div className="hidden lg:flex items-center gap-8">
           {NAV_LINKS.map((l) => (
             <a
               key={l.href}
@@ -47,7 +47,16 @@ export default function Navbar() {
           ))}
         </div>
 
-        <div className="hidden lg:flex items-center gap-4">
+        <div className="hidden lg:flex items-center gap-3">
+          <a
+            href="sms:+15555555555"
+            data-testid="nav-text-button"
+            className="flex items-center gap-2 px-4 py-2.5 border border-[#D4AF37]/30 text-[#D4AF37] hover:bg-[#D4AF37]/10 transition-all rounded-full text-sm font-medium"
+            title="Text us for fast response"
+          >
+            <MessageCircle className="w-4 h-4" />
+            Text
+          </a>
           <a
             href="tel:+15555555555"
             data-testid="nav-phone"
@@ -89,14 +98,25 @@ export default function Navbar() {
                 {l.label}
               </a>
             ))}
-            <a
-              href="#booking"
-              onClick={() => setOpen(false)}
-              data-testid="mobile-nav-book"
-              className="mt-2 inline-block w-fit px-5 py-2.5 bg-[#D4AF37] text-black rounded-full text-sm font-medium"
-            >
-              Reserve
-            </a>
+            <div className="flex gap-3 pt-2">
+              <a
+                href="sms:+15555555555"
+                onClick={() => setOpen(false)}
+                data-testid="mobile-nav-text"
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-[#D4AF37]/30 text-[#D4AF37] rounded-full text-sm font-medium"
+              >
+                <MessageCircle className="w-4 h-4" />
+                Text
+              </a>
+              <a
+                href="#booking"
+                onClick={() => setOpen(false)}
+                data-testid="mobile-nav-book"
+                className="flex-1 inline-flex items-center justify-center px-5 py-2.5 bg-[#D4AF37] text-black rounded-full text-sm font-medium"
+              >
+                Reserve
+              </a>
+            </div>
           </div>
         </div>
       )}

@@ -233,6 +233,124 @@ class TestAdminContacts:
         assert r.status_code == 401
 
 
+# ---------- Iteration 2: new optional booking fields ----------
+class TestBookingNewFields:
+    def test_booking_with_all_new_fields(self, session, auth_headers):
+        payload = {
+            "full_name": "TEST New Fields",
+            "email": "test_newfields@example.com",
+            "phone": "5551234567",
+            "service_type": "Wine Tour",
+            "pickup_date": "2026-04-20",
+            "pickup_time": "09:00",
+            "pickup_location": "Hotel Drisco",
+            "dropoff_location": "Domaine Carneros",
+            "passengers": 4,
+            "luggage_count": 6,
+            "child_seat": True,
+            "additional_stops": ["Schramsberg Vineyards", "Castello di Amorosa"],
+            "return_trip": True,
+            "return_location": "Hotel Drisco",
+            "vehicle_type": "Luxury SUV",
+            "notes": "Anniversary tour",
+        }
+        r = session.post(f"{API}/bookings", json=payload)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        bid = d["id"]
+        assert d["luggage_count"] == 6
+        assert d["child_seat"] is True
+        assert d["additional_stops"] == ["Schramsberg Vineyards", "Castello di Amorosa"]
+        assert d["return_trip"] is True
+        assert d["return_location"] == "Hotel Drisco"
+
+        # GET via admin to verify persistence
+        lst = requests.get(f"{API}/admin/bookings", headers=auth_headers)
+        assert lst.status_code == 200
+        match = next((b for b in lst.json() if b["id"] == bid), None)
+        assert match is not None
+        assert match["luggage_count"] == 6
+        assert match["child_seat"] is True
+        assert match["additional_stops"] == ["Schramsberg Vineyards", "Castello di Amorosa"]
+        assert match["return_trip"] is True
+        assert match["return_location"] == "Hotel Drisco"
+        assert "_id" not in match
+
+        # Cleanup
+        requests.delete(f"{API}/admin/bookings/{bid}", headers=auth_headers)
+
+    def test_booking_backwards_compat_defaults(self, session, auth_headers):
+        # Submit without any new fields
+        payload = {
+            "full_name": "TEST Backwards Compat",
+            "email": "test_bw@example.com",
+            "phone": "5550000001",
+            "service_type": "Airport Transfer",
+            "pickup_date": "2026-05-01",
+            "pickup_time": "08:00",
+            "pickup_location": "SFO",
+            "dropoff_location": "SF Marriott",
+            "passengers": 1,
+            "vehicle_type": "Executive Sedan",
+        }
+        r = session.post(f"{API}/bookings", json=payload)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        # Defaults applied
+        assert d["luggage_count"] == 0
+        assert d["child_seat"] is False
+        assert d["additional_stops"] == []
+        assert d["return_trip"] is False
+        assert d["return_location"] == ""
+
+        # Cleanup
+        requests.delete(f"{API}/admin/bookings/{d['id']}", headers=auth_headers)
+
+    def test_booking_partial_new_fields(self, session, auth_headers):
+        # Only some new fields
+        payload = {
+            "full_name": "TEST Partial",
+            "email": "test_partial@example.com",
+            "phone": "5550000002",
+            "service_type": "Corporate / Executive",
+            "pickup_date": "2026-05-10",
+            "pickup_time": "07:30",
+            "pickup_location": "Office",
+            "dropoff_location": "Airport",
+            "passengers": 2,
+            "luggage_count": 3,
+            "additional_stops": ["Coffee Shop"],
+            "vehicle_type": "Executive Sedan",
+        }
+        r = session.post(f"{API}/bookings", json=payload)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["luggage_count"] == 3
+        assert d["additional_stops"] == ["Coffee Shop"]
+        assert d["child_seat"] is False
+        assert d["return_trip"] is False
+        assert d["return_location"] == ""
+        requests.delete(f"{API}/admin/bookings/{d['id']}", headers=auth_headers)
+
+    def test_booking_luggage_validation(self, session):
+        # Negative luggage should fail
+        payload = {
+            "full_name": "TEST Bad Luggage",
+            "email": "test_bl@example.com",
+            "phone": "5550000003",
+            "service_type": "Airport Transfer",
+            "pickup_date": "2026-05-15",
+            "pickup_time": "10:00",
+            "pickup_location": "A",
+            "dropoff_location": "B",
+            "passengers": 1,
+            "luggage_count": -5,
+            "vehicle_type": "Executive Sedan",
+        }
+        r = session.post(f"{API}/bookings", json=payload)
+        assert r.status_code == 422  # Pydantic validation error
+
+
 class TestStats:
     def test_stats(self, auth_headers):
         r = requests.get(f"{API}/admin/stats", headers=auth_headers)

@@ -102,6 +102,11 @@ class BookingCreate(BaseModel):
     pickup_location: str
     dropoff_location: str
     passengers: int = Field(..., ge=1, le=60)
+    luggage_count: int = Field(0, ge=0, le=60)
+    child_seat: bool = False
+    additional_stops: List[str] = Field(default_factory=list)
+    return_trip: bool = False
+    return_location: Optional[str] = ""
     vehicle_type: str
     notes: Optional[str] = ""
 
@@ -118,6 +123,11 @@ class Booking(BaseModel):
     pickup_location: str
     dropoff_location: str
     passengers: int
+    luggage_count: int = 0
+    child_seat: bool = False
+    additional_stops: List[str] = Field(default_factory=list)
+    return_trip: bool = False
+    return_location: str = ""
     vehicle_type: str
     notes: str = ""
     status: str = "pending"
@@ -186,6 +196,8 @@ async def create_booking(payload: BookingCreate):
     doc['status'] = 'pending'
     doc['created_at'] = datetime.now(timezone.utc).isoformat()
     doc['notes'] = doc.get('notes') or ""
+    doc['return_location'] = doc.get('return_location') or ""
+    doc['additional_stops'] = doc.get('additional_stops') or []
 
     insert_doc = doc.copy()
     await db.bookings.insert_one(insert_doc)

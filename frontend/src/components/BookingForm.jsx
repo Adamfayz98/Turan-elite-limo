@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Loader2 } from "lucide-react";
+import { Calendar as CalendarIcon, Loader2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
+import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
@@ -34,22 +36,29 @@ const TIME_SLOTS = (() => {
   return out;
 })();
 
+const initialForm = {
+  full_name: "",
+  email: "",
+  phone: "",
+  service_type: "",
+  pickup_time: "",
+  pickup_location: "",
+  dropoff_location: "",
+  passengers: 1,
+  luggage_count: 0,
+  child_seat: false,
+  return_trip: false,
+  return_location: "",
+  vehicle_type: "",
+  notes: "",
+};
+
 export default function BookingForm() {
   const [options, setOptions] = useState({ vehicle_types: [], service_types: [] });
   const [date, setDate] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({
-    full_name: "",
-    email: "",
-    phone: "",
-    service_type: "",
-    pickup_time: "",
-    pickup_location: "",
-    dropoff_location: "",
-    passengers: 1,
-    vehicle_type: "",
-    notes: "",
-  });
+  const [stops, setStops] = useState([]);
+  const [form, setForm] = useState(initialForm);
 
   useEffect(() => {
     api
@@ -59,6 +68,11 @@ export default function BookingForm() {
   }, []);
 
   const update = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const addStop = () => setStops((s) => [...s, ""]);
+  const removeStop = (idx) => setStops((s) => s.filter((_, i) => i !== idx));
+  const updateStop = (idx, v) =>
+    setStops((s) => s.map((x, i) => (i === idx ? v : x)));
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -70,27 +84,24 @@ export default function BookingForm() {
       toast.error("Please fill all required fields.");
       return;
     }
+    if (form.return_trip && !form.return_location.trim()) {
+      toast.error("Please enter a return drop-off location.");
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = {
         ...form,
         passengers: Number(form.passengers) || 1,
+        luggage_count: Number(form.luggage_count) || 0,
+        additional_stops: stops.map((s) => s.trim()).filter(Boolean),
+        return_location: form.return_trip ? form.return_location : "",
         pickup_date: format(date, "yyyy-MM-dd"),
       };
       await api.post("/bookings", payload);
       toast.success("Reservation request received. We'll confirm shortly.");
-      setForm({
-        full_name: "",
-        email: "",
-        phone: "",
-        service_type: "",
-        pickup_time: "",
-        pickup_location: "",
-        dropoff_location: "",
-        passengers: 1,
-        vehicle_type: "",
-        notes: "",
-      });
+      setForm(initialForm);
+      setStops([]);
       setDate(null);
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Booking failed");
@@ -131,7 +142,7 @@ export default function BookingForm() {
             <div className="flex items-start gap-3">
               <span className="mt-1 inline-block w-1.5 h-1.5 rounded-full bg-[#D4AF37]" />
               <p className="text-white/70">
-                <span className="text-white">Vetted chauffeurs.</span> Suit, smile, silence — your choice.
+                <span className="text-white">Multi-stop & round-trip.</span> Build your itinerary, we handle the rest.
               </p>
             </div>
           </div>
@@ -178,18 +189,32 @@ export default function BookingForm() {
                 placeholder="(555) 555-5555"
               />
             </div>
-            <div>
-              <Label className="text-white/80 text-xs uppercase tracking-wider">Passengers</Label>
-              <Input
-                data-testid="booking-passengers"
-                type="number"
-                min={1}
-                max={60}
-                required
-                className={cn(inputCls, "mt-2")}
-                value={form.passengers}
-                onChange={(e) => update("passengers")(e.target.value)}
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-white/80 text-xs uppercase tracking-wider">Passengers</Label>
+                <Input
+                  data-testid="booking-passengers"
+                  type="number"
+                  min={1}
+                  max={60}
+                  required
+                  className={cn(inputCls, "mt-2")}
+                  value={form.passengers}
+                  onChange={(e) => update("passengers")(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label className="text-white/80 text-xs uppercase tracking-wider">Luggage</Label>
+                <Input
+                  data-testid="booking-luggage"
+                  type="number"
+                  min={0}
+                  max={60}
+                  className={cn(inputCls, "mt-2")}
+                  value={form.luggage_count}
+                  onChange={(e) => update("luggage_count")(e.target.value)}
+                />
+              </div>
             </div>
 
             <div>
@@ -291,6 +316,46 @@ export default function BookingForm() {
               />
             </div>
 
+            {/* Dynamic stops */}
+            {stops.map((stop, i) => (
+              <div key={i} className="md:col-span-2">
+                <Label className="text-white/80 text-xs uppercase tracking-wider">
+                  Additional stop #{i + 1}
+                </Label>
+                <div className="flex gap-2 mt-2">
+                  <Input
+                    data-testid={`booking-stop-${i}`}
+                    className={cn(inputCls, "flex-1")}
+                    value={stop}
+                    onChange={(e) => updateStop(i, e.target.value)}
+                    placeholder="123 Market St, San Francisco"
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => removeStop(i)}
+                    variant="outline"
+                    size="icon"
+                    data-testid={`booking-stop-remove-${i}`}
+                    className="h-11 w-11 bg-transparent border-white/15 hover:bg-red-500/10 hover:border-red-500/40 text-white/70 hover:text-red-400"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+
+            <div className="md:col-span-2 -mt-2">
+              <Button
+                type="button"
+                onClick={addStop}
+                variant="outline"
+                data-testid="booking-add-stop"
+                className="bg-transparent border-[#D4AF37]/30 text-[#D4AF37] hover:bg-[#D4AF37]/10 hover:text-[#D4AF37] rounded-full"
+              >
+                <Plus className="w-4 h-4 mr-2" /> Add stop
+              </Button>
+            </div>
+
             <div className="md:col-span-2">
               <Label className="text-white/80 text-xs uppercase tracking-wider">Drop-off location</Label>
               <Input
@@ -303,6 +368,54 @@ export default function BookingForm() {
               />
             </div>
 
+            {/* Toggles row */}
+            <div className="md:col-span-2 flex flex-col sm:flex-row gap-4 pt-2 pb-2">
+              <label
+                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[#27272A] bg-[#0E0E0E] cursor-pointer hover:border-[#D4AF37]/30 transition-colors flex-1"
+                data-testid="booking-child-seat-toggle"
+              >
+                <Checkbox
+                  checked={form.child_seat}
+                  onCheckedChange={(v) => update("child_seat")(!!v)}
+                  className="border-white/30 data-[state=checked]:bg-[#D4AF37] data-[state=checked]:border-[#D4AF37] data-[state=checked]:text-black"
+                />
+                <span className="text-sm">
+                  <span className="text-white">Add child seat</span>
+                  <span className="block text-xs text-white/50">Complimentary on request</span>
+                </span>
+              </label>
+
+              <label
+                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[#27272A] bg-[#0E0E0E] cursor-pointer hover:border-[#D4AF37]/30 transition-colors flex-1"
+                data-testid="booking-return-toggle"
+              >
+                <Switch
+                  checked={form.return_trip}
+                  onCheckedChange={(v) => update("return_trip")(!!v)}
+                  className="data-[state=checked]:bg-[#D4AF37]"
+                />
+                <span className="text-sm">
+                  <span className="text-white">Return / round trip</span>
+                  <span className="block text-xs text-white/50">Different drop-off OK</span>
+                </span>
+              </label>
+            </div>
+
+            {form.return_trip && (
+              <div className="md:col-span-2">
+                <Label className="text-white/80 text-xs uppercase tracking-wider">
+                  Return drop-off location
+                </Label>
+                <Input
+                  data-testid="booking-return-location"
+                  className={cn(inputCls, "mt-2")}
+                  value={form.return_location}
+                  onChange={(e) => update("return_location")(e.target.value)}
+                  placeholder="Same as pickup, or new address"
+                />
+              </div>
+            )}
+
             <div className="md:col-span-2">
               <Label className="text-white/80 text-xs uppercase tracking-wider">Special requests</Label>
               <Textarea
@@ -312,7 +425,7 @@ export default function BookingForm() {
                 )}
                 value={form.notes}
                 onChange={(e) => update("notes")(e.target.value)}
-                placeholder="Child seat, complimentary water, etc."
+                placeholder="Complimentary water, sign with name, scenic route, etc."
               />
             </div>
           </div>
