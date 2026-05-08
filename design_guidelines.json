@@ -1,0 +1,84 @@
+{
+  "theme": "dark",
+  "archetype": "5 (Jewel & Luxury)",
+  "colors": {
+    "background": "#050505",
+    "surface": "#111111",
+    "surface_elevated": "#1A1A1A",
+    "primary": "#D4AF37",
+    "primary_hover": "#B3922E",
+    "text_main": "#FFFFFF",
+    "text_muted": "#A1A1AA",
+    "border": "#27272A"
+  },
+  "typography": {
+    "google_fonts_url": "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap",
+    "headings": {
+      "font_family": "'Playfair Display', serif",
+      "classes": "font-serif tracking-tight text-white"
+    },
+    "body": {
+      "font_family": "'Outfit', sans-serif",
+      "classes": "font-sans text-gray-300"
+    }
+  },
+  "layout_and_spacing": {
+    "philosophy": "Generous spacing, architectural alignment, large negative space.",
+    "hero": "Full height (min-h-[90vh]), gradient overlay (bg-gradient-to-r from-black/90 via-black/50 to-transparent) to ensure text readability.",
+    "grid": "Bento Grid (Tetris Mode) for fleet showcase and services. gap-8 to gap-12.",
+    "section_padding": "py-24 md:py-32"
+  },
+  "components": {
+    "navigation": "Sticky, Crystal Glassmorphism (bg-black/60 backdrop-blur-xl border-b border-white/10).",
+    "cards": "Flat dark background (bg-[#111111]), 1px border (border-[#27272A]), no shadow, subtle hover lift (-translate-y-1) and border glow on hover.",
+    "buttons": {
+      "primary": "bg-[#D4AF37] text-black hover:bg-[#B3922E] font-medium transition-all",
+      "secondary": "bg-transparent border border-white/20 text-white hover:bg-white/10 transition-all",
+      "ghost": "text-white/70 hover:text-white hover:bg-white/10"
+    },
+    "forms": "Use Shadcn form elements. Customize inputs to have bg-[#111111] border-[#27272A] focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] text-white."
+  },
+  "media": {
+    "hero_image": "https://images.pexels.com/photos/15774577/pexels-photo-15774577.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "fleet": {
+      "cadillac_suv": "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxibGFjayUyMHN1diUyMGx1eHVyeXxlbnwwfHx8fDE3NzgyMzQyOTB8MA&ixlib=rb-4.1.0&q=85",
+      "rolls_royce": "https://images.unsplash.com/photo-1772990914622-4ee26e085381?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwzfHxjaGF1ZmZldXIlMjBsdXh1cnklMjBjYXJ8ZW58MHx8fHwxNzc4MjM0MjkwfDA&ixlib=rb-4.1.0&q=85",
+      "lincoln_suv": "https://images.unsplash.com/photo-1758223725140-3855ec687a16?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwzfHxibGFjayUyMHN1diUyMGx1eHVyeXxlbnwwfHx8fDE3NzgyMzQyOTB8MA&ixlib=rb-4.1.0&q=85"
+    },
+    "service_area": "https://images.unsplash.com/photo-1630603826565-fa64d258b602?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwzfHxzYW4lMjBmcmFuY2lzY28lMjBuaWdodCUyMGNpdHl8ZW58MHx8fHwxNzc4MjM0MjkwfDA&ixlib=rb-4.1.0&q=85",
+    "chauffeur_detail": "https://images.pexels.com/photos/7594130/pexels-photo-7594130.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+  },
+  "pages_and_features": {
+    "marketing": {
+      "path": "/",
+      "sections": [
+        "Navigation Bar (Logo: Turonlimo, Links: Fleet, Services, Area, Booking)",
+        "Hero Section: Full screen, headline 'Unparalleled Luxury Transportation', sub-headline 'Serving the Bay Area & Northern California', primary CTA 'Book Now'.",
+        "Booking Section: Comprehensive Shadcn form for instant quote/booking (Date, Time, Pickup, Dropoff, Passengers, Vehicle type).",
+        "Fleet Showcase: Bento Grid displaying SUVs, Sedans, Party Buses. Focus on high-end imagery.",
+        "Services Section: Cards outlining Airport Transfers, Corporate Events, Weddings, Hourly Chauffeur.",
+        "Coverage Area: Bay Area imagery with a stylish map or text layout highlighting Northern California.",
+        "Footer: Contact info, links, elegant branding."
+      ]
+    },
+    "admin": {
+      "path": "/admin",
+      "features": [
+        "Login Screen: Minimalist, centered card.",
+        "Dashboard Layout: Sidebar navigation (Bookings, Fleet, Settings).",
+        "Bookings Table: Shadcn DataTable showing recent requests (Customer, Date, Route, Vehicle, Status badge).",
+        "Action Menu: Approve/Reject/Complete statuses."
+      ]
+    }
+  },
+  "instructions_to_main_agent": [
+    "Configure React Router to handle '/' for the marketing site and '/admin' for the dashboard.",
+    "Add 'Playfair Display' and 'Outfit' to Tailwind config (theme.extend.fontFamily) and index.html.",
+    "Force dark mode across the entire application by wrapping the app in a container with 'dark' class and 'bg-[#050505] text-white'.",
+    "Do not use default Shadcn styles verbatim. Override variables in index.css to match the colors provided in this JSON.",
+    "Use framer-motion for smooth entrance animations (fade up on scroll) for marketing sections.",
+    "All interactive and key informational elements MUST include a 'data-testid' attribute (e.g. data-testid='hero-book-button').",
+    "For the booking form, use a combination of Shadcn Form, Input, DatePicker (Popover + Calendar), and Select.",
+    "For the Admin dashboard, use a separate layout component that doesn't include the marketing navigation/footer."
+  ]
+}
