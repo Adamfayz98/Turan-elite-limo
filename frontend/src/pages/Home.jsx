@@ -2,7 +2,6 @@ import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import HowItWorks from "@/components/HowItWorks";
 import BookingForm from "@/components/BookingForm";
-import Fleet from "@/components/Fleet";
 import Services from "@/components/Services";
 import ServiceFeatures from "@/components/ServiceFeatures";
 import About from "@/components/About";
@@ -20,7 +19,6 @@ export default function Home() {
       <Hero />
       <HowItWorks />
       <BookingForm />
-      <Fleet />
       <Services />
       <ServiceFeatures />
       <About />

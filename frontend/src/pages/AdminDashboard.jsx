@@ -34,6 +34,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import Logo from "@/components/Logo";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -168,9 +169,12 @@ export default function AdminDashboard() {
       {/* Top bar */}
       <header className="border-b border-white/10 px-6 md:px-10 h-20 flex items-center justify-between sticky top-0 z-40 bg-[#050505]/90 backdrop-blur-xl">
         <div className="flex items-center gap-6">
-          <span className="font-serif text-2xl">
-            Turon<span className="gold-text">limo</span>
-          </span>
+          <div className="flex items-center gap-2.5">
+            <Logo size={32} className="text-[#D4AF37]" />
+            <span className="font-serif text-2xl">
+              Turon<span className="gold-text">limo</span>
+            </span>
+          </div>
           <span className="hidden md:inline text-xs uppercase tracking-[0.3em] text-white/40">
             Admin Console
           </span>

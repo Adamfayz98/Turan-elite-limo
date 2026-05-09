@@ -62,7 +62,7 @@ export default function ContactForm() {
               <div>
                 <div className="text-xs uppercase tracking-[0.2em] text-white/50">24/7 Reservations</div>
                 <a href="tel:+15555555555" className="text-white text-lg hover:text-[#D4AF37] transition-colors">
-                  (555) 555‑5555
+                  (650) 410‑0687
                 </a>
               </div>
             </div>
@@ -73,10 +73,10 @@ export default function ContactForm() {
               <div>
                 <div className="text-xs uppercase tracking-[0.2em] text-white/50">Email</div>
                 <a
-                  href="mailto:reservations@turonlimo.com"
+                  href="mailto:turonlimosupport@gmail.com"
                   className="text-white text-lg hover:text-[#D4AF37] transition-colors"
                 >
-                  reservations@turonlimo.com
+                  turonlimosupport@gmail.com
                 </a>
               </div>
             </div>

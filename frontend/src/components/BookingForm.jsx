@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Loader2, Plus, X, Phone as PhoneIcon, Sparkles } from "lucide-react";
+import { Calendar as CalendarIcon, Loader2, Plus, X, MapPin, Car, User } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import FleetPicker from "@/components/FleetPicker";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +54,21 @@ const initialForm = {
   notes: "",
 };
 
+function SectionHead({ icon: Icon, step, title, sub }) {
+  return (
+    <div className="flex items-start gap-4 mb-6">
+      <div className="w-10 h-10 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center flex-shrink-0">
+        <Icon className="w-4 h-4 text-[#D4AF37]" />
+      </div>
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.3em] text-[#D4AF37]">Step {step}</div>
+        <h3 className="font-serif text-2xl mt-1 leading-tight">{title}</h3>
+        {sub && <p className="text-xs text-white/50 mt-1">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function BookingForm() {
   const [options, setOptions] = useState({ vehicle_types: [], service_types: [] });
   const [date, setDate] = useState(null);
@@ -64,10 +80,7 @@ export default function BookingForm() {
   const [form, setForm] = useState(initialForm);
 
   useEffect(() => {
-    api
-      .get("/options")
-      .then((r) => setOptions(r.data))
-      .catch(() => {});
+    api.get("/options").then((r) => setOptions(r.data)).catch(() => {});
   }, []);
 
   const update = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
@@ -105,18 +118,12 @@ export default function BookingForm() {
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    if (!date) {
-      toast.error("Please pick a date.");
-      return;
-    }
-    if (!form.service_type || !form.vehicle_type || !form.pickup_time) {
-      toast.error("Please fill all required fields.");
-      return;
-    }
-    if (form.return_trip && !form.return_location.trim()) {
-      toast.error("Please enter a return drop-off location.");
-      return;
-    }
+    if (!date) return toast.error("Please pick a date.");
+    if (!form.service_type) return toast.error("Please choose a service type.");
+    if (!form.vehicle_type) return toast.error("Please select a vehicle.");
+    if (!form.pickup_time) return toast.error("Please select a pickup time.");
+    if (form.return_trip && !form.return_location.trim())
+      return toast.error("Please enter a return drop-off location.");
     setSubmitting(true);
     try {
       const payload = {
@@ -132,6 +139,7 @@ export default function BookingForm() {
       setForm(initialForm);
       setStops([]);
       setDate(null);
+      setQuote(null);
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Booking failed");
     } finally {
@@ -145,143 +153,87 @@ export default function BookingForm() {
       data-testid="booking-section"
       className="relative py-24 md:py-32 px-6 md:px-10 border-t border-white/5"
     >
-      <div className="max-w-7xl mx-auto grid lg:grid-cols-12 gap-16">
-        {/* Left intro */}
-        <div className="lg:col-span-4">
+      <div className="max-w-7xl mx-auto">
+        <div className="text-center mb-14">
           <span className="text-xs tracking-[0.3em] uppercase text-[#D4AF37]">02 — Reserve</span>
           <h2 className="font-serif text-4xl md:text-5xl mt-6 leading-tight">
             Reserve your <span className="italic">private</span> chauffeur
           </h2>
-          <p className="mt-6 text-white/60 leading-relaxed">
-            Tell us where you're going. A reservations specialist will confirm your ride within minutes — typically faster.
+          <p className="mt-5 text-white/55 max-w-2xl mx-auto leading-relaxed">
+            Three quick steps. Live pricing as soon as you tell us where you're going.
           </p>
-          <div className="mt-10 space-y-4 text-sm">
-            <div className="flex items-start gap-3">
-              <span className="mt-1 inline-block w-1.5 h-1.5 rounded-full bg-[#D4AF37]" />
-              <p className="text-white/70">
-                <span className="text-white">Flat-rate quotes.</span> No surge pricing — ever.
-              </p>
-            </div>
-            <div className="flex items-start gap-3">
-              <span className="mt-1 inline-block w-1.5 h-1.5 rounded-full bg-[#D4AF37]" />
-              <p className="text-white/70">
-                <span className="text-white">60-min flight tracking.</span> Complimentary wait time on airport pickups.
-              </p>
-            </div>
-            <div className="flex items-start gap-3">
-              <span className="mt-1 inline-block w-1.5 h-1.5 rounded-full bg-[#D4AF37]" />
-              <p className="text-white/70">
-                <span className="text-white">Multi-stop & round-trip.</span> Build your itinerary, we handle the rest.
-              </p>
-            </div>
-          </div>
         </div>
 
-        {/* Form */}
         <form
           onSubmit={onSubmit}
           data-testid="booking-form"
-          className="lg:col-span-8 bg-[#0A0A0A] border border-[#1F1F1F] rounded-2xl p-6 md:p-10"
+          className="bg-[#0A0A0A] border border-[#1F1F1F] rounded-2xl p-6 md:p-10"
         >
+          {/* STEP 1 — Trip details */}
+          <SectionHead icon={MapPin} step="1" title="Trip details" />
+
           <div className="grid md:grid-cols-2 gap-5">
-            <div>
-              <Label className="text-white/80 text-xs uppercase tracking-wider">Full name</Label>
+            <div className="md:col-span-2">
+              <Label className="text-white/80 text-xs uppercase tracking-wider">Pickup location</Label>
               <Input
-                data-testid="booking-name"
+                data-testid="booking-pickup"
                 required
                 className={cn(inputCls, "mt-2")}
-                value={form.full_name}
-                onChange={(e) => update("full_name")(e.target.value)}
-                placeholder="Jane Doe"
+                value={form.pickup_location}
+                onChange={(e) => update("pickup_location")(e.target.value)}
+                placeholder="SFO Airport, Terminal 2"
               />
-            </div>
-            <div>
-              <Label className="text-white/80 text-xs uppercase tracking-wider">Email</Label>
-              <Input
-                data-testid="booking-email"
-                required
-                type="email"
-                className={cn(inputCls, "mt-2")}
-                value={form.email}
-                onChange={(e) => update("email")(e.target.value)}
-                placeholder="jane@example.com"
-              />
-            </div>
-            <div>
-              <Label className="text-white/80 text-xs uppercase tracking-wider">Phone</Label>
-              <Input
-                data-testid="booking-phone"
-                required
-                className={cn(inputCls, "mt-2")}
-                value={form.phone}
-                onChange={(e) => update("phone")(e.target.value)}
-                placeholder="(555) 555-5555"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-white/80 text-xs uppercase tracking-wider">Passengers</Label>
-                <Input
-                  data-testid="booking-passengers"
-                  type="number"
-                  min={1}
-                  max={60}
-                  required
-                  className={cn(inputCls, "mt-2")}
-                  value={form.passengers}
-                  onChange={(e) => update("passengers")(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label className="text-white/80 text-xs uppercase tracking-wider">Luggage</Label>
-                <Input
-                  data-testid="booking-luggage"
-                  type="number"
-                  min={0}
-                  max={60}
-                  className={cn(inputCls, "mt-2")}
-                  value={form.luggage_count}
-                  onChange={(e) => update("luggage_count")(e.target.value)}
-                />
-              </div>
             </div>
 
-            <div>
-              <Label className="text-white/80 text-xs uppercase tracking-wider">Service type</Label>
-              <Select value={form.service_type} onValueChange={update("service_type")}>
-                <SelectTrigger
-                  data-testid="booking-service-type"
-                  className={cn(inputCls, "mt-2")}
-                >
-                  <SelectValue placeholder="Select service" />
-                </SelectTrigger>
-                <SelectContent className="bg-[#111111] border-[#27272A] text-white">
-                  {options.service_types?.map((s) => (
-                    <SelectItem key={s} value={s} data-testid={`service-option-${s}`}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {stops.map((stop, i) => (
+              <div key={i} className="md:col-span-2">
+                <Label className="text-white/80 text-xs uppercase tracking-wider">
+                  Additional stop #{i + 1}
+                </Label>
+                <div className="flex gap-2 mt-2">
+                  <Input
+                    data-testid={`booking-stop-${i}`}
+                    className={cn(inputCls, "flex-1")}
+                    value={stop}
+                    onChange={(e) => updateStop(i, e.target.value)}
+                    placeholder="123 Market St, San Francisco"
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => removeStop(i)}
+                    variant="outline"
+                    size="icon"
+                    data-testid={`booking-stop-remove-${i}`}
+                    className="h-11 w-11 bg-transparent border-white/15 hover:bg-red-500/10 hover:border-red-500/40 text-white/70 hover:text-red-400"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+
+            <div className="md:col-span-2">
+              <Label className="text-white/80 text-xs uppercase tracking-wider">Drop-off location</Label>
+              <Input
+                data-testid="booking-dropoff"
+                required
+                className={cn(inputCls, "mt-2")}
+                value={form.dropoff_location}
+                onChange={(e) => update("dropoff_location")(e.target.value)}
+                placeholder="Four Seasons San Francisco"
+              />
             </div>
 
-            <div>
-              <Label className="text-white/80 text-xs uppercase tracking-wider">Vehicle</Label>
-              <Select value={form.vehicle_type} onValueChange={update("vehicle_type")}>
-                <SelectTrigger
-                  data-testid="booking-vehicle-type"
-                  className={cn(inputCls, "mt-2")}
-                >
-                  <SelectValue placeholder="Select vehicle" />
-                </SelectTrigger>
-                <SelectContent className="bg-[#111111] border-[#27272A] text-white">
-                  {options.vehicle_types?.map((v) => (
-                    <SelectItem key={v} value={v} data-testid={`vehicle-option-${v}`}>
-                      {v}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="md:col-span-2 -mt-1">
+              <Button
+                type="button"
+                onClick={addStop}
+                variant="outline"
+                data-testid="booking-add-stop"
+                className="bg-transparent border-[#D4AF37]/30 text-[#D4AF37] hover:bg-[#D4AF37]/10 hover:text-[#D4AF37] rounded-full"
+              >
+                <Plus className="w-4 h-4 mr-2" /> Add stop
+              </Button>
             </div>
 
             <div>
@@ -333,191 +285,178 @@ export default function BookingForm() {
               </Select>
             </div>
 
-            <div className="md:col-span-2">
-              <Label className="text-white/80 text-xs uppercase tracking-wider">Pickup location</Label>
-              <Input
-                data-testid="booking-pickup"
-                required
-                className={cn(inputCls, "mt-2")}
-                value={form.pickup_location}
-                onChange={(e) => update("pickup_location")(e.target.value)}
-                placeholder="SFO Airport, Terminal 2"
-              />
-            </div>
-
-            {/* Dynamic stops */}
-            {stops.map((stop, i) => (
-              <div key={i} className="md:col-span-2">
-                <Label className="text-white/80 text-xs uppercase tracking-wider">
-                  Additional stop #{i + 1}
-                </Label>
-                <div className="flex gap-2 mt-2">
-                  <Input
-                    data-testid={`booking-stop-${i}`}
-                    className={cn(inputCls, "flex-1")}
-                    value={stop}
-                    onChange={(e) => updateStop(i, e.target.value)}
-                    placeholder="123 Market St, San Francisco"
-                  />
-                  <Button
-                    type="button"
-                    onClick={() => removeStop(i)}
-                    variant="outline"
-                    size="icon"
-                    data-testid={`booking-stop-remove-${i}`}
-                    className="h-11 w-11 bg-transparent border-white/15 hover:bg-red-500/10 hover:border-red-500/40 text-white/70 hover:text-red-400"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-
-            <div className="md:col-span-2 -mt-2">
-              <Button
-                type="button"
-                onClick={addStop}
-                variant="outline"
-                data-testid="booking-add-stop"
-                className="bg-transparent border-[#D4AF37]/30 text-[#D4AF37] hover:bg-[#D4AF37]/10 hover:text-[#D4AF37] rounded-full"
-              >
-                <Plus className="w-4 h-4 mr-2" /> Add stop
-              </Button>
-            </div>
-
-            <div className="md:col-span-2">
-              <Label className="text-white/80 text-xs uppercase tracking-wider">Drop-off location</Label>
-              <Input
-                data-testid="booking-dropoff"
-                required
-                className={cn(inputCls, "mt-2")}
-                value={form.dropoff_location}
-                onChange={(e) => update("dropoff_location")(e.target.value)}
-                placeholder="Four Seasons San Francisco"
-              />
-            </div>
-
-            {/* Live quote panel */}
-            {(quoting || quote) && (
-              <div
-                className="md:col-span-2"
-                data-testid="quote-panel"
-              >
-                <div className="rounded-2xl border border-[#D4AF37]/20 bg-gradient-to-br from-[#0E0E0E] via-[#0A0A0A] to-[#0E0E0E] p-5 md:p-6">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-[#D4AF37]" />
-                      <span className="text-xs uppercase tracking-[0.25em] text-[#D4AF37]">
-                        {quoting ? "Calculating estimate…" : "Estimated flat rates"}
-                      </span>
-                    </div>
-                    {quote?.distance_miles != null && (
-                      <span className="text-xs text-white/60">
-                        ~{quote.distance_miles} mi · ~{quote.duration_minutes} min
-                      </span>
-                    )}
-                  </div>
-
-                  {quote?.fallback && (
-                    <p className="text-xs text-white/50 mb-3">
-                      Couldn't pin one of the addresses — try adding city or state for an automatic estimate. Or call <a href="tel:+15555555555" className="text-[#D4AF37] hover:underline">(555) 555‑5555</a>.
-                    </p>
-                  )}
-
-                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {(quote?.quotes || []).map((q) => {
-                      const selected = form.vehicle_type === q.vehicle_type;
-                      const callOnly = q.price == null;
-                      return (
-                        <button
-                          key={q.vehicle_type}
-                          type="button"
-                          data-testid={`quote-card-${q.vehicle_type}`}
-                          onClick={() => update("vehicle_type")(q.vehicle_type)}
-                          className={cn(
-                            "text-left p-4 rounded-xl border bg-[#0A0A0A] transition-all",
-                            selected
-                              ? "border-[#D4AF37] shadow-[0_0_0_1px_rgba(212,175,55,0.4)]"
-                              : "border-[#1F1F1F] hover:border-[#D4AF37]/40"
-                          )}
-                        >
-                          <div className="text-[11px] uppercase tracking-[0.2em] text-white/50">
-                            {q.vehicle_type}
-                          </div>
-                          {callOnly ? (
-                            <div className="mt-2 flex items-center gap-2">
-                              <PhoneIcon className="w-4 h-4 text-[#D4AF37]" />
-                              <span className="font-serif text-lg gold-text">Call for quote</span>
-                            </div>
-                          ) : (
-                            <div className="mt-1 font-serif text-2xl text-white">
-                              {q.formatted_price}
-                              <span className="text-xs text-white/40 ml-2 font-sans">flat</span>
-                            </div>
-                          )}
-                          {selected && (
-                            <div className="mt-2 text-[10px] text-[#D4AF37] uppercase tracking-[0.2em]">
-                              Selected ✓
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[10px] text-white/40 mt-4">
-                    Estimates include base fare + mileage. Final flat rate confirmed by reservations. Tolls, parking, & gratuity not included.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Toggles row */}
-            <div className="md:col-span-2 flex flex-col sm:flex-row gap-4 pt-2 pb-2">
-              <label
-                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[#27272A] bg-[#0E0E0E] cursor-pointer hover:border-[#D4AF37]/30 transition-colors flex-1"
-                data-testid="booking-child-seat-toggle"
-              >
-                <Checkbox
-                  checked={form.child_seat}
-                  onCheckedChange={(v) => update("child_seat")(!!v)}
-                  className="border-white/30 data-[state=checked]:bg-[#D4AF37] data-[state=checked]:border-[#D4AF37] data-[state=checked]:text-black"
-                />
-                <span className="text-sm">
-                  <span className="text-white">Add child seat</span>
-                  <span className="block text-xs text-white/50">Complimentary on request</span>
-                </span>
-              </label>
-
-              <label
-                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[#27272A] bg-[#0E0E0E] cursor-pointer hover:border-[#D4AF37]/30 transition-colors flex-1"
-                data-testid="booking-return-toggle"
-              >
-                <Switch
-                  checked={form.return_trip}
-                  onCheckedChange={(v) => update("return_trip")(!!v)}
-                  className="data-[state=checked]:bg-[#D4AF37]"
-                />
-                <span className="text-sm">
-                  <span className="text-white">Return / round trip</span>
-                  <span className="block text-xs text-white/50">Different drop-off OK</span>
-                </span>
-              </label>
-            </div>
-
-            {form.return_trip && (
-              <div className="md:col-span-2">
-                <Label className="text-white/80 text-xs uppercase tracking-wider">
-                  Return drop-off location
-                </Label>
-                <Input
-                  data-testid="booking-return-location"
+            <div>
+              <Label className="text-white/80 text-xs uppercase tracking-wider">Service type</Label>
+              <Select value={form.service_type} onValueChange={update("service_type")}>
+                <SelectTrigger
+                  data-testid="booking-service-type"
                   className={cn(inputCls, "mt-2")}
-                  value={form.return_location}
-                  onChange={(e) => update("return_location")(e.target.value)}
-                  placeholder="Same as pickup, or new address"
+                >
+                  <SelectValue placeholder="Select service" />
+                </SelectTrigger>
+                <SelectContent className="bg-[#111111] border-[#27272A] text-white">
+                  {options.service_types?.map((s) => (
+                    <SelectItem key={s} value={s} data-testid={`service-option-${s}`}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <label
+              className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[#27272A] bg-[#0E0E0E] cursor-pointer hover:border-[#D4AF37]/30 transition-colors"
+              data-testid="booking-return-toggle"
+            >
+              <Switch
+                checked={form.return_trip}
+                onCheckedChange={(v) => update("return_trip")(!!v)}
+                className="data-[state=checked]:bg-[#D4AF37]"
+              />
+              <span className="text-sm">
+                <span className="text-white">Return / round trip</span>
+                <span className="block text-xs text-white/50">Different drop-off OK</span>
+              </span>
+            </label>
+          </div>
+
+          {form.return_trip && (
+            <div className="mt-4">
+              <Label className="text-white/80 text-xs uppercase tracking-wider">
+                Return drop-off location
+              </Label>
+              <Input
+                data-testid="booking-return-location"
+                className={cn(inputCls, "mt-2")}
+                value={form.return_location}
+                onChange={(e) => update("return_location")(e.target.value)}
+                placeholder="Same as pickup, or new address"
+              />
+            </div>
+          )}
+
+          {/* Trip summary chip when quote available */}
+          {(quoting || quote) && (
+            <div
+              data-testid="quote-summary"
+              className="mt-6 rounded-xl border border-[#D4AF37]/20 bg-[#0E0E0E] px-5 py-3 flex flex-wrap items-center justify-between gap-3"
+            >
+              <span className="text-xs uppercase tracking-[0.25em] text-[#D4AF37]">
+                {quoting ? "Calculating route…" : "Live trip estimate"}
+              </span>
+              {quote?.distance_miles != null && (
+                <span className="text-sm text-white/70">
+                  ~{quote.distance_miles} mi · ~{quote.duration_minutes} min
+                </span>
+              )}
+              {quote?.fallback && (
+                <span className="text-xs text-white/50">
+                  Couldn't pin one address — try adding city or state
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Divider */}
+          <div className="my-12 gold-divider" />
+
+          {/* STEP 2 — Vehicle picker */}
+          <SectionHead
+            icon={Car}
+            step="2"
+            title="Choose your vehicle"
+            sub="Tap a vehicle to select. Prices update once pickup & drop-off are entered."
+          />
+
+          <FleetPicker
+            quote={quote}
+            selected={form.vehicle_type}
+            onSelect={(v) => update("vehicle_type")(v)}
+          />
+
+          {/* Divider */}
+          <div className="my-12 gold-divider" />
+
+          {/* STEP 3 — Passenger details */}
+          <SectionHead icon={User} step="3" title="Passenger details" />
+
+          <div className="grid md:grid-cols-2 gap-5">
+            <div>
+              <Label className="text-white/80 text-xs uppercase tracking-wider">Full name</Label>
+              <Input
+                data-testid="booking-name"
+                required
+                className={cn(inputCls, "mt-2")}
+                value={form.full_name}
+                onChange={(e) => update("full_name")(e.target.value)}
+                placeholder="Jane Doe"
+              />
+            </div>
+            <div>
+              <Label className="text-white/80 text-xs uppercase tracking-wider">Email</Label>
+              <Input
+                data-testid="booking-email"
+                required
+                type="email"
+                className={cn(inputCls, "mt-2")}
+                value={form.email}
+                onChange={(e) => update("email")(e.target.value)}
+                placeholder="jane@example.com"
+              />
+            </div>
+            <div>
+              <Label className="text-white/80 text-xs uppercase tracking-wider">Phone</Label>
+              <Input
+                data-testid="booking-phone"
+                required
+                className={cn(inputCls, "mt-2")}
+                value={form.phone}
+                onChange={(e) => update("phone")(e.target.value)}
+                placeholder="(650) 410-0687"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-white/80 text-xs uppercase tracking-wider">Passengers</Label>
+                <Input
+                  data-testid="booking-passengers"
+                  type="number"
+                  min={1}
+                  max={60}
+                  required
+                  className={cn(inputCls, "mt-2")}
+                  value={form.passengers}
+                  onChange={(e) => update("passengers")(e.target.value)}
                 />
               </div>
-            )}
+              <div>
+                <Label className="text-white/80 text-xs uppercase tracking-wider">Luggage</Label>
+                <Input
+                  data-testid="booking-luggage"
+                  type="number"
+                  min={0}
+                  max={60}
+                  className={cn(inputCls, "mt-2")}
+                  value={form.luggage_count}
+                  onChange={(e) => update("luggage_count")(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <label
+              className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[#27272A] bg-[#0E0E0E] cursor-pointer hover:border-[#D4AF37]/30 transition-colors md:col-span-2"
+              data-testid="booking-child-seat-toggle"
+            >
+              <Checkbox
+                checked={form.child_seat}
+                onCheckedChange={(v) => update("child_seat")(!!v)}
+                className="border-white/30 data-[state=checked]:bg-[#D4AF37] data-[state=checked]:border-[#D4AF37] data-[state=checked]:text-black"
+              />
+              <span className="text-sm">
+                <span className="text-white">Add child seat</span>
+                <span className="block text-xs text-white/50">Complimentary on request</span>
+              </span>
+            </label>
 
             <div className="md:col-span-2">
               <Label className="text-white/80 text-xs uppercase tracking-wider">Special requests</Label>
@@ -533,7 +472,8 @@ export default function BookingForm() {
             </div>
           </div>
 
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
+          {/* Submit */}
+          <div className="mt-10 flex flex-wrap items-center justify-between gap-4">
             <p className="text-xs text-white/50">
               By submitting, you agree to receive a confirmation by phone or email.
             </p>

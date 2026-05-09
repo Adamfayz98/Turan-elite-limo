@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Facebook, Instagram, Youtube, MapPin, Phone } from "lucide-react";
+import Logo from "@/components/Logo";
 
 const SOCIALS = [
   { icon: Facebook, href: "https://facebook.com", label: "Facebook" },
@@ -15,8 +16,11 @@ export default function Footer() {
     >
       <div className="max-w-7xl mx-auto grid md:grid-cols-12 gap-12">
         <div className="md:col-span-4">
-          <div className="font-serif text-3xl">
-            Turon<span className="gold-text">limo</span>
+          <div className="flex items-center gap-3">
+            <Logo size={48} className="text-[#D4AF37]" />
+            <div className="font-serif text-3xl">
+              Turon<span className="gold-text">limo</span>
+            </div>
           </div>
           <p className="mt-5 text-white/55 leading-relaxed max-w-md">
             A private chauffeur service for the Bay Area & Northern California. Sedans, SUVs, stretch limousines and party buses — staffed by chauffeurs who care.
@@ -96,9 +100,9 @@ export default function Footer() {
             <div className="flex items-start gap-3 pt-2">
               <Phone className="w-4 h-4 text-[#D4AF37] mt-0.5 flex-shrink-0" />
               <div className="text-white/70">
-                <a href="tel:+15555555555" className="hover:text-[#D4AF37]">(555) 555‑5555</a>
+                <a href="tel:+16504100687" className="hover:text-[#D4AF37]">(650) 410‑0687</a>
                 <span className="text-white/40 mx-2">·</span>
-                <a href="sms:+15555555555" className="hover:text-[#D4AF37]" data-testid="footer-text-link">
+                <a href="sms:+16504100687" className="hover:text-[#D4AF37]" data-testid="footer-text-link">
                   Text us
                 </a>
               </div>

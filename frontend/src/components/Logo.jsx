@@ -1,0 +1,60 @@
+/**
+ * Turonlimo brand mark — wolf head inside a crescent ring, with a stars arc.
+ * Inline SVG so it stays crisp at any size and inherits color via currentColor.
+ */
+export default function Logo({ size = 32, className = "" }) {
+  return (
+    <svg
+      viewBox="0 0 100 100"
+      width={size}
+      height={size}
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      aria-label="Turonlimo"
+      role="img"
+      fill="currentColor"
+    >
+      {/* Crescent moon: outer disc - inner disc (offset to the right) */}
+      <defs>
+        <mask id="turon-crescent-mask">
+          <rect width="100" height="100" fill="white" />
+          <circle cx="60" cy="50" r="34" fill="black" />
+        </mask>
+      </defs>
+      <circle cx="50" cy="50" r="44" mask="url(#turon-crescent-mask)" />
+
+      {/* Wolf head silhouette — simple geometric shapes */}
+      <g transform="translate(34, 38)">
+        {/* Two pointed ears */}
+        <polygon points="2,10 7,-2 11,10" />
+        <polygon points="13,10 18,-2 22,10" />
+        {/* Head block */}
+        <path d="M 0,9 H 24 V 17 Q 24,21 20,21 H 4 Q 0,21 0,17 Z" />
+        {/* Snout / muzzle */}
+        <path d="M 22,12 L 34,15 L 34,19 L 22,19 Z" />
+        {/* Mouth slit */}
+        <rect x="26" y="16" width="6" height="0.8" fill="#000" opacity="0.4" />
+      </g>
+
+      {/* Stars arc on the right edge of the moon */}
+      <g>
+        <Star cx={80} cy={22} r={1.8} />
+        <Star cx={86} cy={32} r={2.2} />
+        <Star cx={89} cy={44} r={2.5} />
+        <Star cx={89} cy={56} r={2.5} />
+        <Star cx={86} cy={68} r={2.2} />
+        <Star cx={80} cy={78} r={1.8} />
+      </g>
+    </svg>
+  );
+}
+
+function Star({ cx, cy, r }) {
+  const pts = [];
+  for (let i = 0; i < 10; i++) {
+    const a = (i * Math.PI) / 5 - Math.PI / 2;
+    const radius = i % 2 === 0 ? r : r / 2.4;
+    pts.push(`${(cx + radius * Math.cos(a)).toFixed(2)},${(cy + radius * Math.sin(a)).toFixed(2)}`);
+  }
+  return <polygon points={pts.join(" ")} />;
+}

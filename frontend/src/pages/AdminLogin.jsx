@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Loader2, Lock } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import Logo from "@/components/Logo";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -58,8 +59,8 @@ export default function AdminLogin() {
           className="bg-[#0A0A0A]/90 backdrop-blur border border-[#1F1F1F] rounded-2xl p-8 md:p-10"
         >
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-full border border-[#D4AF37]/30 flex items-center justify-center">
-              <Lock className="w-4 h-4 text-[#D4AF37]" />
+            <div className="w-12 h-12 rounded-full border border-[#D4AF37]/30 flex items-center justify-center">
+              <Logo size={28} className="text-[#D4AF37]" />
             </div>
             <span className="text-xs tracking-[0.3em] uppercase text-[#D4AF37]">Concierge Access</span>
           </div>

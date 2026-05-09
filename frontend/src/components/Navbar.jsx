@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Menu, X, Phone, MessageCircle } from "lucide-react";
+import Logo from "@/components/Logo";
 
 const NAV_LINKS = [
   { label: "Fleet", href: "#fleet" },
@@ -28,7 +29,8 @@ export default function Navbar() {
       }`}
     >
       <div className="max-w-7xl mx-auto px-6 md:px-10 h-20 flex items-center justify-between">
-        <a href="#top" data-testid="logo-link" className="flex items-center gap-2 group">
+        <a href="#top" data-testid="logo-link" className="flex items-center gap-2.5 group">
+          <Logo size={36} className="text-[#D4AF37]" />
           <span className="font-serif text-2xl tracking-tight">
             Turon<span className="gold-text font-semibold">limo</span>
           </span>
@@ -49,7 +51,7 @@ export default function Navbar() {
 
         <div className="hidden lg:flex items-center gap-3">
           <a
-            href="sms:+15555555555"
+            href="sms:+16504100687"
             data-testid="nav-text-button"
             className="flex items-center gap-2 px-4 py-2.5 border border-[#D4AF37]/30 text-[#D4AF37] hover:bg-[#D4AF37]/10 transition-all rounded-full text-sm font-medium"
             title="Text us for fast response"
@@ -58,12 +60,12 @@ export default function Navbar() {
             Text
           </a>
           <a
-            href="tel:+15555555555"
+            href="tel:+16504100687"
             data-testid="nav-phone"
             className="flex items-center gap-2 text-sm text-white/80 hover:text-white"
           >
             <Phone className="w-4 h-4 text-[#D4AF37]" />
-            (555) 555‑5555
+            (650) 410‑0687
           </a>
           <a
             href="#booking"
@@ -100,7 +102,7 @@ export default function Navbar() {
             ))}
             <div className="flex gap-3 pt-2">
               <a
-                href="sms:+15555555555"
+                href="sms:+16504100687"
                 onClick={() => setOpen(false)}
                 data-testid="mobile-nav-text"
                 className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-[#D4AF37]/30 text-[#D4AF37] rounded-full text-sm font-medium"
