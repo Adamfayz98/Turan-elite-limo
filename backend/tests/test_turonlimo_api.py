@@ -351,19 +351,26 @@ class TestBookingNewFields:
         assert r.status_code == 422  # Pydantic validation error
 
 
-# ---------- Iteration 3: Quote endpoint + Luxury Sedan ----------
+# ---------- Iteration 4: Quote endpoint + S-Class (renamed from Luxury Sedan) ----------
+EXPECTED_VEHICLE_ORDER = [
+    "Executive Sedan",
+    "S-Class",
+    "Luxury SUV",
+    "Stretch Limousine",
+    "Sprinter Van",
+    "Party Bus",
+]
+
+
 class TestQuote:
-    def test_options_includes_luxury_sedan(self, session):
+    def test_options_includes_s_class(self, session):
         r = session.get(f"{API}/options")
         assert r.status_code == 200
         vts = r.json()["vehicle_types"]
-        assert "Luxury Sedan" in vts
-        # Luxury Sedan must be between Executive Sedan and Luxury SUV
-        assert vts.index("Executive Sedan") < vts.index("Luxury Sedan") < vts.index("Luxury SUV")
-        # Premium SUV is removed entirely
+        assert "S-Class" in vts
+        assert "Luxury Sedan" not in vts
         assert "Premium SUV" not in vts
-        # Must have exactly 6 types
-        assert len(vts) == 6
+        assert vts == EXPECTED_VEHICLE_ORDER
 
     def test_quote_valid_addresses(self, session):
         r = session.post(f"{API}/quote", json={
@@ -376,13 +383,13 @@ class TestQuote:
         assert d["distance_miles"] is not None and d["distance_miles"] > 0
         assert isinstance(d["quotes"], list) and len(d["quotes"]) == 6
         by_v = {q["vehicle_type"]: q for q in d["quotes"]}
-        # Priced vehicles
-        for vt in ["Executive Sedan", "Luxury Sedan", "Luxury SUV"]:
+        assert "Luxury Sedan" not in by_v
+        assert "S-Class" in by_v
+        for vt in ["Executive Sedan", "S-Class", "Luxury SUV"]:
             q = by_v[vt]
             assert q["price"] is not None and q["price"] > 0
             assert q["formatted_price"] and q["formatted_price"].startswith("$")
             assert q["message"] == "Estimated flat rate"
-        # Call-for-quote vehicles
         for vt in ["Stretch Limousine", "Sprinter Van", "Party Bus"]:
             q = by_v[vt]
             assert q["price"] is None
@@ -399,11 +406,8 @@ class TestQuote:
             pytest.skip("Geocoding unavailable for math test")
         miles = d["distance_miles"]
         by_v = {q["vehicle_type"]: q for q in d["quotes"]}
-        # Executive Sedan: max(75 + 3.5*miles, 85)
         assert by_v["Executive Sedan"]["price"] == round(max(75.0 + 3.50 * miles, 85.0), 2)
-        # Luxury Sedan: max(95 + 4.5*miles, 115)
-        assert by_v["Luxury Sedan"]["price"] == round(max(95.0 + 4.50 * miles, 115.0), 2)
-        # Luxury SUV: max(115 + 4.75*miles, 135)
+        assert by_v["S-Class"]["price"] == round(max(95.0 + 4.50 * miles, 115.0), 2)
         assert by_v["Luxury SUV"]["price"] == round(max(115.0 + 4.75 * miles, 135.0), 2)
 
     def test_quote_invalid_addresses_fallback(self, session):
@@ -416,17 +420,14 @@ class TestQuote:
         assert d["fallback"] is True
         assert d["distance_miles"] is None
         by_v = {q["vehicle_type"]: q for q in d["quotes"]}
-        for vt in ["Executive Sedan", "Luxury Sedan", "Luxury SUV"]:
+        for vt in ["Executive Sedan", "S-Class", "Luxury SUV"]:
             assert by_v[vt]["price"] is None
             assert by_v[vt]["message"] == "Enter pickup & drop-off for an estimate"
-        for vt in ["Stretch Limousine", "Sprinter Van", "Party Bus"]:
-            assert by_v[vt]["price"] is None
-            assert by_v[vt]["message"] == "Call for quote"
 
-    def test_booking_with_luxury_sedan(self, session, auth_headers):
+    def test_booking_with_s_class(self, session, auth_headers):
         payload = {
-            "full_name": "TEST Luxury Sedan",
-            "email": "test_luxsedan@example.com",
+            "full_name": "TEST S-Class",
+            "email": "test_sclass@example.com",
             "phone": "5550001111",
             "service_type": "Corporate / Executive",
             "pickup_date": "2026-06-01",
@@ -434,13 +435,172 @@ class TestQuote:
             "pickup_location": "SFO",
             "dropoff_location": "Palo Alto",
             "passengers": 2,
-            "vehicle_type": "Luxury Sedan",
+            "vehicle_type": "S-Class",
         }
         r = session.post(f"{API}/bookings", json=payload)
         assert r.status_code == 200, r.text
         d = r.json()
-        assert d["vehicle_type"] == "Luxury Sedan"
+        assert d["vehicle_type"] == "S-Class"
         requests.delete(f"{API}/admin/bookings/{d['id']}", headers=auth_headers)
+
+    def test_booking_rejects_legacy_luxury_sedan(self, session):
+        payload = {
+            "full_name": "TEST Legacy Luxury",
+            "email": "test_legacy@example.com",
+            "phone": "5550001234",
+            "service_type": "Airport Transfer",
+            "pickup_date": "2026-06-02",
+            "pickup_time": "09:00",
+            "pickup_location": "SFO",
+            "dropoff_location": "Palo Alto",
+            "passengers": 1,
+            "vehicle_type": "Luxury Sedan",
+        }
+        r = session.post(f"{API}/bookings", json=payload)
+        assert r.status_code == 400
+
+
+# ---------- Iteration 4: Admin pricing endpoints ----------
+DEFAULT_PRICING = {
+    "Executive Sedan": {"base": 75.0, "per_mile": 3.50, "minimum": 85.0, "call_only": False},
+    "S-Class": {"base": 95.0, "per_mile": 4.50, "minimum": 115.0, "call_only": False},
+    "Luxury SUV": {"base": 115.0, "per_mile": 4.75, "minimum": 135.0, "call_only": False},
+    "Stretch Limousine": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "call_only": True},
+    "Sprinter Van": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "call_only": True},
+    "Party Bus": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "call_only": True},
+}
+
+
+def _reset_pricing(auth_headers):
+    """Reset every pricing row back to its default."""
+    for vt, defaults in DEFAULT_PRICING.items():
+        requests.patch(
+            f"{API}/admin/pricing/{vt}",
+            json=defaults,
+            headers=auth_headers,
+            timeout=15,
+        )
+
+
+class TestAdminPricing:
+    def test_list_pricing_auth_required(self):
+        r = requests.get(f"{API}/admin/pricing")
+        assert r.status_code == 401
+
+    def test_list_pricing_returns_canonical_order(self, auth_headers):
+        r = requests.get(f"{API}/admin/pricing", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        rows = r.json()
+        assert isinstance(rows, list) and len(rows) == 6
+        assert [row["vehicle_type"] for row in rows] == EXPECTED_VEHICLE_ORDER
+        # Each row has all required fields
+        for row in rows:
+            for k in ["vehicle_type", "base", "per_mile", "minimum", "call_only"]:
+                assert k in row, f"missing {k} in {row}"
+            assert "_id" not in row
+
+    def test_patch_pricing_partial_update_persists(self, auth_headers):
+        # Update Executive Sedan: base=80, per_mile=4 (do NOT touch minimum/call_only)
+        try:
+            r = requests.patch(
+                f"{API}/admin/pricing/Executive Sedan",
+                json={"base": 80, "per_mile": 4},
+                headers=auth_headers,
+                timeout=15,
+            )
+            assert r.status_code == 200, r.text
+            updated = r.json()
+            assert updated["vehicle_type"] == "Executive Sedan"
+            assert updated["base"] == 80.0
+            assert updated["per_mile"] == 4.0
+            assert updated["minimum"] == 85.0  # unchanged
+            assert updated["call_only"] is False
+            assert updated.get("updated_at")
+
+            # Verify GET reflects the update
+            lst = requests.get(f"{API}/admin/pricing", headers=auth_headers).json()
+            es = next(r for r in lst if r["vehicle_type"] == "Executive Sedan")
+            assert es["base"] == 80.0 and es["per_mile"] == 4.0
+
+            # Verify /api/quote reflects new pricing live (SFO -> Pier 39 ~13 mi)
+            q = requests.post(
+                f"{API}/quote",
+                json={"pickup_location": "SFO", "dropoff_location": "Pier 39 San Francisco"},
+                timeout=30,
+            ).json()
+            if not q.get("fallback"):
+                miles = q["distance_miles"]
+                expected = round(max(80.0 + 4.0 * miles, 85.0), 2)
+                es_quote = next(x for x in q["quotes"] if x["vehicle_type"] == "Executive Sedan")
+                assert es_quote["price"] == expected
+        finally:
+            _reset_pricing(auth_headers)
+
+    def test_patch_call_only_toggle(self, auth_headers):
+        try:
+            r = requests.patch(
+                f"{API}/admin/pricing/Luxury SUV",
+                json={"call_only": True},
+                headers=auth_headers,
+                timeout=15,
+            )
+            assert r.status_code == 200, r.text
+            assert r.json()["call_only"] is True
+
+            q = requests.post(
+                f"{API}/quote",
+                json={"pickup_location": "SFO", "dropoff_location": "Pier 39 San Francisco"},
+                timeout=30,
+            ).json()
+            suv = next(x for x in q["quotes"] if x["vehicle_type"] == "Luxury SUV")
+            assert suv["price"] is None
+            assert suv["message"] == "Call for quote"
+
+            # Toggle back
+            r2 = requests.patch(
+                f"{API}/admin/pricing/Luxury SUV",
+                json={"call_only": False},
+                headers=auth_headers,
+                timeout=15,
+            )
+            assert r2.status_code == 200
+            assert r2.json()["call_only"] is False
+
+            q2 = requests.post(
+                f"{API}/quote",
+                json={"pickup_location": "SFO", "dropoff_location": "Pier 39 San Francisco"},
+                timeout=30,
+            ).json()
+            if not q2.get("fallback"):
+                suv2 = next(x for x in q2["quotes"] if x["vehicle_type"] == "Luxury SUV")
+                assert suv2["price"] is not None
+        finally:
+            _reset_pricing(auth_headers)
+
+    def test_patch_unknown_vehicle_type(self, auth_headers):
+        r = requests.patch(
+            f"{API}/admin/pricing/Foo Bar",
+            json={"base": 100},
+            headers=auth_headers,
+            timeout=15,
+        )
+        assert r.status_code == 400
+
+    def test_patch_empty_body(self, auth_headers):
+        r = requests.patch(
+            f"{API}/admin/pricing/Executive Sedan",
+            json={},
+            headers=auth_headers,
+            timeout=15,
+        )
+        assert r.status_code == 400
+
+    def test_patch_pricing_auth_required(self):
+        r = requests.patch(
+            f"{API}/admin/pricing/Executive Sedan",
+            json={"base": 100},
+        )
+        assert r.status_code == 401
 
 
 class TestStats:

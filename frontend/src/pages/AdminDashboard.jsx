@@ -25,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import PricingTab from "@/components/admin/PricingTab";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -231,6 +232,9 @@ export default function AdminDashboard() {
             </TabsTrigger>
             <TabsTrigger value="contacts" data-testid="tab-contacts" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Inquiries ({contacts.length})
+            </TabsTrigger>
+            <TabsTrigger value="pricing" data-testid="tab-pricing" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Pricing
             </TabsTrigger>
           </TabsList>
 
@@ -466,6 +470,10 @@ export default function AdminDashboard() {
                 </TableBody>
               </Table>
             </div>
+          </TabsContent>
+
+          <TabsContent value="pricing" className="mt-6">
+            <PricingTab />
           </TabsContent>
         </Tabs>
       </div>

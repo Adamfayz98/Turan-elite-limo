@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 4 testing complete: 'Luxury Sedan' renamed to 'S-Class' verified end-to-end, new admin pricing endpoints + UI Pricing tab working. 35/35 backend pytest cases pass. Frontend Fleet, booking quote panel, admin pricing CRUD, and live quote propagation all working. Pricing was reset to defaults after testing.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_turonlimo_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PATCH /api/admin/pricing/{vt} uses upsert=True. Combined with the unknown-vehicle 400 guard above it, this is safe today, but a future refactor that drops the guard would silently insert garbage rows. Consider upsert=False here.",
+    "_load_pricing_map and list_pricing duplicate the projection+to_list pattern. Minor DRY improvement opportunity.",
+    "PricingUpdate accepts negative numbers (e.g. base=-50). Add Field(ge=0) constraints on base/per_mile/minimum to prevent admins from saving negative pricing.",
+    "Migration block silently renames 'Luxury Sedan' bookings to 'S-Class' but does not also delete a legacy pricing_config row for 'Luxury Sedan' if it has a different identity than the seeded one. Currently handled, but leaving a comment for posterity."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_turonlimo_api.py"
+  ],
+  "success_rate": {"backend": "100% (35/35)", "frontend": "100% (verified flows)"},
+  "test_credentials": "admin@turonlimo.com / TuronAdmin@2025",
+  "seed_data_creation": "None beyond TEST_-prefixed transient bookings/contacts that are cleaned up. Pricing was mutated during tests and reset to defaults via API at teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test suite is at /app/backend/tests/test_turonlimo_api.py with 35 tests covering: public endpoints, admin auth, admin bookings lifecycle, admin contacts lifecycle, optional booking fields, quote/pricing math (S-Class), and admin pricing endpoints (TestAdminPricing). The TestAdminPricing tests use a _reset_pricing helper in finally blocks so they leave defaults intact. Frontend flows verified: Fleet section uses correct Cadillac XTS + Mercedes S-Class images, booking quote panel renders 6 cards including S-Class (no Luxury Sedan), clicking quote-card-S-Class auto-selects S-Class in vehicle dropdown, admin /admin/login → loads /admin (not /admin/dashboard), Pricing tab (data-testid=tab-pricing) shows 6 rows with all required testids, Save shows '<vehicle> pricing updated' toast, value persists across reload, call_only toggle propagates live to /api/quote.",
+  "verified_flows": [
+    "GET /api/options returns ['Executive Sedan','S-Class','Luxury SUV','Stretch Limousine','Sprinter Van','Party Bus']",
+    "POST /api/quote SFO→Pier 39: ES=$120.50, S-Class=$153.50, Luxury SUV=$176.75 (match formula)",
+    "POST /api/bookings vehicle_type='S-Class' accepted, vehicle_type='Luxury Sedan' rejected with 400",
+    "GET /api/admin/pricing returns 6 canonical-ordered rows with all fields, no _id",
+    "PATCH /api/admin/pricing/{vt} partial update persists, updated_at refreshes, missing vt → 400, empty body → 400, no auth → 401",
+    "Live propagation: PATCH base=80 per_mile=4 → next /api/quote ES uses new pricing",
+    "Live propagation: PATCH call_only=true on Luxury SUV → /api/quote returns 'Call for quote' for that vehicle",
+    "Frontend Fleet: Card 1 image=Cadillac XTS (photo-1657980928345-2c89a303a695, naturalW=2000), Card 2 heading='S-Class', label='Mercedes-Benz S-Class', image=photo-1609521247503-8de40462e427",
+    "Frontend booking form: 6 quote cards, S-Class included, Luxury Sedan absent, clicking quote-card-S-Class auto-selects 'S-Class' in vehicle dropdown",
+    "Admin Pricing tab: 6 rows with pricing-row-{vt}, pricing-base-{vt}, pricing-permile-{vt}, pricing-min-{vt}, pricing-callonly-{vt}, pricing-save-{vt} testids; save toast 'Executive Sedan pricing updated' shown; reload persists value 90; reset to 75 succeeded"
+  ]
+}

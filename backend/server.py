@@ -75,21 +75,21 @@ async def require_admin(creds: Optional[HTTPAuthorizationCredentials] = Depends(
 # ---------- Models ----------
 VEHICLE_TYPES = [
     "Executive Sedan",
-    "Luxury Sedan",
+    "S-Class",
     "Luxury SUV",
     "Stretch Limousine",
     "Sprinter Van",
     "Party Bus",
 ]
 
-# Pricing config: base fare + per-mile rate. None = call-for-quote.
-VEHICLE_PRICING = {
-    "Executive Sedan": {"base": 75.0, "per_mile": 3.50, "minimum": 85.0},
-    "Luxury Sedan": {"base": 95.0, "per_mile": 4.50, "minimum": 115.0},
-    "Luxury SUV": {"base": 115.0, "per_mile": 4.75, "minimum": 135.0},
-    "Stretch Limousine": None,
-    "Sprinter Van": None,
-    "Party Bus": None,
+# Default pricing seeded into MongoDB on first startup (admins can edit live).
+DEFAULT_VEHICLE_PRICING = {
+    "Executive Sedan": {"base": 75.0, "per_mile": 3.50, "minimum": 85.0, "call_only": False},
+    "S-Class": {"base": 95.0, "per_mile": 4.50, "minimum": 115.0, "call_only": False},
+    "Luxury SUV": {"base": 115.0, "per_mile": 4.75, "minimum": 135.0, "call_only": False},
+    "Stretch Limousine": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "call_only": True},
+    "Sprinter Van": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "call_only": True},
+    "Party Bus": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "call_only": True},
 }
 
 SERVICE_TYPES = [
@@ -292,18 +292,18 @@ async def _geocode(address: str) -> Optional[dict]:
         return None
 
 
-def _build_quotes(distance_miles: Optional[float]) -> List[VehicleQuote]:
+def _build_quotes(distance_miles: Optional[float], pricing_map: dict) -> List[VehicleQuote]:
     quotes: List[VehicleQuote] = []
     for vt in VEHICLE_TYPES:
-        cfg = VEHICLE_PRICING.get(vt)
-        if cfg is None:
+        cfg = pricing_map.get(vt)
+        if cfg is None or cfg.get("call_only"):
             quotes.append(VehicleQuote(vehicle_type=vt, message="Call for quote"))
             continue
         if distance_miles is None:
             quotes.append(VehicleQuote(vehicle_type=vt, message="Enter pickup & drop-off for an estimate"))
             continue
-        raw = cfg["base"] + cfg["per_mile"] * distance_miles
-        price = max(raw, cfg["minimum"])
+        raw = float(cfg["base"]) + float(cfg["per_mile"]) * distance_miles
+        price = max(raw, float(cfg["minimum"]))
         price = round(price, 2)
         quotes.append(VehicleQuote(
             vehicle_type=vt,
@@ -314,23 +314,29 @@ def _build_quotes(distance_miles: Optional[float]) -> List[VehicleQuote]:
     return quotes
 
 
+async def _load_pricing_map() -> dict:
+    cursor = db.pricing_config.find({}, {"_id": 0})
+    rows = await cursor.to_list(50)
+    return {r["vehicle_type"]: r for r in rows}
+
+
 @api_router.post("/quote", response_model=QuoteResponse)
 async def quote_ride(payload: QuoteRequest):
+    pricing_map = await _load_pricing_map()
     pickup = await _geocode(payload.pickup_location)
     dropoff = await _geocode(payload.dropoff_location)
     if not pickup or not dropoff:
-        return QuoteResponse(quotes=_build_quotes(None), fallback=True)
+        return QuoteResponse(quotes=_build_quotes(None, pricing_map), fallback=True)
 
     miles = _haversine_miles(pickup["lat"], pickup["lon"], dropoff["lat"], dropoff["lon"])
     miles = round(miles, 1)
-    # Rough Bay Area driving time: ~1.4x crow-flies + 8 min overhead at ~32mph avg
     duration_minutes = round((miles * 1.4) / 32.0 * 60.0 + 8.0, 0)
     return QuoteResponse(
         distance_miles=miles,
         duration_minutes=duration_minutes,
         pickup_resolved=pickup.get("display"),
         dropoff_resolved=dropoff.get("display"),
-        quotes=_build_quotes(miles),
+        quotes=_build_quotes(miles, pricing_map),
         fallback=False,
     )
 
@@ -397,6 +403,56 @@ async def delete_booking(booking_id: str, _: dict = Depends(require_admin)):
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Booking not found")
     return {"deleted": True}
+
+
+# ---------- Admin protected: pricing ----------
+class PricingRow(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    vehicle_type: str
+    base: float = 0.0
+    per_mile: float = 0.0
+    minimum: float = 0.0
+    call_only: bool = False
+    updated_at: Optional[str] = None
+
+
+class PricingUpdate(BaseModel):
+    base: Optional[float] = None
+    per_mile: Optional[float] = None
+    minimum: Optional[float] = None
+    call_only: Optional[bool] = None
+
+
+@api_router.get("/admin/pricing", response_model=List[PricingRow])
+async def list_pricing(_: dict = Depends(require_admin)):
+    cursor = db.pricing_config.find({}, {"_id": 0})
+    rows = await cursor.to_list(50)
+    by_vt = {r["vehicle_type"]: r for r in rows}
+    # Maintain canonical order matching VEHICLE_TYPES
+    ordered = [by_vt[v] for v in VEHICLE_TYPES if v in by_vt]
+    return [PricingRow(**r) for r in ordered]
+
+
+@api_router.patch("/admin/pricing/{vehicle_type}", response_model=PricingRow)
+async def update_pricing(
+    vehicle_type: str,
+    payload: PricingUpdate,
+    _: dict = Depends(require_admin),
+):
+    if vehicle_type not in VEHICLE_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unknown vehicle_type. Must be one of {VEHICLE_TYPES}")
+    update_doc = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update_doc:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    update_doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+    result = await db.pricing_config.find_one_and_update(
+        {"vehicle_type": vehicle_type},
+        {"$set": update_doc},
+        return_document=True,
+        projection={"_id": 0},
+        upsert=True,
+    )
+    return PricingRow(**result)
 
 
 # ---------- Admin protected: contact inquiries ----------
@@ -466,8 +522,36 @@ async def startup_seed():
         await db.admin_users.create_index("email", unique=True)
         await db.bookings.create_index("id", unique=True)
         await db.contacts.create_index("id", unique=True)
+        await db.pricing_config.create_index("vehicle_type", unique=True)
     except Exception as e:
         logger.warning(f"Index creation skipped: {e}")
+
+    # Migration: rename legacy "Luxury Sedan" → "S-Class" in existing bookings
+    try:
+        res = await db.bookings.update_many(
+            {"vehicle_type": "Luxury Sedan"},
+            {"$set": {"vehicle_type": "S-Class"}},
+        )
+        if res.modified_count:
+            logger.info(f"Migrated {res.modified_count} bookings: Luxury Sedan -> S-Class")
+        # Drop any legacy pricing row for old name so it doesn't pollute admin UI
+        await db.pricing_config.delete_one({"vehicle_type": "Luxury Sedan"})
+    except Exception as e:
+        logger.warning(f"Vehicle rename migration skipped: {e}")
+
+    # Seed pricing rows (idempotent — only create rows that are missing)
+    for vt, defaults in DEFAULT_VEHICLE_PRICING.items():
+        await db.pricing_config.update_one(
+            {"vehicle_type": vt},
+            {
+                "$setOnInsert": {
+                    "vehicle_type": vt,
+                    **defaults,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+            upsert=True,
+        )
 
     # Seed admin (idempotent)
     email = ADMIN_EMAIL.lower()
