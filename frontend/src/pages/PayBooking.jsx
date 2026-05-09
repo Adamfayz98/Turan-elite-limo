@@ -1,0 +1,279 @@
+import { useEffect, useState, useRef, useCallback } from "react";
+import { useParams, useSearchParams, Link } from "react-router-dom";
+import {
+  Loader2,
+  CheckCircle2,
+  Phone as PhoneIcon,
+  ShieldCheck,
+  CreditCard,
+  CalendarDays,
+  MapPin,
+  Car,
+  Sparkles,
+} from "lucide-react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import Logo from "@/components/Logo";
+import { api, formatApiErrorDetail } from "@/lib/api";
+
+export default function PayBooking() {
+  const { bookingId } = useParams();
+  const [params] = useSearchParams();
+  const sessionId = params.get("session_id");
+
+  const [booking, setBooking] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [paying, setPaying] = useState(false);
+  const [pollMsg, setPollMsg] = useState(null);
+  const polledRef = useRef(false);
+
+  const load = useCallback(async () => {
+    try {
+      const { data } = await api.get(`/bookings/${bookingId}/public`);
+      setBooking(data);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Booking not found");
+    } finally {
+      setLoading(false);
+    }
+  }, [bookingId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Poll status if returning from Stripe
+  const pollStatus = useCallback(
+    async (sid, attempts = 0) => {
+      const max = 8;
+      if (attempts >= max) {
+        setPollMsg("Still processing — refresh in a moment.");
+        return;
+      }
+      try {
+        const { data } = await api.get(`/payments/status/${sid}`);
+        if (data.payment_status === "paid") {
+          setPollMsg("paid");
+          await load();
+          return;
+        }
+        if (data.payment_status === "expired") {
+          setPollMsg("expired");
+          return;
+        }
+        setPollMsg("processing");
+        setTimeout(() => pollStatus(sid, attempts + 1), 2000);
+      } catch {
+        setPollMsg("error");
+      }
+    },
+    [load],
+  );
+
+  useEffect(() => {
+    if (sessionId && !polledRef.current) {
+      polledRef.current = true;
+      setPollMsg("processing");
+      pollStatus(sessionId);
+    }
+  }, [sessionId, pollStatus]);
+
+  const onPay = async () => {
+    if (!booking) return;
+    setPaying(true);
+    try {
+      const { data } = await api.post("/payments/checkout", {
+        booking_id: booking.id,
+        origin_url: window.location.origin,
+      });
+      window.location.href = data.url;
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Could not start payment");
+      setPaying(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-[#D4AF37]" />
+      </div>
+    );
+  }
+
+  if (!booking) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center text-white">
+        <div className="text-center">
+          <h1 className="font-serif text-3xl">Booking not found</h1>
+          <Link to="/" className="text-[#D4AF37] mt-4 inline-block">
+            ← Back to Turonlimo
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const isPaid = booking.payment_status === "paid";
+  const callOnly = booking.quote_amount == null;
+
+  return (
+    <main data-testid="pay-page" className="min-h-screen bg-[#050505] text-white">
+      <header className="px-6 md:px-10 h-20 flex items-center border-b border-white/10">
+        <Link to="/" className="flex items-center gap-2.5">
+          <Logo size={32} className="text-[#D4AF37]" />
+          <span className="font-serif text-2xl">
+            Turon<span className="gold-text">limo</span>
+          </span>
+        </Link>
+      </header>
+
+      <div className="max-w-3xl mx-auto px-6 py-16">
+        {/* Status hero */}
+        <div className="text-center mb-10">
+          {isPaid ? (
+            <>
+              <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mx-auto mb-5">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+              </div>
+              <span className="text-xs tracking-[0.3em] uppercase text-emerald-400">
+                Payment received
+              </span>
+              <h1 className="font-serif text-4xl md:text-5xl mt-4">
+                Thank you, {booking.full_name?.split(" ")[0] || "friend"}.
+              </h1>
+              <p className="text-white/55 mt-3">
+                Your reservation is fully paid. Your chauffeur will be in touch shortly before pickup.
+              </p>
+            </>
+          ) : pollMsg === "processing" ? (
+            <>
+              <Loader2 className="w-12 h-12 animate-spin text-[#D4AF37] mx-auto mb-5" />
+              <h1 className="font-serif text-3xl">Processing your payment…</h1>
+              <p className="text-white/55 mt-3 text-sm">This usually takes a few seconds.</p>
+            </>
+          ) : (
+            <>
+              <span className="text-xs tracking-[0.3em] uppercase text-[#D4AF37]">Reservation Confirmed</span>
+              <h1 className="font-serif text-4xl md:text-5xl mt-4">
+                Secure your ride.
+              </h1>
+              <p className="text-white/55 mt-3">
+                Reservation <span className="text-[#D4AF37] font-mono">{booking.confirmation_number}</span> is locked in.
+                Complete payment below to finalize.
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Summary card */}
+        <div
+          data-testid="pay-summary-card"
+          className="rounded-2xl border border-[#1F1F1F] bg-[#0A0A0A] p-7 md:p-9"
+        >
+          <div className="flex items-center gap-2 text-[#D4AF37] text-xs tracking-[0.25em] uppercase">
+            <Sparkles className="w-3.5 h-3.5" /> Reservation summary
+          </div>
+
+          <Row icon={CalendarDays} label="When" value={`${booking.pickup_date} at ${booking.pickup_time}`} />
+          <Row icon={MapPin} label="Pickup" value={booking.pickup_location} />
+          <Row icon={MapPin} label="Drop-off" value={booking.dropoff_location} />
+          {booking.return_trip && (
+            <Row icon={MapPin} label="Return" value={booking.return_location || "Same as pickup"} />
+          )}
+          <Row icon={Car} label="Vehicle" value={booking.vehicle_type} />
+          <Row icon={CreditCard} label="Service" value={booking.service_type} />
+
+          <div className="mt-6 pt-6 border-t border-white/10">
+            {callOnly ? (
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.2em] text-white/50">Total</div>
+                  <div className="font-serif text-2xl gold-text mt-1">Call for quote</div>
+                </div>
+                <a
+                  href="tel:+16504100687"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10 rounded-full text-sm"
+                >
+                  <PhoneIcon className="w-4 h-4" /> (650) 410‑0687
+                </a>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs uppercase tracking-[0.2em] text-white/50">Total quoted</div>
+                  <div className="font-serif text-2xl text-white">
+                    ${booking.quote_amount?.toFixed(2)}
+                  </div>
+                </div>
+                {booking.deposit_percent < 100 && (
+                  <div className="flex items-center justify-between mt-2 text-sm">
+                    <div className="text-white/55">Deposit ({booking.deposit_percent}% due now)</div>
+                    <div className="text-white">${booking.deposit_amount?.toFixed(2)}</div>
+                  </div>
+                )}
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/10">
+                  <div className="text-xs uppercase tracking-[0.2em] text-[#D4AF37]">
+                    {isPaid ? "Paid in full" : "Due now"}
+                  </div>
+                  <div className="font-serif text-3xl gold-text">
+                    ${(isPaid ? booking.paid_amount : booking.deposit_amount)?.toFixed(2)}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {!isPaid && !callOnly && (
+            <div className="mt-7">
+              <Button
+                onClick={onPay}
+                disabled={paying || pollMsg === "processing"}
+                data-testid="pay-now-button"
+                className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-12 font-medium text-base"
+              >
+                {paying ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Redirecting to Stripe…
+                  </>
+                ) : (
+                  <>
+                    Pay ${booking.deposit_amount?.toFixed(2)} & Secure
+                  </>
+                )}
+              </Button>
+              <div className="flex items-center justify-center gap-2 mt-4 text-xs text-white/45">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>Secured by Stripe · SSL encrypted</span>
+              </div>
+            </div>
+          )}
+
+          {pollMsg === "expired" && (
+            <p className="text-xs text-red-400 text-center mt-4">
+              Checkout session expired. Click Pay above to start a fresh session.
+            </p>
+          )}
+        </div>
+
+        <p className="text-center text-xs text-white/40 mt-8">
+          Questions? Call <a href="tel:+16504100687" className="text-[#D4AF37]">(650) 410‑0687</a>{" "}
+          or email <a href="mailto:turonlimosupport@gmail.com" className="text-[#D4AF37]">turonlimosupport@gmail.com</a>
+        </p>
+      </div>
+    </main>
+  );
+}
+
+function Row({ icon: Icon, label, value }) {
+  return (
+    <div className="flex items-start gap-3 mt-5 pt-5 border-t border-white/5 first-of-type:border-t-0 first-of-type:pt-6">
+      <Icon className="w-4 h-4 text-[#D4AF37] mt-1 flex-shrink-0" />
+      <div className="flex-1">
+        <div className="text-[10px] uppercase tracking-[0.25em] text-white/50">{label}</div>
+        <div className="text-white text-sm mt-1">{value}</div>
+      </div>
+    </div>
+  );
+}

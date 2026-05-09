@@ -7,6 +7,8 @@ load_dotenv(ROOT_DIR / '.env')
 import os
 import logging
 import math
+import secrets
+import string
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
@@ -14,6 +16,16 @@ from typing import List, Optional
 import httpx
 import jwt
 import bcrypt
+from emergentintegrations.payments.stripe.checkout import (
+    StripeCheckout,
+    CheckoutSessionRequest,
+)
+from email_service import (
+    send_email,
+    render_confirmation_email,
+    render_payment_receipt_email,
+    SUPPORT_EMAIL,
+)
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
@@ -144,6 +156,14 @@ class Booking(BaseModel):
     vehicle_type: str
     notes: str = ""
     status: str = "pending"
+    confirmation_number: Optional[str] = None
+    payment_status: str = "unpaid"  # unpaid | pending | paid | refunded
+    payment_session_id: Optional[str] = None
+    payment_intent_id: Optional[str] = None
+    paid_amount: Optional[float] = None
+    paid_currency: Optional[str] = None
+    quote_amount: Optional[float] = None  # snapshot of quoted price at booking time
+    refund_amount: Optional[float] = None
     created_at: str
 
 
@@ -195,6 +215,50 @@ async def get_options():
         "service_types": SERVICE_TYPES,
         "booking_statuses": BOOKING_STATUSES,
     }
+
+
+# ---------- Places autocomplete (Bay Area biased) ----------
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+
+
+@api_router.get("/places/autocomplete")
+async def places_autocomplete(input: str = "", session: Optional[str] = None):
+    """Proxy to Google Places Autocomplete with NorCal/Bay Area location bias."""
+    q = (input or "").strip()
+    if len(q) < 2:
+        return {"predictions": []}
+    if not GOOGLE_MAPS_API_KEY:
+        return {"predictions": [], "error": "Google API key not configured"}
+    params = {
+        "input": q,
+        "key": GOOGLE_MAPS_API_KEY,
+        # Bias to SF Bay Area centre with 80km radius (covers Napa to San Jose)
+        "location": "37.7749,-122.4194",
+        "radius": "80000",
+        "components": "country:us",
+    }
+    if session:
+        params["sessiontoken"] = session
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as cli:
+            r = await cli.get(
+                "https://maps.googleapis.com/maps/api/place/autocomplete/json",
+                params=params,
+            )
+            data = r.json()
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Places autocomplete failed: {e}")
+        return {"predictions": [], "error": "lookup_failed"}
+
+    preds = []
+    for p in data.get("predictions", [])[:8]:
+        preds.append({
+            "place_id": p.get("place_id"),
+            "description": p.get("description"),
+            "main_text": (p.get("structured_formatting") or {}).get("main_text", p.get("description", "")),
+            "secondary_text": (p.get("structured_formatting") or {}).get("secondary_text", ""),
+        })
+    return {"predictions": preds, "status": data.get("status")}
 
 
 @api_router.post("/bookings", response_model=Booking)
@@ -370,6 +434,351 @@ async def admin_me(payload: dict = Depends(require_admin)):
     return {"email": payload.get('sub'), "role": payload.get('role')}
 
 
+# ---------- Confirmation # helpers ----------
+_CN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no ambiguous chars (0/O, 1/I)
+
+
+def _generate_confirmation_number() -> str:
+    return "TURN-" + "".join(secrets.choice(_CN_ALPHABET) for _ in range(6))
+
+
+async def _next_unique_confirmation_number() -> str:
+    for _ in range(10):
+        cn = _generate_confirmation_number()
+        existing = await db.bookings.find_one({"confirmation_number": cn})
+        if not existing:
+            return cn
+    return _generate_confirmation_number()  # extremely unlikely collision
+
+
+# ---------- Settings ----------
+class Settings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    deposit_percent: int = Field(100, ge=0, le=100)
+    currency: str = "usd"
+
+
+async def _load_settings() -> Settings:
+    doc = await db.settings.find_one({"key": "global"}, {"_id": 0})
+    if not doc:
+        return Settings()
+    return Settings(**doc)
+
+
+@api_router.get("/admin/settings", response_model=Settings)
+async def get_settings(_: dict = Depends(require_admin)):
+    return await _load_settings()
+
+
+class SettingsUpdate(BaseModel):
+    deposit_percent: Optional[int] = Field(None, ge=0, le=100)
+    currency: Optional[str] = None
+
+
+@api_router.patch("/admin/settings", response_model=Settings)
+async def update_settings(payload: SettingsUpdate, _: dict = Depends(require_admin)):
+    update_doc = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update_doc:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    update_doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.settings.update_one(
+        {"key": "global"},
+        {"$set": {**update_doc, "key": "global"}},
+        upsert=True,
+    )
+    return await _load_settings()
+
+
+# ---------- Pricing helpers used by Stripe ----------
+async def _compute_quote_amount(booking: dict) -> Optional[float]:
+    """Re-run quote at confirmation time to derive a $ amount for Stripe checkout.
+    Returns None for call-only vehicles."""
+    if booking.get("quote_amount"):
+        return float(booking["quote_amount"])
+    pricing_map = await _load_pricing_map()
+    cfg = pricing_map.get(booking["vehicle_type"])
+    if not cfg or cfg.get("call_only"):
+        return None
+    pickup = await _geocode(booking["pickup_location"])
+    dropoff = await _geocode(booking["dropoff_location"])
+    if not pickup or not dropoff:
+        return None
+    miles = _haversine_miles(pickup["lat"], pickup["lon"], dropoff["lat"], dropoff["lon"])
+    price = max(float(cfg["base"]) + float(cfg["per_mile"]) * miles, float(cfg["minimum"]))
+    return round(price, 2)
+
+
+# ---------- Stripe Payments ----------
+class CheckoutCreateRequest(BaseModel):
+    booking_id: str
+    origin_url: str
+
+
+class CheckoutCreateResponse(BaseModel):
+    url: str
+    session_id: str
+    amount: float
+
+
+class PaymentStatus(BaseModel):
+    payment_status: str  # paid | unpaid | pending | refunded
+    booking_status: str
+    amount: float
+    currency: str
+    confirmation_number: Optional[str] = None
+
+
+@api_router.get("/bookings/{booking_id}/public")
+async def get_public_booking(booking_id: str):
+    """Sanitised booking view for the customer-facing /pay page."""
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    quote_amount = b.get("quote_amount")
+    if not quote_amount:
+        amt = await _compute_quote_amount(b)
+        if amt is not None:
+            quote_amount = amt
+            await db.bookings.update_one({"id": booking_id}, {"$set": {"quote_amount": amt}})
+    settings = await _load_settings()
+    deposit_amount = round(float(quote_amount) * settings.deposit_percent / 100.0, 2) if quote_amount else None
+    return {
+        "id": b["id"],
+        "confirmation_number": b.get("confirmation_number"),
+        "status": b.get("status"),
+        "payment_status": b.get("payment_status", "unpaid"),
+        "full_name": b.get("full_name"),
+        "email": b.get("email"),
+        "service_type": b.get("service_type"),
+        "vehicle_type": b.get("vehicle_type"),
+        "pickup_date": b.get("pickup_date"),
+        "pickup_time": b.get("pickup_time"),
+        "pickup_location": b.get("pickup_location"),
+        "dropoff_location": b.get("dropoff_location"),
+        "passengers": b.get("passengers"),
+        "luggage_count": b.get("luggage_count"),
+        "child_seat": b.get("child_seat"),
+        "return_trip": b.get("return_trip"),
+        "return_location": b.get("return_location"),
+        "additional_stops": b.get("additional_stops", []),
+        "quote_amount": quote_amount,
+        "deposit_amount": deposit_amount,
+        "deposit_percent": settings.deposit_percent,
+        "currency": settings.currency,
+        "paid_amount": b.get("paid_amount"),
+    }
+
+
+def _get_stripe_checkout(request: Request) -> StripeCheckout:
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+    host_url = str(request.base_url).rstrip("/")
+    webhook_url = f"{host_url}/api/webhook/stripe"
+    return StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+
+
+@api_router.post("/payments/checkout", response_model=CheckoutCreateResponse)
+async def create_payment_checkout(payload: CheckoutCreateRequest, request: Request):
+    booking = await db.bookings.find_one({"id": payload.booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.get("payment_status") == "paid":
+        raise HTTPException(status_code=400, detail="Booking already paid")
+    if booking.get("status") not in ("confirmed", "pending"):
+        raise HTTPException(status_code=400, detail="Booking is not active")
+
+    quote_amount = booking.get("quote_amount") or await _compute_quote_amount(booking)
+    if quote_amount is None:
+        raise HTTPException(
+            status_code=400,
+            detail="This vehicle requires a phone quote — call us to arrange payment.",
+        )
+
+    settings = await _load_settings()
+    amount = round(float(quote_amount) * settings.deposit_percent / 100.0, 2)
+    if amount < 0.5:
+        raise HTTPException(status_code=400, detail="Amount too small to charge")
+
+    origin = payload.origin_url.rstrip("/")
+    success_url = f"{origin}/pay/{payload.booking_id}?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/pay/{payload.booking_id}"
+
+    checkout = _get_stripe_checkout(request)
+    session = await checkout.create_checkout_session(
+        CheckoutSessionRequest(
+            amount=float(amount),
+            currency=settings.currency,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "booking_id": payload.booking_id,
+                "confirmation_number": booking.get("confirmation_number") or "",
+                "customer_email": booking.get("email") or "",
+            },
+        )
+    )
+
+    # Record payment intent
+    await db.payment_transactions.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "booking_id": payload.booking_id,
+            "session_id": session.session_id,
+            "amount": float(amount),
+            "currency": settings.currency,
+            "status": "initiated",
+            "metadata": {
+                "confirmation_number": booking.get("confirmation_number"),
+                "customer_email": booking.get("email"),
+            },
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    await db.bookings.update_one(
+        {"id": payload.booking_id},
+        {
+            "$set": {
+                "payment_status": "pending",
+                "payment_session_id": session.session_id,
+            }
+        },
+    )
+
+    return CheckoutCreateResponse(url=session.url, session_id=session.session_id, amount=float(amount))
+
+
+@api_router.get("/payments/status/{session_id}", response_model=PaymentStatus)
+async def get_payment_status(session_id: str, request: Request):
+    txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not txn:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    checkout = _get_stripe_checkout(request)
+    status = await checkout.get_checkout_status(session_id)
+
+    booking = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
+    new_status = txn.get("status")
+    if status.payment_status == "paid" and txn.get("status") != "paid":
+        new_status = "paid"
+        await db.payment_transactions.update_one(
+            {"session_id": session_id},
+            {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        # Update the booking only ONCE
+        if booking and booking.get("payment_status") != "paid":
+            await db.bookings.update_one(
+                {"id": txn["booking_id"]},
+                {
+                    "$set": {
+                        "payment_status": "paid",
+                        "paid_amount": float(status.amount_total) / 100.0,
+                        "paid_currency": status.currency,
+                    }
+                },
+            )
+            # Send receipt email
+            updated = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
+            if updated:
+                await send_email(
+                    to=updated["email"],
+                    subject=f"Payment received — {updated.get('confirmation_number','')}",
+                    html=render_payment_receipt_email(updated, float(status.amount_total) / 100.0),
+                    bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+                )
+                booking = updated
+    elif status.status == "expired":
+        new_status = "expired"
+        await db.payment_transactions.update_one(
+            {"session_id": session_id}, {"$set": {"status": "expired"}}
+        )
+
+    return PaymentStatus(
+        payment_status=new_status or txn.get("status", "unknown"),
+        booking_status=booking.get("status") if booking else "unknown",
+        amount=float(status.amount_total) / 100.0 if status.amount_total else float(txn.get("amount", 0)),
+        currency=status.currency or txn.get("currency", "usd"),
+        confirmation_number=booking.get("confirmation_number") if booking else None,
+    )
+
+
+@api_router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    body = await request.body()
+    checkout = _get_stripe_checkout(request)
+    sig = request.headers.get("Stripe-Signature", "")
+    try:
+        event = await checkout.handle_webhook(body, sig)
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Stripe webhook verification failed: {e}")
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    # Best-effort idempotent update on checkout.session.completed
+    if event and getattr(event, "session_id", None):
+        sid = event.session_id
+        txn = await db.payment_transactions.find_one({"session_id": sid}, {"_id": 0})
+        if txn and event.payment_status == "paid" and txn.get("status") != "paid":
+            await db.payment_transactions.update_one(
+                {"session_id": sid},
+                {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
+            )
+            await db.bookings.update_one(
+                {"id": txn["booking_id"]},
+                {"$set": {"payment_status": "paid"}},
+            )
+    return {"received": True}
+
+
+# ---------- Admin refund ----------
+class RefundRequest(BaseModel):
+    amount: Optional[float] = Field(None, ge=0)  # if None → full refund
+
+
+@api_router.post("/admin/payments/{booking_id}/refund")
+async def admin_refund(booking_id: str, payload: RefundRequest, _: dict = Depends(require_admin)):
+    booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.get("payment_status") != "paid":
+        raise HTTPException(status_code=400, detail="Booking is not paid")
+    sid = booking.get("payment_session_id")
+    if not sid:
+        raise HTTPException(status_code=400, detail="No Stripe session associated")
+
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    # Resolve payment_intent from session (Stripe doesn't store pi on our side)
+    async with httpx.AsyncClient(timeout=15.0) as cli:
+        s = await cli.get(f"https://api.stripe.com/v1/checkout/sessions/{sid}", headers=headers)
+        if s.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Stripe lookup failed: {s.text}")
+        pi = s.json().get("payment_intent")
+        if not pi:
+            raise HTTPException(status_code=400, detail="No payment intent on session")
+
+        form = {"payment_intent": pi}
+        if payload.amount is not None and payload.amount > 0:
+            form["amount"] = str(int(round(payload.amount * 100)))
+        r = await cli.post("https://api.stripe.com/v1/refunds", headers=headers, data=form)
+        if r.status_code not in (200, 201):
+            raise HTTPException(status_code=502, detail=f"Refund failed: {r.text}")
+        rj = r.json()
+
+    refund_amount = (rj.get("amount") or 0) / 100.0
+    await db.bookings.update_one(
+        {"id": booking_id},
+        {
+            "$set": {
+                "payment_status": "refunded",
+                "refund_amount": refund_amount,
+                "payment_intent_id": pi,
+            }
+        },
+    )
+    return {"refunded": True, "amount": refund_amount, "stripe_refund_id": rj.get("id")}
+
+
 # ---------- Admin protected: bookings ----------
 @api_router.get("/admin/bookings", response_model=List[Booking])
 async def list_bookings(_: dict = Depends(require_admin)):
@@ -382,18 +791,52 @@ async def list_bookings(_: dict = Depends(require_admin)):
 async def update_booking_status(
     booking_id: str,
     payload: BookingStatusUpdate,
+    request: Request,
     _: dict = Depends(require_admin),
 ):
     if payload.status not in BOOKING_STATUSES:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of {BOOKING_STATUSES}")
+
+    update_doc = {"status": payload.status}
+
+    # Generate confirmation number on first transition to "confirmed"
+    if payload.status == "confirmed":
+        existing = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        if not existing.get("confirmation_number"):
+            update_doc["confirmation_number"] = await _next_unique_confirmation_number()
+        # Snapshot current quote so the customer pays the price they were quoted
+        if not existing.get("quote_amount"):
+            amt = await _compute_quote_amount(existing)
+            if amt is not None:
+                update_doc["quote_amount"] = amt
+
     result = await db.bookings.find_one_and_update(
         {"id": booking_id},
-        {"$set": {"status": payload.status}},
+        {"$set": update_doc},
         return_document=True,
         projection={"_id": 0},
     )
     if not result:
         raise HTTPException(status_code=404, detail="Booking not found")
+
+    # Send confirmation email when transitioning to "confirmed"
+    if payload.status == "confirmed":
+        origin = str(request.base_url).rstrip("/")
+        # Try to derive frontend origin from request headers (Origin / Referer); fallback to API host
+        client_origin = request.headers.get("origin") or request.headers.get("referer") or origin
+        if client_origin:
+            client_origin = client_origin.rstrip("/").split("/admin")[0]
+        pay_url = f"{client_origin}/pay/{booking_id}" if result.get("quote_amount") else None
+        html = render_confirmation_email(result, pay_url)
+        await send_email(
+            to=result["email"],
+            subject=f"Reservation confirmed — {result.get('confirmation_number','')}",
+            html=html,
+            bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+        )
+
     return Booking(**result)
 
 
@@ -521,10 +964,28 @@ async def startup_seed():
     try:
         await db.admin_users.create_index("email", unique=True)
         await db.bookings.create_index("id", unique=True)
+        await db.bookings.create_index("confirmation_number", sparse=True)
         await db.contacts.create_index("id", unique=True)
         await db.pricing_config.create_index("vehicle_type", unique=True)
+        await db.payment_transactions.create_index("session_id", unique=True)
+        await db.payment_transactions.create_index("booking_id")
+        await db.settings.create_index("key", unique=True)
     except Exception as e:
         logger.warning(f"Index creation skipped: {e}")
+
+    # Seed default settings (idempotent)
+    await db.settings.update_one(
+        {"key": "global"},
+        {
+            "$setOnInsert": {
+                "key": "global",
+                "deposit_percent": 100,
+                "currency": "usd",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+        upsert=True,
+    )
 
     # Migration: rename legacy "Luxury Sedan" → "S-Class" in existing bookings
     try:

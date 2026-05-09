@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import FleetPicker from "@/components/FleetPicker";
+import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -174,30 +175,28 @@ export default function BookingForm() {
 
           <div className="grid md:grid-cols-2 gap-5">
             <div className="md:col-span-2">
-              <Label className="text-white/80 text-xs uppercase tracking-wider">Pickup location</Label>
-              <Input
-                data-testid="booking-pickup"
+              <PlacesAutocompleteInput
+                label="Pickup location"
+                testId="booking-pickup"
                 required
-                className={cn(inputCls, "mt-2")}
                 value={form.pickup_location}
-                onChange={(e) => update("pickup_location")(e.target.value)}
+                onChange={update("pickup_location")}
                 placeholder="SFO Airport, Terminal 2"
               />
             </div>
 
             {stops.map((stop, i) => (
               <div key={i} className="md:col-span-2">
-                <Label className="text-white/80 text-xs uppercase tracking-wider">
-                  Additional stop #{i + 1}
-                </Label>
-                <div className="flex gap-2 mt-2">
-                  <Input
-                    data-testid={`booking-stop-${i}`}
-                    className={cn(inputCls, "flex-1")}
-                    value={stop}
-                    onChange={(e) => updateStop(i, e.target.value)}
-                    placeholder="123 Market St, San Francisco"
-                  />
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <PlacesAutocompleteInput
+                      label={`Additional stop #${i + 1}`}
+                      testId={`booking-stop-${i}`}
+                      value={stop}
+                      onChange={(v) => updateStop(i, v)}
+                      placeholder="123 Market St, San Francisco"
+                    />
+                  </div>
                   <Button
                     type="button"
                     onClick={() => removeStop(i)}
@@ -213,13 +212,12 @@ export default function BookingForm() {
             ))}
 
             <div className="md:col-span-2">
-              <Label className="text-white/80 text-xs uppercase tracking-wider">Drop-off location</Label>
-              <Input
-                data-testid="booking-dropoff"
+              <PlacesAutocompleteInput
+                label="Drop-off location"
+                testId="booking-dropoff"
                 required
-                className={cn(inputCls, "mt-2")}
                 value={form.dropoff_location}
-                onChange={(e) => update("dropoff_location")(e.target.value)}
+                onChange={update("dropoff_location")}
                 placeholder="Four Seasons San Francisco"
               />
             </div>

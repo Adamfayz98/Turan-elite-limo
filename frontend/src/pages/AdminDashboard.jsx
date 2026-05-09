@@ -5,6 +5,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock,
+  CreditCard,
   LogOut,
   Mail,
   MessageSquare,
@@ -25,7 +26,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import PricingTab from "@/components/admin/PricingTab";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -46,6 +46,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import PricingTab from "@/components/admin/PricingTab";
+import SettingsTab from "@/components/admin/SettingsTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
 const STATUS_COLOR = {
@@ -55,6 +57,9 @@ const STATUS_COLOR = {
   cancelled: "bg-red-500/15 text-red-300 border-red-500/30",
   new: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
   read: "bg-white/10 text-white/60 border-white/15",
+  unpaid: "bg-white/10 text-white/60 border-white/15",
+  paid: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  refunded: "bg-orange-500/15 text-orange-300 border-orange-500/30",
 };
 
 function StatBlock({ icon: Icon, label, value, testid }) {
@@ -131,6 +136,16 @@ export default function AdminDashboard() {
     try {
       await api.delete(`/admin/bookings/${id}`);
       toast.success("Booking removed");
+      fetchAll();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    }
+  };
+
+  const refundBooking = async (id) => {
+    try {
+      const res = await api.post(`/admin/payments/${id}/refund`, {});
+      toast.success(`Refunded $${res.data.amount?.toFixed(2)}`);
       fetchAll();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail));
@@ -240,6 +255,9 @@ export default function AdminDashboard() {
             <TabsTrigger value="pricing" data-testid="tab-pricing" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Pricing
             </TabsTrigger>
+            <TabsTrigger value="settings" data-testid="tab-settings" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Settings
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="bookings" className="mt-6">
@@ -254,13 +272,14 @@ export default function AdminDashboard() {
                     <TableHead className="text-white/60">Vehicle</TableHead>
                     <TableHead className="text-white/60">Pax</TableHead>
                     <TableHead className="text-white/60">Status</TableHead>
+                    <TableHead className="text-white/60">Payment</TableHead>
                     <TableHead className="text-white/60 text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {bookings.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-16 text-white/40">
+                      <TableCell colSpan={9} className="text-center py-16 text-white/40">
                         No bookings yet.
                       </TableCell>
                     </TableRow>
@@ -313,6 +332,29 @@ export default function AdminDashboard() {
                         <Badge className={`${STATUS_COLOR[b.status]} border rounded-full`}>
                           {b.status}
                         </Badge>
+                        {b.confirmation_number && (
+                          <div className="text-[10px] text-[#D4AF37] mt-1 font-mono">
+                            {b.confirmation_number}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={`${STATUS_COLOR[b.payment_status || "unpaid"]} border rounded-full`}
+                          data-testid={`payment-badge-${b.id}`}
+                        >
+                          {b.payment_status || "unpaid"}
+                        </Badge>
+                        {b.paid_amount != null && (
+                          <div className="text-[10px] text-white/50 mt-1">
+                            ${b.paid_amount?.toFixed(2)}
+                          </div>
+                        )}
+                        {b.refund_amount != null && (
+                          <div className="text-[10px] text-orange-300 mt-1">
+                            Refunded ${b.refund_amount?.toFixed(2)}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
@@ -343,6 +385,41 @@ export default function AdminDashboard() {
                             <DropdownMenuItem onClick={() => updateStatus(b.id, "pending")}>
                               <Clock className="w-4 h-4 mr-2 text-yellow-400" /> Mark Pending
                             </DropdownMenuItem>
+                            {b.payment_status === "paid" && (
+                              <>
+                                <DropdownMenuSeparator className="bg-white/10" />
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <DropdownMenuItem
+                                      onSelect={(e) => e.preventDefault()}
+                                      data-testid={`refund-action-${b.id}`}
+                                      className="text-orange-400 focus:text-orange-400 focus:bg-orange-500/10"
+                                    >
+                                      <CreditCard className="w-4 h-4 mr-2" /> Refund payment
+                                    </DropdownMenuItem>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent className="bg-[#0A0A0A] border-[#1F1F1F] text-white">
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Refund this payment?</AlertDialogTitle>
+                                      <AlertDialogDescription className="text-white/60">
+                                        ${b.paid_amount?.toFixed(2)} will be returned to the customer's card. This cannot be undone.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel className="bg-transparent border-white/20 hover:bg-white/10">
+                                        Cancel
+                                      </AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => refundBooking(b.id)}
+                                        className="bg-orange-500 hover:bg-orange-600"
+                                      >
+                                        Refund
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </>
+                            )}
                             <DropdownMenuSeparator className="bg-white/10" />
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -478,6 +555,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="pricing" className="mt-6">
             <PricingTab />
+          </TabsContent>
+
+          <TabsContent value="settings" className="mt-6">
+            <SettingsTab />
           </TabsContent>
         </Tabs>
       </div>
