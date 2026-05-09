@@ -654,51 +654,65 @@ async def get_payment_status(session_id: str, request: Request):
     if not txn:
         raise HTTPException(status_code=404, detail="Payment not found")
 
-    checkout = _get_stripe_checkout(request)
-    status = await checkout.get_checkout_status(session_id)
-
     booking = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
     new_status = txn.get("status")
-    if status.payment_status == "paid" and txn.get("status") != "paid":
-        new_status = "paid"
-        await db.payment_transactions.update_one(
-            {"session_id": session_id},
-            {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
+    amount = float(txn.get("amount", 0))
+    currency = txn.get("currency", "usd")
+
+    # Try to fetch authoritative status from Stripe; degrade gracefully on failure.
+    status = None
+    try:
+        checkout = _get_stripe_checkout(request)
+        status = await checkout.get_checkout_status(session_id)
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            f"Stripe status lookup failed for session {session_id}: {e}"
         )
-        # Update the booking only ONCE
-        if booking and booking.get("payment_status") != "paid":
-            await db.bookings.update_one(
-                {"id": txn["booking_id"]},
-                {
-                    "$set": {
-                        "payment_status": "paid",
-                        "paid_amount": float(status.amount_total) / 100.0,
-                        "paid_currency": status.currency,
-                    }
-                },
+
+    if status is not None:
+        if getattr(status, "amount_total", None):
+            amount = float(status.amount_total) / 100.0
+        if getattr(status, "currency", None):
+            currency = status.currency
+
+        if status.payment_status == "paid" and txn.get("status") != "paid":
+            new_status = "paid"
+            await db.payment_transactions.update_one(
+                {"session_id": session_id},
+                {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
             )
-            # Send receipt email
-            updated = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
-            if updated:
-                await send_email(
-                    to=updated["email"],
-                    subject=f"Payment received — {updated.get('confirmation_number','')}",
-                    html=render_payment_receipt_email(updated, float(status.amount_total) / 100.0),
-                    bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+            if booking and booking.get("payment_status") != "paid":
+                await db.bookings.update_one(
+                    {"id": txn["booking_id"]},
+                    {
+                        "$set": {
+                            "payment_status": "paid",
+                            "paid_amount": amount,
+                            "paid_currency": currency,
+                        }
+                    },
                 )
-                booking = updated
-    elif status.status == "expired":
-        new_status = "expired"
-        await db.payment_transactions.update_one(
-            {"session_id": session_id}, {"$set": {"status": "expired"}}
-        )
+                updated = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
+                if updated:
+                    await send_email(
+                        to=updated["email"],
+                        subject=f"Payment received — {updated.get('confirmation_number','')}",
+                        html=render_payment_receipt_email(updated, amount),
+                        bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+                    )
+                    booking = updated
+        elif getattr(status, "status", None) == "expired":
+            new_status = "expired"
+            await db.payment_transactions.update_one(
+                {"session_id": session_id}, {"$set": {"status": "expired"}}
+            )
 
     return PaymentStatus(
         payment_status=new_status or txn.get("status", "unknown"),
-        booking_status=booking.get("status") if booking else "unknown",
-        amount=float(status.amount_total) / 100.0 if status.amount_total else float(txn.get("amount", 0)),
-        currency=status.currency or txn.get("currency", "usd"),
-        confirmation_number=booking.get("confirmation_number") if booking else None,
+        booking_status=(booking.get("status") if booking else "unknown"),
+        amount=amount,
+        currency=currency,
+        confirmation_number=(booking.get("confirmation_number") if booking else None),
     )
 
 
