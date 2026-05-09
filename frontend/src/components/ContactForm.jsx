@@ -32,7 +32,15 @@ export default function ContactForm() {
       toast.success("Message sent. We'll respond within hours.");
       setForm({ name: "", email: "", phone: "", subject: "", message: "" });
     } catch (err) {
-      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to send.");
+      // Surface real error to the console so we can diagnose if it ever fails
+      // eslint-disable-next-line no-console
+      console.error("Contact submit failed:", err?.response?.status, err?.response?.data || err?.message);
+      const detail = formatApiErrorDetail(err?.response?.data?.detail);
+      const fallback =
+        err?.response?.status >= 500
+          ? "Our server hiccuped — please call us at (650) 410-0687."
+          : "Couldn't send right now. Please try again or call (650) 410-0687.";
+      toast.error(detail && detail !== "Something went wrong. Please try again." ? detail : fallback);
     } finally {
       setSubmitting(false);
     }

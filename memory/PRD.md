@@ -56,5 +56,10 @@
 - Driver portal (assign rides to chauffeurs)
 - Loyalty program / promo codes
 
+## Recent Fixes (Feb 2026)
+- z-index bumped to `z-[100]` on Shadcn `SelectContent` and `PopoverContent`, and `z-[90]` on `PlacesAutocompleteInput` dropdown so the Service Type / Pickup Time / Date / address suggestions overlay all in-flow content (fleet picker, vehicle cards) reliably.
+- `ContactForm` now console-logs the real error (status + payload) and surfaces a clearer fallback toast that includes the support phone number, so users always have a path forward if the API ever fails.
+- Verified Google Places autocomplete is working end-to-end through `/api/places/autocomplete` (5 predictions returned for "San Fr"); user-reported "no suggestions" issue could not be reproduced in current build.
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`
