@@ -3,12 +3,21 @@ import { Users, Sparkles, Briefcase } from "lucide-react";
 const FLEET = [
   {
     name: "Executive Sedan",
+    model: "Cadillac XTS",
+    pax: "1–3",
+    bags: "3",
+    note: "The standard for daily executive transport. Discreet, smooth, on time.",
+    img: "https://images.unsplash.com/photo-1571007667516-62962d19bebf?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
+    span: "lg:col-span-2 lg:row-span-2",
+  },
+  {
+    name: "Luxury Sedan",
     model: "Mercedes-Benz S-Class",
     pax: "1–3",
-    bags: "2",
-    note: "Discreet. Effortless. The standard for daily executive transport.",
-    img: "https://images.unsplash.com/photo-1772990914622-4ee26e085381?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwzfHxjaGF1ZmZldXIlMjBsdXh1cnklMjBjYXJ8ZW58MHx8fHwxNzc4MjM0MjkwfDA&ixlib=rb-4.1.0&q=85",
-    span: "lg:col-span-2 lg:row-span-2",
+    bags: "3",
+    note: "First-class flagship. Hush-quiet cabin, executive rear seating.",
+    img: "https://images.unsplash.com/photo-1772990914622-4ee26e085381?crop=entropy&cs=srgb&fm=jpg&q=85&w=1600&ixlib=rb-4.1.0",
+    span: "lg:col-span-1 lg:row-span-1",
   },
   {
     name: "Luxury SUV",
@@ -16,34 +25,25 @@ const FLEET = [
     pax: "1–6",
     bags: "6",
     note: "Captain's chairs, cavernous trunk, redefined comfort.",
-    img: "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxibGFjayUyMHN1diUyMGx1eHVyeXxlbnwwfHx8fDE3NzgyMzQyOTB8MA&ixlib=rb-4.1.0&q=85",
-    span: "lg:col-span-1 lg:row-span-1",
-  },
-  {
-    name: "Premium SUV",
-    model: "Lincoln Navigator L",
-    pax: "1–7",
-    bags: "7",
-    note: "Stretched wheelbase. Boardroom on wheels.",
-    img: "https://images.unsplash.com/photo-1758223725140-3855ec687a16?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwzfHxibGFjayUyMHN1diUyMGx1eHVyeXxlbnwwfHx8fDE3NzgyMzQyOTB8MA&ixlib=rb-4.1.0&q=85",
+    img: "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&q=85&w=1600&ixlib=rb-4.1.0",
     span: "lg:col-span-1 lg:row-span-1",
   },
   {
     name: "Stretch Limousine",
-    model: "Cadillac XTS Stretch",
-    pax: "8–10",
+    model: "Hummer Stretch",
+    pax: "12–14",
     bags: "4",
-    note: "Mood lighting, premium bar, weddings & celebrations.",
-    img: "https://images.unsplash.com/photo-1583267746897-2cf415887172?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+    note: "Mood lighting, premium bar, the showstopper for weddings & nightlife.",
+    img: "https://images.unsplash.com/photo-1742794147227-b3df1a5ae19c?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
     span: "lg:col-span-2 lg:row-span-1",
   },
   {
     name: "Sprinter Van",
-    model: "Mercedes Sprinter Executive",
+    model: "Mercedes Jet Sprinter",
     pax: "10–14",
     bags: "14",
-    note: "Group travel without sacrifice. Wi-Fi, USB, leather lounge.",
-    img: "https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200",
+    note: "Group travel without sacrifice. Wi-Fi, USB, leather lounge seating.",
+    img: "https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?crop=entropy&cs=srgb&fm=jpg&q=85&w=1600&ixlib=rb-4.1.0",
     span: "lg:col-span-1 lg:row-span-1",
   },
 ];
@@ -61,7 +61,7 @@ export default function Fleet() {
             </h2>
           </div>
           <p className="text-white/60 max-w-md leading-relaxed">
-            Every vehicle in our fleet is under three years old, fully insured, and detailed before each ride. Choose a sedan for the suit, an SUV for the family, or a limousine for the night that will be remembered.
+            Every vehicle in our fleet is under three years old, fully insured, and detailed before each ride. From a Cadillac XTS for the suit, to a Hummer Stretch for the night you'll never forget.
           </p>
         </div>
 

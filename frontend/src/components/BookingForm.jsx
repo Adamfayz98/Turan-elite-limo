@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Loader2, Plus, X } from "lucide-react";
+import { Calendar as CalendarIcon, Loader2, Plus, X, Phone as PhoneIcon, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -58,6 +58,9 @@ export default function BookingForm() {
   const [date, setDate] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [stops, setStops] = useState([]);
+  const [quote, setQuote] = useState(null);
+  const [quoting, setQuoting] = useState(false);
+  const quoteTimer = useRef(null);
   const [form, setForm] = useState(initialForm);
 
   useEffect(() => {
@@ -68,6 +71,32 @@ export default function BookingForm() {
   }, []);
 
   const update = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Debounced live quote
+  useEffect(() => {
+    const pickup = form.pickup_location.trim();
+    const dropoff = form.dropoff_location.trim();
+    if (quoteTimer.current) clearTimeout(quoteTimer.current);
+    if (pickup.length < 3 || dropoff.length < 3) {
+      setQuote(null);
+      return;
+    }
+    quoteTimer.current = setTimeout(async () => {
+      setQuoting(true);
+      try {
+        const { data } = await api.post("/quote", {
+          pickup_location: pickup,
+          dropoff_location: dropoff,
+        });
+        setQuote(data);
+      } catch {
+        setQuote(null);
+      } finally {
+        setQuoting(false);
+      }
+    }, 1100);
+    return () => quoteTimer.current && clearTimeout(quoteTimer.current);
+  }, [form.pickup_location, form.dropoff_location]);
 
   const addStop = () => setStops((s) => [...s, ""]);
   const removeStop = (idx) => setStops((s) => s.filter((_, i) => i !== idx));
@@ -367,6 +396,80 @@ export default function BookingForm() {
                 placeholder="Four Seasons San Francisco"
               />
             </div>
+
+            {/* Live quote panel */}
+            {(quoting || quote) && (
+              <div
+                className="md:col-span-2"
+                data-testid="quote-panel"
+              >
+                <div className="rounded-2xl border border-[#D4AF37]/20 bg-gradient-to-br from-[#0E0E0E] via-[#0A0A0A] to-[#0E0E0E] p-5 md:p-6">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-[#D4AF37]" />
+                      <span className="text-xs uppercase tracking-[0.25em] text-[#D4AF37]">
+                        {quoting ? "Calculating estimate…" : "Estimated flat rates"}
+                      </span>
+                    </div>
+                    {quote?.distance_miles != null && (
+                      <span className="text-xs text-white/60">
+                        ~{quote.distance_miles} mi · ~{quote.duration_minutes} min
+                      </span>
+                    )}
+                  </div>
+
+                  {quote?.fallback && (
+                    <p className="text-xs text-white/50 mb-3">
+                      Couldn't pin one of the addresses — try adding city or state for an automatic estimate. Or call <a href="tel:+15555555555" className="text-[#D4AF37] hover:underline">(555) 555‑5555</a>.
+                    </p>
+                  )}
+
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {(quote?.quotes || []).map((q) => {
+                      const selected = form.vehicle_type === q.vehicle_type;
+                      const callOnly = q.price == null;
+                      return (
+                        <button
+                          key={q.vehicle_type}
+                          type="button"
+                          data-testid={`quote-card-${q.vehicle_type}`}
+                          onClick={() => update("vehicle_type")(q.vehicle_type)}
+                          className={cn(
+                            "text-left p-4 rounded-xl border bg-[#0A0A0A] transition-all",
+                            selected
+                              ? "border-[#D4AF37] shadow-[0_0_0_1px_rgba(212,175,55,0.4)]"
+                              : "border-[#1F1F1F] hover:border-[#D4AF37]/40"
+                          )}
+                        >
+                          <div className="text-[11px] uppercase tracking-[0.2em] text-white/50">
+                            {q.vehicle_type}
+                          </div>
+                          {callOnly ? (
+                            <div className="mt-2 flex items-center gap-2">
+                              <PhoneIcon className="w-4 h-4 text-[#D4AF37]" />
+                              <span className="font-serif text-lg gold-text">Call for quote</span>
+                            </div>
+                          ) : (
+                            <div className="mt-1 font-serif text-2xl text-white">
+                              {q.formatted_price}
+                              <span className="text-xs text-white/40 ml-2 font-sans">flat</span>
+                            </div>
+                          )}
+                          {selected && (
+                            <div className="mt-2 text-[10px] text-[#D4AF37] uppercase tracking-[0.2em]">
+                              Selected ✓
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-white/40 mt-4">
+                    Estimates include base fare + mileage. Final flat rate confirmed by reservations. Tolls, parking, & gratuity not included.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Toggles row */}
             <div className="md:col-span-2 flex flex-col sm:flex-row gap-4 pt-2 pb-2">

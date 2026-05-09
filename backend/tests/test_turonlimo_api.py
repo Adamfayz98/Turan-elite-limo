@@ -351,6 +351,98 @@ class TestBookingNewFields:
         assert r.status_code == 422  # Pydantic validation error
 
 
+# ---------- Iteration 3: Quote endpoint + Luxury Sedan ----------
+class TestQuote:
+    def test_options_includes_luxury_sedan(self, session):
+        r = session.get(f"{API}/options")
+        assert r.status_code == 200
+        vts = r.json()["vehicle_types"]
+        assert "Luxury Sedan" in vts
+        # Luxury Sedan must be between Executive Sedan and Luxury SUV
+        assert vts.index("Executive Sedan") < vts.index("Luxury Sedan") < vts.index("Luxury SUV")
+        # Premium SUV is removed entirely
+        assert "Premium SUV" not in vts
+        # Must have exactly 6 types
+        assert len(vts) == 6
+
+    def test_quote_valid_addresses(self, session):
+        r = session.post(f"{API}/quote", json={
+            "pickup_location": "SFO",
+            "dropoff_location": "Pier 39 San Francisco",
+        }, timeout=30)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["fallback"] is False
+        assert d["distance_miles"] is not None and d["distance_miles"] > 0
+        assert isinstance(d["quotes"], list) and len(d["quotes"]) == 6
+        by_v = {q["vehicle_type"]: q for q in d["quotes"]}
+        # Priced vehicles
+        for vt in ["Executive Sedan", "Luxury Sedan", "Luxury SUV"]:
+            q = by_v[vt]
+            assert q["price"] is not None and q["price"] > 0
+            assert q["formatted_price"] and q["formatted_price"].startswith("$")
+            assert q["message"] == "Estimated flat rate"
+        # Call-for-quote vehicles
+        for vt in ["Stretch Limousine", "Sprinter Van", "Party Bus"]:
+            q = by_v[vt]
+            assert q["price"] is None
+            assert q["message"] == "Call for quote"
+
+    def test_quote_pricing_math(self, session):
+        r = session.post(f"{API}/quote", json={
+            "pickup_location": "SFO",
+            "dropoff_location": "Palo Alto",
+        }, timeout=30)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        if d["fallback"]:
+            pytest.skip("Geocoding unavailable for math test")
+        miles = d["distance_miles"]
+        by_v = {q["vehicle_type"]: q for q in d["quotes"]}
+        # Executive Sedan: max(75 + 3.5*miles, 85)
+        assert by_v["Executive Sedan"]["price"] == round(max(75.0 + 3.50 * miles, 85.0), 2)
+        # Luxury Sedan: max(95 + 4.5*miles, 115)
+        assert by_v["Luxury Sedan"]["price"] == round(max(95.0 + 4.50 * miles, 115.0), 2)
+        # Luxury SUV: max(115 + 4.75*miles, 135)
+        assert by_v["Luxury SUV"]["price"] == round(max(115.0 + 4.75 * miles, 135.0), 2)
+
+    def test_quote_invalid_addresses_fallback(self, session):
+        r = session.post(f"{API}/quote", json={
+            "pickup_location": "zzqqxxnonsense12345abc",
+            "dropoff_location": "qqzznonsense67890xyz",
+        }, timeout=30)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["fallback"] is True
+        assert d["distance_miles"] is None
+        by_v = {q["vehicle_type"]: q for q in d["quotes"]}
+        for vt in ["Executive Sedan", "Luxury Sedan", "Luxury SUV"]:
+            assert by_v[vt]["price"] is None
+            assert by_v[vt]["message"] == "Enter pickup & drop-off for an estimate"
+        for vt in ["Stretch Limousine", "Sprinter Van", "Party Bus"]:
+            assert by_v[vt]["price"] is None
+            assert by_v[vt]["message"] == "Call for quote"
+
+    def test_booking_with_luxury_sedan(self, session, auth_headers):
+        payload = {
+            "full_name": "TEST Luxury Sedan",
+            "email": "test_luxsedan@example.com",
+            "phone": "5550001111",
+            "service_type": "Corporate / Executive",
+            "pickup_date": "2026-06-01",
+            "pickup_time": "09:00",
+            "pickup_location": "SFO",
+            "dropoff_location": "Palo Alto",
+            "passengers": 2,
+            "vehicle_type": "Luxury Sedan",
+        }
+        r = session.post(f"{API}/bookings", json=payload)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["vehicle_type"] == "Luxury Sedan"
+        requests.delete(f"{API}/admin/bookings/{d['id']}", headers=auth_headers)
+
+
 class TestStats:
     def test_stats(self, auth_headers):
         r = requests.get(f"{API}/admin/stats", headers=auth_headers)

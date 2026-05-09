@@ -6,10 +6,12 @@ load_dotenv(ROOT_DIR / '.env')
 
 import os
 import logging
+import math
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
+import httpx
 import jwt
 import bcrypt
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
@@ -73,11 +75,22 @@ async def require_admin(creds: Optional[HTTPAuthorizationCredentials] = Depends(
 # ---------- Models ----------
 VEHICLE_TYPES = [
     "Executive Sedan",
+    "Luxury Sedan",
     "Luxury SUV",
     "Stretch Limousine",
     "Sprinter Van",
     "Party Bus",
 ]
+
+# Pricing config: base fare + per-mile rate. None = call-for-quote.
+VEHICLE_PRICING = {
+    "Executive Sedan": {"base": 75.0, "per_mile": 3.50, "minimum": 85.0},
+    "Luxury Sedan": {"base": 95.0, "per_mile": 4.50, "minimum": 115.0},
+    "Luxury SUV": {"base": 115.0, "per_mile": 4.75, "minimum": 135.0},
+    "Stretch Limousine": None,
+    "Sprinter Van": None,
+    "Party Bus": None,
+}
 
 SERVICE_TYPES = [
     "Airport Transfer",
@@ -202,6 +215,124 @@ async def create_booking(payload: BookingCreate):
     insert_doc = doc.copy()
     await db.bookings.insert_one(insert_doc)
     return Booking(**doc)
+
+
+# ---------- Quote / Pricing ----------
+class QuoteRequest(BaseModel):
+    pickup_location: str = Field(..., min_length=2, max_length=300)
+    dropoff_location: str = Field(..., min_length=2, max_length=300)
+
+
+class VehicleQuote(BaseModel):
+    vehicle_type: str
+    price: Optional[float] = None
+    formatted_price: Optional[str] = None
+    message: Optional[str] = None
+
+
+class QuoteResponse(BaseModel):
+    distance_miles: Optional[float] = None
+    duration_minutes: Optional[float] = None
+    pickup_resolved: Optional[str] = None
+    dropoff_resolved: Optional[str] = None
+    quotes: List[VehicleQuote]
+    fallback: bool = False
+
+
+def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 3958.7613  # Earth radius in miles
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+async def _geocode(address: str) -> Optional[dict]:
+    """Geocode via Nominatim with MongoDB cache (30-day TTL).
+    Tries the raw address first, then with ', California' appended for partial Bay-Area names."""
+    key = address.strip().lower()
+    cached = await db.geocode_cache.find_one({"key": key}, {"_id": 0})
+    if cached and "lat" in cached and "lon" in cached:
+        return cached
+
+    candidates = [address]
+    lower = address.lower()
+    if "california" not in lower and " ca" not in lower and "usa" not in lower:
+        candidates.append(f"{address}, California, USA")
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as cli:
+            for q in candidates:
+                r = await cli.get(
+                    "https://nominatim.openstreetmap.org/search",
+                    params={"q": q, "format": "json", "limit": 1, "countrycodes": "us"},
+                    headers={"User-Agent": "TuronlimoQuoteBot/1.0 (reservations@turonlimo.com)"},
+                )
+                if r.status_code != 200:
+                    continue
+                data = r.json()
+                if data:
+                    lat = float(data[0]["lat"])
+                    lon = float(data[0]["lon"])
+                    display = data[0].get("display_name", address)
+                    doc = {
+                        "key": key,
+                        "lat": lat,
+                        "lon": lon,
+                        "display": display,
+                        "cached_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    await db.geocode_cache.update_one({"key": key}, {"$set": doc}, upsert=True)
+                    return doc
+        return None
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Geocode failed for '{address}': {e}")
+        return None
+
+
+def _build_quotes(distance_miles: Optional[float]) -> List[VehicleQuote]:
+    quotes: List[VehicleQuote] = []
+    for vt in VEHICLE_TYPES:
+        cfg = VEHICLE_PRICING.get(vt)
+        if cfg is None:
+            quotes.append(VehicleQuote(vehicle_type=vt, message="Call for quote"))
+            continue
+        if distance_miles is None:
+            quotes.append(VehicleQuote(vehicle_type=vt, message="Enter pickup & drop-off for an estimate"))
+            continue
+        raw = cfg["base"] + cfg["per_mile"] * distance_miles
+        price = max(raw, cfg["minimum"])
+        price = round(price, 2)
+        quotes.append(VehicleQuote(
+            vehicle_type=vt,
+            price=price,
+            formatted_price=f"${int(price):,}" if price == int(price) else f"${price:,.2f}",
+            message="Estimated flat rate",
+        ))
+    return quotes
+
+
+@api_router.post("/quote", response_model=QuoteResponse)
+async def quote_ride(payload: QuoteRequest):
+    pickup = await _geocode(payload.pickup_location)
+    dropoff = await _geocode(payload.dropoff_location)
+    if not pickup or not dropoff:
+        return QuoteResponse(quotes=_build_quotes(None), fallback=True)
+
+    miles = _haversine_miles(pickup["lat"], pickup["lon"], dropoff["lat"], dropoff["lon"])
+    miles = round(miles, 1)
+    # Rough Bay Area driving time: ~1.4x crow-flies + 8 min overhead at ~32mph avg
+    duration_minutes = round((miles * 1.4) / 32.0 * 60.0 + 8.0, 0)
+    return QuoteResponse(
+        distance_miles=miles,
+        duration_minutes=duration_minutes,
+        pickup_resolved=pickup.get("display"),
+        dropoff_resolved=dropoff.get("display"),
+        quotes=_build_quotes(miles),
+        fallback=False,
+    )
 
 
 @api_router.post("/contact", response_model=ContactInquiry)
