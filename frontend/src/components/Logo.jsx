@@ -1,5 +1,5 @@
 /**
- * Turonlimo brand mark — wolf head inside a crescent ring, with a stars arc.
+ * TuranEliteLimo brand mark — wolf head inside a crescent ring, with a stars arc.
  * Inline SVG so it stays crisp at any size and inherits color via currentColor.
  */
 export default function Logo({ size = 32, className = "" }) {
@@ -10,7 +10,7 @@ export default function Logo({ size = 32, className = "" }) {
       height={size}
       className={className}
       xmlns="http://www.w3.org/2000/svg"
-      aria-label="Turonlimo"
+      aria-label="TuranEliteLimo"
       role="img"
       fill="currentColor"
     >

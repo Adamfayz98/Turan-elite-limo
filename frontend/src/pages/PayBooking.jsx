@@ -108,7 +108,7 @@ export default function PayBooking() {
         <div className="text-center">
           <h1 className="font-serif text-3xl">Booking not found</h1>
           <Link to="/" className="text-[#D4AF37] mt-4 inline-block">
-            ← Back to Turonlimo
+            ← Back to TuranEliteLimo
           </Link>
         </div>
       </div>
@@ -124,7 +124,7 @@ export default function PayBooking() {
         <Link to="/" className="flex items-center gap-2.5">
           <Logo size={32} className="text-[#D4AF37]" />
           <span className="font-serif text-2xl">
-            Turon<span className="gold-text">limo</span>
+            Turan<span className="gold-text">EliteLimo</span>
           </span>
         </Link>
       </header>

@@ -3,13 +3,13 @@ import { Quote, Star } from "lucide-react";
 const REVIEWS = [
   {
     quote:
-      "Booked Turonlimo for our wedding party in Napa. The chauffeur was on time to the second, the limo was immaculate, and the bride cried (happy tears). Worth every penny.",
+      "Booked TuranEliteLimo for our wedding party in Napa. The chauffeur was on time to the second, the limo was immaculate, and the bride cried (happy tears). Worth every penny.",
     name: "Aisha & Jordan",
     role: "Wedding · Calistoga",
   },
   {
     quote:
-      "I run a roadshow across SF, Palo Alto and SJ every quarter. Turonlimo is the only service I trust to keep our team on schedule. Their dispatchers are unreal.",
+      "I run a roadshow across SF, Palo Alto and SJ every quarter. TuranEliteLimo is the only service I trust to keep our team on schedule. Their dispatchers are unreal.",
     name: "Marcus L.",
     role: "Managing Director · Goldman",
   },

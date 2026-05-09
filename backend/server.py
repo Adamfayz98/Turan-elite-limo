@@ -43,7 +43,7 @@ JWT_ALGORITHM = 'HS256'
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@turonlimo.com')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
-app = FastAPI(title="Turonlimo API")
+app = FastAPI(title="TuranEliteLimo API")
 api_router = APIRouter(prefix="/api")
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -205,7 +205,7 @@ class LoginResponse(BaseModel):
 # ---------- Public routes ----------
 @api_router.get("/")
 async def root():
-    return {"message": "Turonlimo API", "status": "ok"}
+    return {"message": "TuranEliteLimo API", "status": "ok"}
 
 
 @api_router.get("/options")
@@ -332,7 +332,7 @@ async def _geocode(address: str) -> Optional[dict]:
                 r = await cli.get(
                     "https://nominatim.openstreetmap.org/search",
                     params={"q": q, "format": "json", "limit": 1, "countrycodes": "us"},
-                    headers={"User-Agent": "TuronlimoQuoteBot/1.0 (reservations@turonlimo.com)"},
+                    headers={"User-Agent": "TuranEliteLimoQuoteBot/1.0 (reservations@turonlimo.com)"},
                 )
                 if r.status_code != 200:
                     continue
@@ -439,7 +439,7 @@ _CN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no ambiguous chars (0/O, 1/
 
 
 def _generate_confirmation_number() -> str:
-    return "TURN-" + "".join(secrets.choice(_CN_ALPHABET) for _ in range(6))
+    return "TEL-" + "".join(secrets.choice(_CN_ALPHABET) for _ in range(6))
 
 
 async def _next_unique_confirmation_number() -> str:
@@ -600,6 +600,12 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
     if amount < 0.5:
         raise HTTPException(status_code=400, detail="Amount too small to charge")
 
+    # Generate confirmation # on first checkout (so it's locked in even before payment)
+    booking_updates = {"quote_amount": quote_amount}
+    if not booking.get("confirmation_number"):
+        booking_updates["confirmation_number"] = await _next_unique_confirmation_number()
+        booking["confirmation_number"] = booking_updates["confirmation_number"]
+
     origin = payload.origin_url.rstrip("/")
     success_url = f"{origin}/pay/{payload.booking_id}?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{origin}/pay/{payload.booking_id}"
@@ -619,7 +625,6 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
         )
     )
 
-    # Record payment intent
     await db.payment_transactions.insert_one(
         {
             "id": str(uuid.uuid4()),
@@ -639,6 +644,7 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
         {"id": payload.booking_id},
         {
             "$set": {
+                **booking_updates,
                 "payment_status": "pending",
                 "payment_session_id": session.session_id,
             }
@@ -682,6 +688,7 @@ async def get_payment_status(session_id: str, request: Request):
                 {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
             )
             if booking and booking.get("payment_status") != "paid":
+                # Auto-confirm the booking on payment success
                 await db.bookings.update_one(
                     {"id": txn["booking_id"]},
                     {
@@ -689,15 +696,18 @@ async def get_payment_status(session_id: str, request: Request):
                             "payment_status": "paid",
                             "paid_amount": amount,
                             "paid_currency": currency,
+                            "status": "confirmed",
                         }
                     },
                 )
                 updated = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
                 if updated:
+                    # Combined branded confirmation email (full ride details)
+                    confirm_html = render_confirmation_email(updated, payment_url=None)
                     await send_email(
                         to=updated["email"],
-                        subject=f"Payment received — {updated.get('confirmation_number','')}",
-                        html=render_payment_receipt_email(updated, amount),
+                        subject=f"Reservation confirmed & paid — {updated.get('confirmation_number','')}",
+                        html=confirm_html,
                         bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
                     )
                     booking = updated

@@ -167,12 +167,14 @@ export default function PricingTab() {
                     onClick={() => save(r)}
                     disabled={savingKey === r.vehicle_type}
                     data-testid={`pricing-save-${r.vehicle_type}`}
-                    className="bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full"
+                    className="bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full px-4 h-10 font-medium"
                   >
                     {savingKey === r.vehicle_type ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
-                      <Save className="w-4 h-4" />
+                      <>
+                        <Save className="w-4 h-4 mr-1.5" /> Save
+                      </>
                     )}
                   </Button>
                 </div>

@@ -135,8 +135,34 @@ export default function BookingForm() {
         return_location: form.return_trip ? form.return_location : "",
         pickup_date: format(date, "yyyy-MM-dd"),
       };
-      await api.post("/bookings", payload);
-      toast.success("Reservation request received. We'll confirm shortly.");
+      const { data: booking } = await api.post("/bookings", payload);
+
+      // Determine if this vehicle has an instant price (i.e., not "Call for quote")
+      const vQuote = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
+      const hasInstantPrice = vQuote && vQuote.price != null;
+
+      if (hasInstantPrice) {
+        // Proceed straight to Stripe checkout
+        try {
+          const { data: co } = await api.post("/payments/checkout", {
+            booking_id: booking.id,
+            origin_url: window.location.origin,
+          });
+          window.location.href = co.url;
+          return; // don't reset state — redirect imminent
+        } catch (err) {
+          toast.error(
+            formatApiErrorDetail(err.response?.data?.detail) ||
+              "Booking saved, but couldn't start payment. We'll call you to finalize.",
+          );
+        }
+      } else {
+        toast.success(
+          "Reservation request received. We'll call you with a custom quote shortly.",
+        );
+      }
+
+      // Reset form (only reached when no redirect)
       setForm(initialForm);
       setStops([]);
       setDate(null);
@@ -473,7 +499,14 @@ export default function BookingForm() {
           {/* Submit */}
           <div className="mt-10 flex flex-wrap items-center justify-between gap-4">
             <p className="text-xs text-white/50">
-              By submitting, you agree to receive a confirmation by phone or email.
+              {(() => {
+                const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
+                const isCallOnly = vq && vq.price == null;
+                if (form.vehicle_type && isCallOnly) {
+                  return "We'll call you with a custom quote — no payment required now.";
+                }
+                return "Secure payment via Stripe. You'll receive a confirmation email instantly.";
+              })()}
             </p>
             <Button
               type="submit"
@@ -482,7 +515,18 @@ export default function BookingForm() {
               className="bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full px-8 h-12 font-medium"
             >
               {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {submitting ? "Sending…" : "Request Reservation"}
+              {submitting
+                ? "Processing…"
+                : (() => {
+                    const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
+                    if (vq && vq.price != null) {
+                      return `Proceed to Payment · ${vq.formatted_price}`;
+                    }
+                    if (vq && vq.price == null) {
+                      return "Request Reservation";
+                    }
+                    return "Proceed to Payment";
+                  })()}
             </Button>
           </div>
         </form>

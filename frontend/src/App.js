@@ -10,7 +10,7 @@ import PayBooking from "@/pages/PayBooking";
 
 function App() {
   useEffect(() => {
-    document.title = "Turonlimo — Luxury Chauffeur Service | Bay Area & Northern California";
+    document.title = "TuranEliteLimo — Luxury Chauffeur Service | Bay Area & Northern California";
     document.documentElement.classList.add("dark");
   }, []);
 

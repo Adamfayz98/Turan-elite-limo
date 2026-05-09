@@ -187,7 +187,7 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-2.5">
             <Logo size={32} className="text-[#D4AF37]" />
             <span className="font-serif text-2xl">
-              Turon<span className="gold-text">limo</span>
+              Turan<span className="gold-text">EliteLimo</span>
             </span>
           </div>
           <span className="hidden md:inline text-xs uppercase tracking-[0.3em] text-white/40">

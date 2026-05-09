@@ -47,7 +47,7 @@ export default function Hero() {
             className="mt-8 text-lg md:text-xl text-white/70 max-w-xl leading-relaxed animate-fade-up"
             style={{ animationDelay: "250ms", animationFillMode: "both" }}
           >
-            Turonlimo is a private chauffeur service for those who measure travel by composure. Black-car sedans, luxury SUVs and stretch limousines across San Francisco, Silicon Valley, Napa & beyond.
+            TuranEliteLimo is a private chauffeur service for those who measure travel by composure. Black-car sedans, luxury SUVs and stretch limousines across San Francisco, Silicon Valley, Napa & beyond.
           </p>
 
           <div

@@ -40,12 +40,12 @@ export default function About() {
       <div className="max-w-7xl mx-auto">
         <div className="grid lg:grid-cols-12 gap-16 items-start">
           <div className="lg:col-span-5 lg:sticky lg:top-32">
-            <span className="text-xs tracking-[0.3em] uppercase text-[#D4AF37]">About Turonlimo</span>
+            <span className="text-xs tracking-[0.3em] uppercase text-[#D4AF37]">About TuranEliteLimo</span>
             <h2 className="font-serif text-4xl md:text-5xl mt-6 leading-tight">
               A boutique chauffeur house, <span className="italic">built for the Bay.</span>
             </h2>
             <p className="mt-6 text-white/65 leading-relaxed">
-              Turonlimo started with a single black sedan and a simple promise: never make the client wait, never cut a corner, never lose composure. A decade later, that promise still drives every reservation we accept.
+              TuranEliteLimo started with a single black sedan and a simple promise: never make the client wait, never cut a corner, never lose composure. A decade later, that promise still drives every reservation we accept.
             </p>
             <p className="mt-4 text-white/65 leading-relaxed">
               We are not a ride-hailing app. We are not a fleet of strangers. We are a curated team of career chauffeurs, dispatchers and detailers — accountable, present, and proud of every door we open.

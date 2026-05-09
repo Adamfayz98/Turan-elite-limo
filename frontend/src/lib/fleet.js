@@ -1,5 +1,5 @@
 /**
- * Single source of truth for the Turonlimo fleet.
+ * Single source of truth for the TuranEliteLimo fleet.
  * Used by the FleetPicker (inside BookingForm) — keep `name` in sync with backend VEHICLE_TYPES.
  */
 export const FLEET = [

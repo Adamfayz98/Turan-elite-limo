@@ -19,7 +19,7 @@ export default function Footer() {
           <div className="flex items-center gap-3">
             <Logo size={48} className="text-[#D4AF37]" />
             <div className="font-serif text-3xl">
-              Turon<span className="gold-text">limo</span>
+              Turan<span className="gold-text">EliteLimo</span>
             </div>
           </div>
           <p className="mt-5 text-white/55 leading-relaxed max-w-md">
@@ -112,7 +112,7 @@ export default function Footer() {
       </div>
 
       <div className="max-w-7xl mx-auto mt-16 pt-8 border-t border-white/10 flex flex-col md:flex-row justify-between gap-4 text-xs text-white/40">
-        <span>© {new Date().getFullYear()} Turonlimo. All rights reserved.</span>
+        <span>© {new Date().getFullYear()} TuranEliteLimo. All rights reserved.</span>
         <div className="flex flex-wrap gap-6">
           <Link to="/admin/login" data-testid="footer-admin-link" className="hover:text-[#D4AF37]">
             Admin

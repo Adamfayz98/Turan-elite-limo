@@ -1,4 +1,4 @@
-"""Resend email helper for Turonlimo. Async-friendly via asyncio.to_thread."""
+"""Resend email helper for TuranEliteLimo. Async-friendly via asyncio.to_thread."""
 from __future__ import annotations
 
 import os
@@ -14,7 +14,7 @@ resend.api_key = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "turonlimosupport@gmail.com")
 SUPPORT_PHONE = os.environ.get("SUPPORT_PHONE", "(650) 410-0687")
-COMPANY_NAME = "Turonlimo"
+COMPANY_NAME = "TuranEliteLimo"
 
 
 async def send_email(
@@ -84,7 +84,7 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str]) -> str:
       <table width="600" cellpadding="0" cellspacing="0" style="background:#111111;border-radius:14px;overflow:hidden;border:1px solid #1f1f1f;">
         <tr><td style="background:#0a0a0a;padding:28px 32px;border-bottom:1px solid #1f1f1f;">
           <span style="font-size:24px;color:#ffffff;font-weight:700;letter-spacing:-0.3px;">
-            Turon<span style="color:#D4AF37;">limo</span>
+            Turan<span style="color:#D4AF37;">EliteLimo</span>
           </span>
         </td></tr>
 
@@ -96,7 +96,7 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str]) -> str:
             Hi {booking.get('full_name','').split(' ')[0] or 'there'} — your ride is locked in.
           </h1>
           <p style="color:#aaaaaa;font-size:14px;line-height:1.6;margin:0;">
-            Thank you for choosing Turonlimo. Your reservation has been received and confirmed.
+            Thank you for choosing TuranEliteLimo. Your reservation has been received and confirmed.
             Save the confirmation number below — your chauffeur will reference it on arrival.
           </p>
         </td></tr>
@@ -151,7 +151,7 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str]) -> str:
           or email <a href="mailto:{SUPPORT_EMAIL}" style="color:#D4AF37;text-decoration:none;">{SUPPORT_EMAIL}</a>.
         </td></tr>
         <tr><td style="padding:16px 32px 24px 32px;color:#555;font-size:11px;">
-          Turonlimo · Bay Area & Northern California · Licensed · Insured · TCP-Compliant
+          TuranEliteLimo · Bay Area & Northern California · Licensed · Insured · TCP-Compliant
         </td></tr>
       </table>
     </td></tr>
@@ -170,7 +170,7 @@ def render_payment_receipt_email(booking: dict, amount: float) -> str:
       <table width="600" cellpadding="0" cellspacing="0" style="background:#111;border-radius:14px;border:1px solid #1f1f1f;">
         <tr><td style="background:#0a0a0a;padding:28px 32px;border-bottom:1px solid #1f1f1f;">
           <span style="font-size:24px;font-weight:700;">
-            Turon<span style="color:#D4AF37;">limo</span>
+            Turan<span style="color:#D4AF37;">EliteLimo</span>
           </span>
         </td></tr>
         <tr><td style="padding:32px;">

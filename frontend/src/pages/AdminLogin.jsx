@@ -67,7 +67,7 @@ export default function AdminLogin() {
           <h1 className="font-serif text-3xl md:text-4xl mt-4">Admin Sign In</h1>
           <p className="mt-3 text-white/55 text-sm">
             Manage reservations, inquiries, and customers for{" "}
-            <span className="text-white">Turonlimo</span>.
+            <span className="text-white">TuranEliteLimo</span>.
           </p>
 
           <form onSubmit={onSubmit} className="mt-8 space-y-5" data-testid="admin-login-form">

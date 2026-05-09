@@ -32,7 +32,7 @@ export default function Navbar() {
         <a href="#top" data-testid="logo-link" className="flex items-center gap-2.5 group">
           <Logo size={36} className="text-[#D4AF37]" />
           <span className="font-serif text-2xl tracking-tight">
-            Turon<span className="gold-text font-semibold">limo</span>
+            Turan<span className="gold-text font-semibold">EliteLimo</span>
           </span>
         </a>
 

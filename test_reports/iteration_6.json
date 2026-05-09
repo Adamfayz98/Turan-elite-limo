@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 6 testing complete. Backend: 12/12 new iter6 tests PASS + 22/22 iter5 + 23/23 turonlimo_api regression PASS = 57/57 (100%). Brand rename to 'TuranEliteLimo' verified site-wide (homepage title, navbar wordmark, footer ©2025/2026, /admin/login, admin dashboard). Confirmation # now uses TEL- prefix (regex ^TEL-[A-HJ-NP-Z2-9]{6}$ matches; alphabet excludes I/O/0/1). POST /api/payments/checkout auto-generates TEL-XXXXXX when booking has no CN, persists it (verified via /bookings/{id}/public), and is idempotent on re-checkout (CN unchanged). GET /api/payments/status/{sid} no longer 500s when Stripe lookup fails — returns 200 with txn fallback (iter5 regression fix verified). PATCH /api/admin/bookings status=confirmed still generates CN with TEL- prefix and remains idempotent. Pricing PATCH/GET works. Frontend: booking-submit text dynamics verified — initial 'Proceed to Payment', after Executive Sedan + quote 'Proceed to Payment · $120.50' (Request Reservation path code-confirmed for call-only). Submit flow: POST /api/bookings 200 + POST /api/payments/checkout 200 + browser navigated to checkout.stripe.com (route intercepted to avoid full follow). Pricing tab Save buttons (6 of them) all show the word 'Save' next to a disk icon — clearly labeled. Cleanup: deposit_percent reset to 100, Executive Sedan reset to base=75 per_mile=3.5 minimum=85.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration6.py",
+    "/app/backend/tests/test_iteration5.py",
+    "/app/backend/tests/test_turonlimo_api.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:46 FastAPI title='TuranEliteLimo API' and root() returns 'TuranEliteLimo' — brand consistent backend-side.",
+    "server.py:335 Nominatim User-Agent still contains 'reservations@turonlimo.com'. The internal admin/contact emails using turonlimo.com are intentional per agent_to_agent_context_note. No action required.",
+    "server.py:441 _generate_confirmation_number alphabet 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' correctly excludes I, O, 0, 1 — matches spec.",
+    "server.py:603-606 create_payment_checkout properly generates CN only when missing and merges into both DB update_doc and in-memory booking before Stripe metadata — idempotency verified.",
+    "server.py:684-713 get_payment_status auto-confirms booking on Stripe 'paid': sets status='confirmed' and sends single combined confirmation email — matches spec. Stripe lookup wrapped in try/except — no longer 500s (iter5 fix preserved).",
+    "BookingForm.jsx:144-158 priced-vehicle path correctly POSTs /bookings then /payments/checkout then window.location.href=co.url. Error handling falls through to toast — graceful.",
+    "BookingForm.jsx:521-528 dynamic button text logic correct: 'Proceed to Payment · $X' for priced w/quote, 'Request Reservation' for call_only, 'Proceed to Payment' baseline.",
+    "PricingTab.jsx Save button now visibly labeled 'Save' with icon — UX win. (6 rows, 6 Save buttons rendered.)"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration6.py",
+    "/app/backend/tests/test_iteration5.py"
+  ],
+  "success_rate": {
+    "backend": "100% (57/57: 12 iter6 + 22 iter5 + 23 prior)",
+    "frontend": "100% (brand rename, dynamic submit text, priced submit -> Stripe redirect, Pricing Save labelled)"
+  },
+  "test_credentials": "admin@turonlimo.com / TuronAdmin@2025",
+  "seed_data_creation": "TEST_-prefixed bookings created and deleted within each test. UI test created 1 booking + 1 payment_transactions row that proceeded to Stripe redirect (left in DB intentionally — represents real customer flow). deposit_percent and Executive Sedan pricing reset at end via API curl (verified 200 response).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All iteration 6 spec items pass. Note: test_iteration5.py CN_REGEX was updated from '^TURN-[A-Z2-9]{6}$' to '^TEL-[A-HJ-NP-Z2-9]{6}$' (lines 13) to keep regression suite valid post-rename — these were the only mods to iter5 tests. The admin email admin@turonlimo.com is intentionally retained (internal credential per agent_to_agent_context_note); user-visible support email turonlimosupport@gmail.com unchanged. Stripe checkout uses sk_test_emergent — fresh session GETs occasionally fail in this env, but /payments/status now returns 200 with fallback (verified). For end-to-end Stripe paid -> auto-confirm -> email path, requires a real successful Stripe payment which can't be simulated without webhook simulation; the code path is correct (server.py:684-713) but not exercised in automated tests.",
+  "rca of the issue": "N/A — no bugs found in iteration 6. All spec items passed."
+}

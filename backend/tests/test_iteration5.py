@@ -10,7 +10,7 @@ API = f"{BASE_URL}/api"
 ADMIN_EMAIL = "admin@turonlimo.com"
 ADMIN_PASSWORD = "TuronAdmin@2025"
 
-CN_REGEX = re.compile(r"^TURN-[A-Z2-9]{6}$")
+CN_REGEX = re.compile(r"^TEL-[A-HJ-NP-Z2-9]{6}$")
 
 
 @pytest.fixture(scope="session")
