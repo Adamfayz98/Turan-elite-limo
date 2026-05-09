@@ -93,8 +93,12 @@ export default function ContactForm() {
                 <MapPin className="w-4 h-4 text-[#D4AF37]" />
               </div>
               <div>
-                <div className="text-xs uppercase tracking-[0.2em] text-white/50">Service Area</div>
-                <div className="text-white text-lg">San Francisco Bay Area & Northern California</div>
+                <div className="text-xs uppercase tracking-[0.2em] text-white/50">Headquarters</div>
+                <div className="text-white text-lg leading-snug">
+                  501 Broadway, #251<br />
+                  Millbrae, CA 94030
+                </div>
+                <div className="text-white/50 text-xs mt-1">Serving the SF Bay Area & Northern California</div>
               </div>
             </div>
           </div>

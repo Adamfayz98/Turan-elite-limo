@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import FleetPicker from "@/components/FleetPicker";
 import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
+import StripeBadge from "@/components/StripeBadge";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -123,6 +124,8 @@ export default function BookingForm() {
     if (!form.service_type) return toast.error("Please choose a service type.");
     if (!form.vehicle_type) return toast.error("Please select a vehicle.");
     if (!form.pickup_time) return toast.error("Please select a pickup time.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim()))
+      return toast.error("Please enter a valid email — your confirmation goes there.");
     if (form.return_trip && !form.return_location.trim())
       return toast.error("Please enter a return drop-off location.");
     setSubmitting(true);
@@ -422,11 +425,16 @@ export default function BookingForm() {
                 data-testid="booking-email"
                 required
                 type="email"
+                pattern="^[^\s@]+@[^\s@]+\.[^\s@]{2,}$"
+                title="Please enter a valid email address (e.g. name@example.com)"
                 className={cn(inputCls, "mt-2")}
                 value={form.email}
                 onChange={(e) => update("email")(e.target.value)}
                 placeholder="jane@example.com"
               />
+              <p className="text-[11px] text-white/40 mt-1.5">
+                Double-check your email — your confirmation number will be sent here.
+              </p>
             </div>
             <div>
               <Label className="text-white/80 text-xs uppercase tracking-wider">Phone</Label>
@@ -498,16 +506,18 @@ export default function BookingForm() {
 
           {/* Submit */}
           <div className="mt-10 flex flex-wrap items-center justify-between gap-4">
-            <p className="text-xs text-white/50">
+            <div className="text-xs text-white/55">
               {(() => {
                 const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
                 const isCallOnly = vq && vq.price == null;
                 if (form.vehicle_type && isCallOnly) {
-                  return "We'll call you with a custom quote — no payment required now.";
+                  return (
+                    <span>We'll call you with a custom quote — no payment required now.</span>
+                  );
                 }
-                return "Secure payment via Stripe. You'll receive a confirmation email instantly.";
+                return <StripeBadge />;
               })()}
-            </p>
+            </div>
             <Button
               type="submit"
               data-testid="booking-submit"

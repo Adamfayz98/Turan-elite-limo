@@ -24,6 +24,7 @@ from email_service import (
     send_email,
     render_confirmation_email,
     render_payment_receipt_email,
+    render_2fa_code_email,
     SUPPORT_EMAIL,
 )
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
@@ -200,6 +201,31 @@ class LoginResponse(BaseModel):
     token: str
     email: str
     role: str = "admin"
+
+
+class LoginChallengeResponse(BaseModel):
+    """Returned by /admin/login when password is correct — caller must complete 2FA."""
+    requires_2fa: bool = True
+    challenge_id: str
+    recovery_email_masked: str
+    expires_in: int = 600  # seconds
+
+
+class TwoFAVerifyRequest(BaseModel):
+    challenge_id: str
+    code: str = Field(..., min_length=6, max_length=6)
+
+
+class AccountInfo(BaseModel):
+    email: str
+    recovery_email: str
+
+
+class AccountUpdateRequest(BaseModel):
+    current_password: str
+    new_email: Optional[EmailStr] = None
+    new_password: Optional[str] = Field(None, min_length=8, max_length=128)
+    recovery_email: Optional[EmailStr] = None
 
 
 # ---------- Public routes ----------
@@ -419,19 +445,181 @@ async def create_contact(payload: ContactCreate):
     return ContactInquiry(**doc)
 
 
-# ---------- Admin auth ----------
-@api_router.post("/admin/login", response_model=LoginResponse)
-async def admin_login(payload: LoginRequest):
+# ---------- Admin auth (2FA via email) ----------
+def _mask_email(email: str) -> str:
+    """Return a privacy-safe masked email like 'a***n@gmail.com'."""
+    if not email or "@" not in email:
+        return email or ""
+    local, _, domain = email.partition("@")
+    if len(local) <= 2:
+        masked = local[0] + "*"
+    else:
+        masked = local[0] + ("*" * max(1, len(local) - 2)) + local[-1]
+    return f"{masked}@{domain}"
+
+
+def _generate_2fa_code() -> str:
+    return "".join(secrets.choice("0123456789") for _ in range(6))
+
+
+@api_router.post("/admin/login", response_model=LoginChallengeResponse)
+async def admin_login(payload: LoginRequest, request: Request):
+    """Step 1 of admin login: verify email + password, then email a 6-digit code."""
     user = await db.admin_users.find_one({"email": payload.email.lower()}, {"_id": 0})
     if not user or not verify_password(payload.password, user.get('password_hash', '')):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_access_token(user['email'])
-    return LoginResponse(token=token, email=user['email'])
+
+    recovery_email = user.get("recovery_email") or user["email"]
+    code = _generate_2fa_code()
+    challenge_id = str(uuid.uuid4())
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    await db.admin_2fa_challenges.insert_one({
+        "challenge_id": challenge_id,
+        "admin_email": user["email"],
+        "code_hash": hash_password(code),
+        "expires_at": expires_at.isoformat(),
+        "attempts": 0,
+        "used": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    user_agent = request.headers.get("user-agent", "Unknown device")
+    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+    meta = f"Requested at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} · {user_agent[:60]} · IP {client_ip[:40]}"
+
+    html = render_2fa_code_email(code, request_meta=meta)
+    sent_id = await send_email(
+        to=recovery_email,
+        subject=f"Your TuranEliteLimo admin code: {code}",
+        html=html,
+    )
+    # Always log to backend logs as a fallback if email service is down (only first 2 chars masked)
+    if not sent_id:
+        logging.getLogger(__name__).warning(
+            f"[ADMIN 2FA] Email send failed; code for {user['email']} (last 4): ****{code[-2:]}"
+        )
+
+    return LoginChallengeResponse(
+        challenge_id=challenge_id,
+        recovery_email_masked=_mask_email(recovery_email),
+    )
+
+
+@api_router.post("/admin/verify-2fa", response_model=LoginResponse)
+async def admin_verify_2fa(payload: TwoFAVerifyRequest):
+    """Step 2 of admin login: verify the 6-digit code → return JWT."""
+    challenge = await db.admin_2fa_challenges.find_one(
+        {"challenge_id": payload.challenge_id}, {"_id": 0}
+    )
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Login session expired — please sign in again.")
+    if challenge.get("used"):
+        raise HTTPException(status_code=400, detail="This code has already been used.")
+    if challenge.get("attempts", 0) >= 5:
+        raise HTTPException(status_code=429, detail="Too many incorrect attempts — please sign in again.")
+    try:
+        expires_at = datetime.fromisoformat(challenge["expires_at"])
+    except Exception:
+        expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(status_code=400, detail="Code expired — please sign in again.")
+
+    if not verify_password(payload.code, challenge["code_hash"]):
+        await db.admin_2fa_challenges.update_one(
+            {"challenge_id": payload.challenge_id},
+            {"$inc": {"attempts": 1}},
+        )
+        raise HTTPException(status_code=401, detail="Invalid code — please try again.")
+
+    await db.admin_2fa_challenges.update_one(
+        {"challenge_id": payload.challenge_id},
+        {"$set": {"used": True, "used_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    token = create_access_token(challenge["admin_email"])
+    return LoginResponse(token=token, email=challenge["admin_email"])
 
 
 @api_router.get("/admin/me")
 async def admin_me(payload: dict = Depends(require_admin)):
     return {"email": payload.get('sub'), "role": payload.get('role')}
+
+
+@api_router.get("/admin/account", response_model=AccountInfo)
+async def get_admin_account(payload: dict = Depends(require_admin)):
+    user = await db.admin_users.find_one({"email": payload.get('sub')}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return AccountInfo(
+        email=user["email"],
+        recovery_email=user.get("recovery_email") or user["email"],
+    )
+
+
+@api_router.patch("/admin/account", response_model=AccountInfo)
+async def update_admin_account(
+    payload: AccountUpdateRequest,
+    request: Request,
+    auth: dict = Depends(require_admin),
+):
+    """Self-service: update email, password, and/or recovery email. Current password required."""
+    user = await db.admin_users.find_one({"email": auth.get('sub')}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if not verify_password(payload.current_password, user.get('password_hash', '')):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    update_doc: dict = {}
+    if payload.new_email and payload.new_email.lower() != user["email"]:
+        new_email = payload.new_email.lower()
+        # Make sure no other admin already has this email
+        existing = await db.admin_users.find_one({"email": new_email})
+        if existing:
+            raise HTTPException(status_code=409, detail="That email is already in use.")
+        update_doc["email"] = new_email
+    if payload.new_password:
+        update_doc["password_hash"] = hash_password(payload.new_password)
+    if payload.recovery_email:
+        update_doc["recovery_email"] = payload.recovery_email.lower()
+    if not update_doc:
+        raise HTTPException(status_code=400, detail="No changes provided.")
+    update_doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    await db.admin_users.update_one({"email": user["email"]}, {"$set": update_doc})
+
+    # Notify both old and new recovery email about the change (security best practice)
+    final_email = update_doc.get("email", user["email"])
+    final_recovery = update_doc.get("recovery_email", user.get("recovery_email") or user["email"])
+    notify_targets = {user.get("recovery_email") or user["email"], final_recovery, final_email}
+    notify_targets = [e for e in notify_targets if e]
+    changes = []
+    if "email" in update_doc:
+        changes.append(f"sign-in email changed to <strong>{final_email}</strong>")
+    if "password_hash" in update_doc:
+        changes.append("password changed")
+    if "recovery_email" in update_doc:
+        changes.append(f"verification email changed to <strong>{final_recovery}</strong>")
+    change_html = "<ul>" + "".join(f"<li>{c}</li>" for c in changes) + "</ul>"
+    notify_html = f"""
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;padding:32px;">
+      <h2 style="color:#D4AF37;">TuranEliteLimo · Admin account changed</h2>
+      <p>The following change was just made to your admin account:</p>
+      {change_html}
+      <p style="color:#aaa;font-size:13px;">If this wasn't you, change your password immediately and contact support.</p>
+    </div>
+    """
+    for target in notify_targets:
+        await send_email(
+            to=target,
+            subject="TuranEliteLimo admin account updated",
+            html=notify_html,
+        )
+
+    refreshed = await db.admin_users.find_one({"email": final_email}, {"_id": 0})
+    return AccountInfo(
+        email=refreshed["email"],
+        recovery_email=refreshed.get("recovery_email") or refreshed["email"],
+    )
 
 
 # ---------- Confirmation # helpers ----------
@@ -994,6 +1182,11 @@ async def startup_seed():
         await db.payment_transactions.create_index("session_id", unique=True)
         await db.payment_transactions.create_index("booking_id")
         await db.settings.create_index("key", unique=True)
+        await db.admin_2fa_challenges.create_index("challenge_id", unique=True)
+        # Auto-purge expired/used 2FA challenges after 24h
+        await db.admin_2fa_challenges.create_index(
+            "created_at", expireAfterSeconds=60 * 60 * 24,
+        )
     except Exception as e:
         logger.warning(f"Index creation skipped: {e}")
 
@@ -1045,16 +1238,18 @@ async def startup_seed():
         await db.admin_users.insert_one({
             "email": email,
             "password_hash": hash_password(ADMIN_PASSWORD),
+            "recovery_email": email,
             "role": "admin",
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
         logger.info(f"Seeded admin user: {email}")
-    elif not verify_password(ADMIN_PASSWORD, existing.get('password_hash', '')):
-        await db.admin_users.update_one(
-            {"email": email},
-            {"$set": {"password_hash": hash_password(ADMIN_PASSWORD)}},
-        )
-        logger.info(f"Updated admin password: {email}")
+    else:
+        # Backfill recovery_email for legacy admin accounts
+        if not existing.get("recovery_email"):
+            await db.admin_users.update_one(
+                {"email": email},
+                {"$set": {"recovery_email": existing["email"]}},
+            )
 
 
 @app.on_event("shutdown")

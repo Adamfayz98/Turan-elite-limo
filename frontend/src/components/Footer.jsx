@@ -79,22 +79,14 @@ export default function Footer() {
         </div>
 
         <div className="md:col-span-4">
-          <h5 className="text-xs uppercase tracking-[0.3em] text-white/40">Locations</h5>
+          <h5 className="text-xs uppercase tracking-[0.3em] text-white/40">Headquarters</h5>
           <div className="mt-5 space-y-5 text-sm">
             <div className="flex items-start gap-3" data-testid="footer-address-1">
               <MapPin className="w-4 h-4 text-[#D4AF37] mt-0.5 flex-shrink-0" />
               <div className="text-white/70 leading-relaxed">
-                <span className="text-white">San Francisco</span><br />
-                Bayshore Hwy<br />
-                Burlingame, CA 94010
-              </div>
-            </div>
-            <div className="flex items-start gap-3" data-testid="footer-address-2">
-              <MapPin className="w-4 h-4 text-[#D4AF37] mt-0.5 flex-shrink-0" />
-              <div className="text-white/70 leading-relaxed">
-                <span className="text-white">East Bay</span><br />
-                San Ramon Valley Blvd<br />
-                San Ramon, CA 94583
+                <span className="text-white">TuranEliteLimo</span><br />
+                501 Broadway, #251<br />
+                Millbrae, CA 94030
               </div>
             </div>
             <div className="flex items-start gap-3 pt-2">

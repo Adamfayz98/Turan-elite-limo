@@ -190,3 +190,51 @@ def render_payment_receipt_email(booking: dict, amount: float) -> str:
   </table>
 </body></html>
 """
+
+
+
+def render_2fa_code_email(code: str, request_meta: Optional[str] = None) -> str:
+    """Branded email containing a 6-digit admin login verification code."""
+    meta_html = (
+        f'<p style="color:#666;font-size:12px;margin:18px 0 0 0;">{request_meta}</p>'
+        if request_meta else ""
+    )
+    return f"""
+<!doctype html>
+<html><body style="margin:0;background:#0a0a0a;font-family:Arial,sans-serif;color:#fff;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#111;border-radius:14px;border:1px solid #1f1f1f;">
+        <tr><td style="background:#0a0a0a;padding:28px 32px;border-bottom:1px solid #1f1f1f;">
+          <span style="font-size:22px;font-weight:700;">
+            Turan<span style="color:#D4AF37;">EliteLimo</span>
+          </span>
+        </td></tr>
+        <tr><td style="padding:32px;">
+          <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#D4AF37;margin-bottom:14px;">
+            Admin Sign-In · Verification
+          </div>
+          <h2 style="font-size:22px;margin:0 0 12px 0;">Your one-time login code</h2>
+          <p style="color:#aaa;font-size:14px;line-height:1.6;margin:0 0 20px 0;">
+            Use the code below to finish signing in to the TuranEliteLimo admin console.
+            This code is valid for <strong style="color:#fff;">10 minutes</strong> and can only be used once.
+          </p>
+          <div style="background:#0a0a0a;border:1px solid #D4AF37;border-radius:10px;padding:22px;text-align:center;">
+            <div style="font-family:'Courier New',monospace;font-size:38px;letter-spacing:14px;color:#D4AF37;font-weight:700;">
+              {code}
+            </div>
+          </div>
+          <p style="color:#888;font-size:12px;line-height:1.6;margin:22px 0 0 0;">
+            If you did <strong style="color:#fff;">not</strong> request this code, you can safely ignore this email
+            — your password is required first, so no one can use this code without it.
+          </p>
+          {meta_html}
+        </td></tr>
+        <tr><td style="padding:0 32px 24px;color:#555;font-size:11px;">
+          TuranEliteLimo · Admin security · Sent automatically. Do not reply.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""

@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import PricingTab from "@/components/admin/PricingTab";
 import SettingsTab from "@/components/admin/SettingsTab";
+import AccountTab from "@/components/admin/AccountTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
 const STATUS_COLOR = {
@@ -257,6 +258,9 @@ export default function AdminDashboard() {
             </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Settings
+            </TabsTrigger>
+            <TabsTrigger value="account" data-testid="tab-account" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Account
             </TabsTrigger>
           </TabsList>
 
@@ -559,6 +563,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="settings" className="mt-6">
             <SettingsTab />
+          </TabsContent>
+
+          <TabsContent value="account" className="mt-6">
+            <AccountTab />
           </TabsContent>
         </Tabs>
       </div>
