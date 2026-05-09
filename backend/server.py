@@ -417,9 +417,9 @@ class PricingRow(BaseModel):
 
 
 class PricingUpdate(BaseModel):
-    base: Optional[float] = None
-    per_mile: Optional[float] = None
-    minimum: Optional[float] = None
+    base: Optional[float] = Field(None, ge=0)
+    per_mile: Optional[float] = Field(None, ge=0)
+    minimum: Optional[float] = Field(None, ge=0)
     call_only: Optional[bool] = None
 
 
