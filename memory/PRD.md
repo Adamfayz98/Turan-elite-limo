@@ -38,28 +38,40 @@
 - Inquiries table with mark-read & delete actions
 - Logout
 
-### Backend APIs
-- Public: `POST /api/bookings`, `POST /api/contact`, `GET /api/options`, `GET /api/`
-- Admin: `POST /api/admin/login`, `GET /api/admin/me`, `GET /api/admin/bookings`, `PATCH /api/admin/bookings/{id}`, `DELETE /api/admin/bookings/{id}`, `GET /api/admin/contacts`, `PATCH /api/admin/contacts/{id}`, `DELETE /api/admin/contacts/{id}`, `GET /api/admin/stats`
-
-## Backlog (Future)
-### P1
-- Email/SMS notifications to admin on new bookings (SendGrid / Twilio)
-- Stripe deposit at checkout
-- Public "Get Instant Quote" calculator with mileage-based pricing
-- SEO meta tags & sitemap
-
-### P2
-- Google Maps embed in coverage section
-- Customer self-service: review/cancel their booking via tokenized link
-- Multi-language support (Spanish)
-- Driver portal (assign rides to chauffeurs)
-- Loyalty program / promo codes
-
 ## Recent Fixes (Feb 2026)
+
+### v1.3 — Admin Security & UX Polish (Feb 2026)
+- **Admin 2FA via email**: every login now requires a 6-digit code emailed to the admin's recovery address (10-min expiry, max 5 attempts). Two-step UI in `AdminLogin.jsx` (credentials → code) with resend button. New endpoints: `POST /api/admin/login` (issues challenge), `POST /api/admin/verify-2fa` (returns JWT). Stored in new `admin_2fa_challenges` collection with 24h TTL auto-purge.
+- **Admin self-service account**: new `Account` tab in dashboard lets the owner change sign-in email, password, and recovery email. `current_password` required for any change. Confirmation emails fire to old + new addresses on every change. Endpoints: `GET /api/admin/account`, `PATCH /api/admin/account`.
+- **HQ address**: replaced two old NorCal addresses with single `501 Broadway, #251 Millbrae, CA 94030` in Footer + Contact section.
+- **Strict email validation** on booking form: `type=email` + regex pattern + JS-side check before submit + helper text "Double-check your email — your confirmation number will be sent here."
+- **Stripe colored badge** (`StripeBadge.jsx`): replaced "Secure payment via Stripe…" plain text with a small pill containing a lock icon and the official Stripe wordmark on `#635BFF`.
+
+### v1.2 — UI Polish (Feb 2026)
 - z-index bumped to `z-[100]` on Shadcn `SelectContent` and `PopoverContent`, and `z-[90]` on `PlacesAutocompleteInput` dropdown so the Service Type / Pickup Time / Date / address suggestions overlay all in-flow content (fleet picker, vehicle cards) reliably.
-- `ContactForm` now console-logs the real error (status + payload) and surfaces a clearer fallback toast that includes the support phone number, so users always have a path forward if the API ever fails.
-- Verified Google Places autocomplete is working end-to-end through `/api/places/autocomplete` (5 predictions returned for "San Fr"); user-reported "no suggestions" issue could not be reproduced in current build.
+- `ContactForm` now console-logs the real error (status + payload) and surfaces a clearer fallback toast that includes the support phone number.
+- Verified Google Places autocomplete is working end-to-end through `/api/places/autocomplete` (5 predictions returned for "San Fr").
+
+## Updated Backend APIs
+- Public: `POST /api/bookings`, `POST /api/contact`, `POST /api/quote`, `GET /api/options`, `GET /api/places/autocomplete`, `POST /api/payments/checkout`, `GET /api/payments/status/{session_id}`
+- Admin auth: `POST /api/admin/login` (challenge), `POST /api/admin/verify-2fa` (JWT)
+- Admin self-service: `GET /api/admin/account`, `PATCH /api/admin/account`
+- Admin protected: `GET /api/admin/me`, `GET /api/admin/bookings`, `PATCH /api/admin/bookings/{id}`, `DELETE /api/admin/bookings/{id}`, `GET /api/admin/contacts`, `PATCH /api/admin/contacts/{id}`, `DELETE /api/admin/contacts/{id}`, `GET /api/admin/stats`, `GET/PATCH /api/admin/pricing`, `GET/PATCH /api/admin/settings`, `POST /api/admin/payments/{id}/refund`
+
+## Backlog — Confirmed P1 (next session)
+- **Review request email**: scheduled task that fires 24h after booking status flips to `completed`, emails customer with Google/Yelp review links
+- **Google reviews ingestion**: pull ★★★★★ Google Business reviews via the Place Details API and display them in the Testimonials section alongside hand-picked ones
+- **Yelp reviews ingestion**: same idea via Yelp Fusion API (requires API key from yelp.com/developers)
+- Customer self-service: review/cancel their booking via tokenized link emailed in confirmation
+- Twilio SMS notifications to driver/admin on new paid bookings
+- SEO meta tags + sitemap.xml + Google My Business schema
+- Google Maps embed showing the Millbrae HQ inside the Coverage section
+
+## Backlog — P2
+- Multi-language support (Spanish)
+- Driver portal (assign rides, mark completed)
+- Loyalty program / promo codes
+- Real-time chauffeur location sharing (post-confirmation)
 
 ## Test Credentials
-See `/app/memory/test_credentials.md`
+See `/app/memory/test_credentials.md` (includes 2FA programmatic bypass recipe for testing).
