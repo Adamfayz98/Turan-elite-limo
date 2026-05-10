@@ -338,6 +338,13 @@ class VehicleQuote(BaseModel):
     message: Optional[str] = None
 
 
+class SurchargeInfo(BaseModel):
+    zone_name: str
+    amount: float
+    reason: str
+    threshold_miles: Optional[float] = None
+
+
 class QuoteResponse(BaseModel):
     distance_miles: Optional[float] = None
     duration_minutes: Optional[float] = None
@@ -348,6 +355,7 @@ class QuoteResponse(BaseModel):
     pricing_mode: str = "distance"  # "distance" or "hourly"
     hours: Optional[int] = None
     included_miles: Optional[int] = None  # for hourly mode
+    surcharge_applied: Optional[SurchargeInfo] = None
 
 
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -451,7 +459,7 @@ async def _geocode(address: str) -> Optional[dict]:
         return None
 
 
-def _build_quotes(distance_miles: Optional[float], pricing_map: dict) -> List[VehicleQuote]:
+def _build_quotes(distance_miles: Optional[float], pricing_map: dict, surcharge: float = 0.0) -> List[VehicleQuote]:
     quotes: List[VehicleQuote] = []
     for vt in VEHICLE_TYPES:
         cfg = pricing_map.get(vt)
@@ -463,14 +471,73 @@ def _build_quotes(distance_miles: Optional[float], pricing_map: dict) -> List[Ve
             continue
         raw = float(cfg["base"]) + float(cfg["per_mile"]) * distance_miles
         price = max(raw, float(cfg["minimum"]))
+        if surcharge > 0:
+            price += surcharge
         price = round(price, 2)
         quotes.append(VehicleQuote(
             vehicle_type=vt,
             price=price,
             formatted_price=f"${int(price):,}" if price == int(price) else f"${price:,.2f}",
-            message="Estimated flat rate",
+            message="Estimated flat rate" + (" · long-distance area" if surcharge > 0 else ""),
         ))
     return quotes
+
+
+# ---------- Zone surcharges ----------
+DEFAULT_ZONES = [
+    {
+        "name": "Healdsburg & North Sonoma",
+        "keywords": ["healdsburg", "geyserville", "cloverdale", "windsor"],
+        "surcharge_amount": 65.0,
+        "short_distance_threshold_miles": 20.0,
+        "reason": "Healdsburg & North Sonoma are outside our usual chauffeur radius — short trips in this area require us to position a driver from Millbrae, so a long-distance area fee applies.",
+        "enabled": True,
+    },
+    {
+        "name": "Calistoga & Upper Napa",
+        "keywords": ["calistoga", "angwin", "deer park", "pope valley", "saint helena", "st. helena", "st helena"],
+        "surcharge_amount": 55.0,
+        "short_distance_threshold_miles": 20.0,
+        "reason": "Calistoga & Upper Napa Valley are 60+ miles from our base. Short rides here include a positioning fee so we can keep service standards high.",
+        "enabled": True,
+    },
+]
+
+
+def _address_matches_zone(address: str, zone: dict) -> bool:
+    """Case-insensitive keyword check against the address string."""
+    if not address:
+        return False
+    a = address.lower()
+    return any(kw.lower() in a for kw in zone.get("keywords", []))
+
+
+async def _load_zones() -> List[dict]:
+    cursor = db.zone_surcharges.find({}, {"_id": 0})
+    return await cursor.to_list(100)
+
+
+def _select_surcharge_zone(
+    pickup_addr: str,
+    dropoff_addr: str,
+    distance_miles: Optional[float],
+    zones: List[dict],
+) -> Optional[dict]:
+    """Return the FIRST matching enabled zone where pickup or drop-off matches
+    AND the trip distance falls below that zone's threshold. None otherwise."""
+    if distance_miles is None:
+        return None
+    for z in zones:
+        if not z.get("enabled", True):
+            continue
+        threshold = float(z.get("short_distance_threshold_miles") or 0)
+        if threshold <= 0:
+            continue
+        if distance_miles >= threshold:
+            continue
+        if _address_matches_zone(pickup_addr, z) or _address_matches_zone(dropoff_addr, z):
+            return z
+    return None
 
 
 def _build_hourly_quotes(hours: int, pricing_map: dict) -> List[VehicleQuote]:
@@ -522,13 +589,32 @@ async def quote_ride(payload: QuoteRequest):
     miles = _haversine_miles(pickup["lat"], pickup["lon"], dropoff["lat"], dropoff["lon"])
     miles = round(miles, 1)
     duration_minutes = round((miles * 1.4) / 32.0 * 60.0 + 8.0, 0)
+
+    # Zone surcharge: if pickup/dropoff is in a configured "long-distance" zone
+    # AND trip distance is below that zone's threshold, add a flat surcharge.
+    zones = await _load_zones()
+    matched_zone = _select_surcharge_zone(
+        payload.pickup_location, payload.dropoff_location, miles, zones,
+    )
+    surcharge_amt = float(matched_zone["surcharge_amount"]) if matched_zone else 0.0
+    surcharge_info = (
+        SurchargeInfo(
+            zone_name=matched_zone["name"],
+            amount=surcharge_amt,
+            reason=matched_zone.get("reason", ""),
+            threshold_miles=float(matched_zone.get("short_distance_threshold_miles") or 0) or None,
+        )
+        if matched_zone else None
+    )
+
     return QuoteResponse(
         distance_miles=miles,
         duration_minutes=duration_minutes,
         pickup_resolved=pickup.get("display"),
         dropoff_resolved=dropoff.get("display"),
-        quotes=_build_quotes(miles, pricing_map),
+        quotes=_build_quotes(miles, pricing_map, surcharge=surcharge_amt),
         fallback=False,
+        surcharge_applied=surcharge_info,
     )
 
 
@@ -908,6 +994,13 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
         return None
     miles = _haversine_miles(pickup["lat"], pickup["lon"], dropoff["lat"], dropoff["lon"])
     price = max(float(cfg["base"]) + float(cfg["per_mile"]) * miles, float(cfg["minimum"]))
+    # Apply zone surcharge if applicable (same rule as live /quote endpoint)
+    zones = await _load_zones()
+    matched_zone = _select_surcharge_zone(
+        booking["pickup_location"], booking["dropoff_location"], round(miles, 1), zones,
+    )
+    if matched_zone:
+        price += float(matched_zone["surcharge_amount"])
     return round(price, 2)
 
 
@@ -1341,6 +1434,95 @@ async def update_pricing(
     return PricingRow(**result)
 
 
+# ---------- Admin protected: zone surcharges ----------
+class ZoneRow(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    name: str = Field(..., min_length=2, max_length=80)
+    keywords: List[str] = Field(default_factory=list)
+    surcharge_amount: float = Field(0.0, ge=0)
+    short_distance_threshold_miles: float = Field(20.0, ge=0, le=200)
+    reason: str = Field("", max_length=600)
+    enabled: bool = True
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ZoneCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=80)
+    keywords: List[str] = Field(default_factory=list)
+    surcharge_amount: float = Field(0.0, ge=0)
+    short_distance_threshold_miles: float = Field(20.0, ge=0, le=200)
+    reason: str = Field("", max_length=600)
+    enabled: bool = True
+
+
+class ZoneUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=2, max_length=80)
+    keywords: Optional[List[str]] = None
+    surcharge_amount: Optional[float] = Field(None, ge=0)
+    short_distance_threshold_miles: Optional[float] = Field(None, ge=0, le=200)
+    reason: Optional[str] = Field(None, max_length=600)
+    enabled: Optional[bool] = None
+
+
+@api_router.get("/admin/zones", response_model=List[ZoneRow])
+async def list_zones(_: dict = Depends(require_admin)):
+    rows = await _load_zones()
+    rows.sort(key=lambda z: z.get("name", "").lower())
+    return [ZoneRow(**r) for r in rows]
+
+
+@api_router.post("/admin/zones", response_model=ZoneRow)
+async def create_zone(payload: ZoneCreate, _: dict = Depends(require_admin)):
+    existing = await db.zone_surcharges.find_one({"name": payload.name.strip()})
+    if existing:
+        raise HTTPException(status_code=409, detail="A zone with that name already exists.")
+    doc = payload.model_dump()
+    doc["name"] = payload.name.strip()
+    doc["keywords"] = [k.strip().lower() for k in (payload.keywords or []) if k.strip()]
+    doc["id"] = str(uuid.uuid4())
+    doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    doc["updated_at"] = doc["created_at"]
+    await db.zone_surcharges.insert_one(doc.copy())
+    return ZoneRow(**doc)
+
+
+@api_router.patch("/admin/zones/{zone_id}", response_model=ZoneRow)
+async def update_zone(zone_id: str, payload: ZoneUpdate, _: dict = Depends(require_admin)):
+    update_doc = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "keywords" in update_doc:
+        update_doc["keywords"] = [k.strip().lower() for k in update_doc["keywords"] if k.strip()]
+    if "name" in update_doc:
+        update_doc["name"] = update_doc["name"].strip()
+        # Reject name collision with another zone
+        clash = await db.zone_surcharges.find_one(
+            {"name": update_doc["name"], "id": {"$ne": zone_id}}
+        )
+        if clash:
+            raise HTTPException(status_code=409, detail="Another zone already has that name.")
+    if not update_doc:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    update_doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+    result = await db.zone_surcharges.find_one_and_update(
+        {"id": zone_id},
+        {"$set": update_doc},
+        return_document=True,
+        projection={"_id": 0},
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Zone not found")
+    return ZoneRow(**result)
+
+
+@api_router.delete("/admin/zones/{zone_id}")
+async def delete_zone(zone_id: str, _: dict = Depends(require_admin)):
+    res = await db.zone_surcharges.delete_one({"id": zone_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Zone not found")
+    return {"ok": True}
+
+
 # ---------- Admin protected: contact inquiries ----------
 @api_router.get("/admin/contacts", response_model=List[ContactInquiry])
 async def list_contacts(_: dict = Depends(require_admin)):
@@ -1419,6 +1601,7 @@ async def startup_seed():
         await db.admin_2fa_challenges.create_index(
             "created_at", expireAfterSeconds=60 * 60 * 24,
         )
+        await db.zone_surcharges.create_index("name", unique=True)
     except Exception as e:
         logger.warning(f"Index creation skipped: {e}")
 
@@ -1458,6 +1641,20 @@ async def startup_seed():
                     "vehicle_type": vt,
                     **defaults,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+            upsert=True,
+        )
+
+    # Seed zone surcharges (idempotent — keyed by name)
+    for zone in DEFAULT_ZONES:
+        await db.zone_surcharges.update_one(
+            {"name": zone["name"]},
+            {
+                "$setOnInsert": {
+                    "id": str(uuid.uuid4()),
+                    **zone,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                 }
             },
             upsert=True,

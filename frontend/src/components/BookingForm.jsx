@@ -489,6 +489,26 @@ export default function BookingForm() {
             </div>
           )}
 
+          {/* Surcharge explainer banner — appears when a long-distance area zone matches */}
+          {quote?.surcharge_applied && (
+            <div
+              data-testid="surcharge-banner"
+              className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/5 px-5 py-4 flex items-start gap-3"
+            >
+              <div className="w-7 h-7 rounded-full bg-amber-400/15 border border-amber-400/40 flex items-center justify-center flex-shrink-0">
+                <span className="text-amber-300 text-sm font-bold">i</span>
+              </div>
+              <div className="flex-1 text-sm">
+                <div className="text-amber-200 font-medium" data-testid="surcharge-zone-name">
+                  Long-distance area fee · +${Number(quote.surcharge_applied.amount).toFixed(0)} ({quote.surcharge_applied.zone_name})
+                </div>
+                <p className="text-white/65 mt-1 leading-relaxed" data-testid="surcharge-reason">
+                  {quote.surcharge_applied.reason}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Divider */}
           <div className="my-12 gold-divider" />
 
