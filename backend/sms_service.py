@@ -60,10 +60,23 @@ async def send_sms(to: str, body: str) -> Optional[str]:
         return None
 
 
+def _fmt_12h(time24: str) -> str:
+    if not time24 or ":" not in time24:
+        return time24 or ""
+    try:
+        h, m = time24.split(":")[:2]
+        h = int(h); m = int(m)
+    except Exception:
+        return time24
+    meridiem = "PM" if h >= 12 else "AM"
+    h12 = h % 12 or 12
+    return f"{h12}:{m:02d} {meridiem}"
+
+
 def render_new_paid_booking_sms(booking: dict) -> str:
     cn = booking.get("confirmation_number") or booking.get("id", "")[:8]
     name = booking.get("full_name") or "Customer"
-    when = f"{booking.get('pickup_date','')} {booking.get('pickup_time','')}".strip()
+    when = f"{booking.get('pickup_date','')} {_fmt_12h(booking.get('pickup_time',''))}".strip()
     pickup = (booking.get("pickup_location") or "")[:60]
     dropoff = (booking.get("dropoff_location") or "")[:60]
     vehicle = booking.get("vehicle_type") or ""
@@ -83,7 +96,7 @@ def render_new_paid_booking_sms(booking: dict) -> str:
 def render_cancellation_sms(booking: dict, requested: bool = False) -> str:
     cn = booking.get("confirmation_number") or booking.get("id", "")[:8]
     name = booking.get("full_name") or "Customer"
-    when = f"{booking.get('pickup_date','')} {booking.get('pickup_time','')}".strip()
+    when = f"{booking.get('pickup_date','')} {_fmt_12h(booking.get('pickup_time',''))}".strip()
     label = "CANCELLATION REQUESTED (paid — review refund)" if requested else "CUSTOMER CANCELLED"
     return (
         f"TuranEliteLimo · {label}\n"

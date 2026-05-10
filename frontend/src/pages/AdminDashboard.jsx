@@ -9,13 +9,16 @@ import {
   LogOut,
   Mail,
   MessageSquare,
+  Search,
   Trash2,
   Users,
+  X,
   XCircle,
   Loader2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -35,6 +38,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import Logo from "@/components/Logo";
+import { formatTime12h } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -82,6 +86,7 @@ export default function AdminDashboard() {
   const nav = useNavigate();
   const [loading, setLoading] = useState(true);
   const [bookings, setBookings] = useState([]);
+  const [bookingsSearch, setBookingsSearch] = useState("");
   const [contacts, setContacts] = useState([]);
   const [stats, setStats] = useState(null);
   const adminEmail = localStorage.getItem("turon_admin_email") || "admin";
@@ -152,6 +157,26 @@ export default function AdminDashboard() {
       toast.error(formatApiErrorDetail(err.response?.data?.detail));
     }
   };
+
+  // Filter bookings by confirmation number, name, email, or phone
+  const filteredBookings = (() => {
+    const q = bookingsSearch.trim().toLowerCase();
+    if (!q) return bookings;
+    return bookings.filter((b) => {
+      const haystack = [
+        b.confirmation_number,
+        b.full_name,
+        b.email,
+        b.phone,
+        b.pickup_location,
+        b.dropoff_location,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  })();
 
   const markContact = async (id, status) => {
     try {
@@ -265,6 +290,35 @@ export default function AdminDashboard() {
           </TabsList>
 
           <TabsContent value="bookings" className="mt-6">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
+                <Input
+                  data-testid="bookings-search"
+                  value={bookingsSearch}
+                  onChange={(e) => setBookingsSearch(e.target.value)}
+                  placeholder="Search by confirmation #, name, email or phone…"
+                  className="pl-10 pr-10 bg-[#0E0E0E] border-[#27272A] text-white placeholder:text-white/40 h-11 focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37]"
+                />
+                {bookingsSearch && (
+                  <button
+                    type="button"
+                    data-testid="bookings-search-clear"
+                    onClick={() => setBookingsSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors"
+                    aria-label="Clear search"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              {bookingsSearch && (
+                <span className="text-xs text-white/55" data-testid="bookings-search-count">
+                  {filteredBookings.length} of {bookings.length}
+                </span>
+              )}
+            </div>
+
             <div className="rounded-2xl border border-[#1F1F1F] bg-[#0A0A0A] overflow-hidden">
               <Table>
                 <TableHeader>
@@ -281,14 +335,16 @@ export default function AdminDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {bookings.length === 0 && (
+                  {filteredBookings.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={9} className="text-center py-16 text-white/40">
-                        No bookings yet.
+                        {bookings.length === 0
+                          ? "No bookings yet."
+                          : `No bookings match "${bookingsSearch}".`}
                       </TableCell>
                     </TableRow>
                   )}
-                  {bookings.map((b) => (
+                  {filteredBookings.map((b) => (
                     <TableRow
                       key={b.id}
                       data-testid={`booking-row-${b.id}`}
@@ -309,7 +365,7 @@ export default function AdminDashboard() {
                       </TableCell>
                       <TableCell className="text-white/80">
                         {b.pickup_date}
-                        <div className="text-xs text-white/50">{b.pickup_time}</div>
+                        <div className="text-xs text-white/50">{formatTime12h(b.pickup_time) || b.pickup_time}</div>
                       </TableCell>
                       <TableCell className="text-white/80 max-w-[250px]">
                         <div className="truncate">{b.pickup_location}</div>

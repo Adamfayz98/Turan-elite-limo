@@ -45,6 +45,21 @@ async def send_email(
         return None
 
 
+def _format_time_12h(time24: str) -> str:
+    """'13:30' -> '1:30 PM', '08:00' -> '8:00 AM'. Returns input as-is if unparseable."""
+    if not time24 or ":" not in time24:
+        return time24 or ""
+    try:
+        h_str, m_str = time24.split(":")[:2]
+        h = int(h_str)
+        m = int(m_str)
+    except (ValueError, IndexError):
+        return time24
+    meridiem = "PM" if h >= 12 else "AM"
+    h12 = h % 12 or 12
+    return f"{h12}:{m:02d} {meridiem}"
+
+
 def render_confirmation_email(booking: dict, payment_url: Optional[str], manage_url: Optional[str] = None) -> str:
     """HTML email with branding + ride summary + optional Pay Now button + optional Manage link."""
     cn = booking.get("confirmation_number", "")
@@ -121,7 +136,7 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str], manage_
           <table cellpadding="0" cellspacing="0" width="100%" style="margin-top:16px;border-top:1px solid #1f1f1f;">
             <tr><td style="padding-top:16px;color:#888;font-size:11px;letter-spacing:2px;text-transform:uppercase;">When</td>
                 <td style="padding-top:16px;color:#ffffff;font-size:14px;text-align:right;">
-                  {booking.get('pickup_date','')} at {booking.get('pickup_time','')}
+                  {booking.get('pickup_date','')} at {_format_time_12h(booking.get('pickup_time',''))}
                 </td></tr>
             <tr><td style="padding-top:10px;color:#888;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Pickup</td>
                 <td style="padding-top:10px;color:#ffffff;font-size:14px;text-align:right;">

@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 10: 12-hour time UI (dual-select pickup time + meridiem) and admin bookings search. Backend: 32/32 pytest cases PASS in test_iteration10.py covering email/sms 12h helpers (parametric: 00:00->12:00 AM, 12:00->12:00 PM, 13:30->1:30 PM, 23:45->11:45 PM), render_confirmation_email + render_new_paid_booking_sms + render_cancellation_sms produce 12h output and contain no raw 24h, /api/bookings POST regression accepts 24h wire format (00:00, 12:00, 13:30, 23:45, 08:05 — all stored verbatim), missing pickup_time rejected (422), /bookings/manage/{token} GET+cancel flow, /api/quote distance + hourly modes, /api/options, /api/contact, /api/places/autocomplete, /api/admin/pricing GET+PATCH hourly_rate, /api/reviews/summary empty when GOOGLE_PLACE_ID unset. Frontend (Playwright on public URL): BookingForm renders data-testid='booking-time' with 12h options 1:00..12:45 (verified NO leading zero — no '01:..'), data-testid='booking-time-meridiem' has AM/PM. Selecting 1:30 + PM works. AdminDashboard: data-testid='bookings-search' visible at top of bookings tab, count chip 'X of Y' renders only when query non-empty, empty-state message 'No bookings match \"<q>\".' fires correctly, clear button clears input. Filters verified by name (Alice -> 1/27), confirmation number (TEL-IT102 -> 1/27), email substring (test10search1 -> 1/27), pickup_location (SFO Airport -> 10/27). Admin table renders pickup_time as 12h ('1:30 PM', '8:45 AM') and contains no raw '13:30'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/test_reports/pytest/iter10_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "BookingForm.jsx:42 to24h() correctly handles 12-AM as h%12=0 then no PM offset -> '00:MM'; 12-PM as h%12=0 + 12 -> '12:MM'. Verified live: '12:00'+'AM' -> '00:00' wire (test_post_bookings_accepts_various_24h_times[00:00] passes when paired with the form path).",
+    "BookingForm.jsx:153 toast 'Please select a pickup time (and AM/PM)' fires only on empty pickup_time. Note: to24h() returns '' if either time12 OR meridiem is empty, so form still validates correctly when user picks only the time but not AM/PM (initial meridiem default 'AM' actually means selecting any time auto-uses AM — minor UX consideration: ensure default really is AM and not empty so partial selection still produces a wire value).",
+    "AdminDashboard.jsx:163 filteredBookings derives client-side via toLowerCase().includes() across confirmation_number/full_name/email/phone/pickup_location/dropoff_location — case-insensitive substring match. Solid.",
+    "AdminDashboard.jsx:368 pickup_time rendered via formatTime12h(b.pickup_time) || b.pickup_time — graceful fallback if helper returns empty. Verified: shows '1:30 PM' / '8:45 AM' in admin table, no raw '13:30'.",
+    "ManageBooking.jsx:182 same formatTime12h usage in the customer-facing manage page. Consistent.",
+    "email_service._format_time_12h() and sms_service._fmt_12h() are duplicated implementations — both produce identical output but live in two files. Minor DRY violation; could be extracted into a shared util in /app/backend, but acceptable for ~10-line helpers.",
+    "/api/bookings POST does NOT generate confirmation_number or manage_token (those are created later in the Stripe payment flow at server.py:1199-1202). This is by design but means test fixtures that create bookings directly via API need to manually assign manage_token to exercise the manage cancel flow — documented in test_iteration10.py."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration10.py"
+  ],
+  "success_rate": {
+    "backend": "100% (32/32)",
+    "frontend": "100% (booking dual-select + admin search-by-name/cn/email/pickup + clear + empty-state + 12h render all verified)"
+  },
+  "test_credentials": "Admin: turonlimosupport@gmail.com / TuronAdmin@2025 — 2FA programmatic bypass per /app/memory/test_credentials.md (insert challenge into admin_2fa_challenges with bcrypt-hashed code '123456').",
+  "seed_data_creation": "3 search-target bookings (id prefix 'test10-search-', confirmation_numbers TEL-IT100/IT101/IT102) seeded into MongoDB to validate admin search filters; ALL deleted post-test via cleanup script. Per-test bookings (TEST_iter10 prefix) created and deleted within tests. Executive Sedan hourly_rate temporarily bumped +1.0 during admin pricing test and RESTORED to original.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter10 spec fully verified. test_iteration10.py is self-contained, uses 2FA bypass and unit-tests the 12h helpers directly via import (sys.path.insert /app/backend). The wire contract is preserved: backend stores/returns 'HH:MM' 24h verbatim, all rendering surfaces (admin table, manage page, confirmation email, SMS templates) use formatTime12h / _format_time_12h / _fmt_12h helpers to render 12h with AM/PM. Note for next agent: /api/bookings does NOT auto-generate confirmation_number or manage_token (Stripe payment flow does); inject manually in DB if needed for manage-flow tests.",
+  "rca of the issue": "N/A — no bugs found. Initial test run had 4 self-inflicted assertion failures (wrong field names against schema: ContactCreate uses 'name' not 'full_name'; QuoteRequest pickup/dropoff_location min_length=2; /bookings POST does not auto-generate confirmation_number/manage_token; POST /bookings/manage/{token}/cancel requires JSON body for ManageCancelRequest). All 4 fixed in test file (not in production code) and re-run passes 32/32."
+}

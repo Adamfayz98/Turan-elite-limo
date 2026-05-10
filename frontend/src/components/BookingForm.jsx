@@ -27,17 +27,34 @@ import { cn } from "@/lib/utils";
 const inputCls =
   "bg-[#0E0E0E] border-[#27272A] text-white placeholder:text-white/40 focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] h-11";
 
-const TIME_SLOTS = (() => {
+// 12-hour time slots in 15-min increments — wire format stays HH:MM (24h)
+// for backend compatibility; UI splits into time + AM/PM dropdowns.
+const TIME_SLOTS_12H = (() => {
   const out = [];
-  for (let h = 0; h < 24; h++) {
-    for (let m of [0, 15, 30, 45]) {
-      const hh = String(h).padStart(2, "0");
-      const mm = String(m).padStart(2, "0");
-      out.push(`${hh}:${mm}`);
+  for (let h = 1; h <= 12; h++) {
+    for (const m of [0, 15, 30, 45]) {
+      out.push(`${h}:${String(m).padStart(2, "0")}`);
     }
   }
   return out;
 })();
+
+function to24h(time12, meridiem) {
+  if (!time12 || !meridiem) return "";
+  const [h, m] = time12.split(":").map(Number);
+  let hh = h % 12;
+  if (meridiem === "PM") hh += 12;
+  return `${String(hh).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function from24h(time24) {
+  if (!time24 || !time24.includes(":")) return { time12: "", meridiem: "AM" };
+  const [h24, m] = time24.split(":").map(Number);
+  const meridiem = h24 >= 12 ? "PM" : "AM";
+  let h12 = h24 % 12;
+  if (h12 === 0) h12 = 12;
+  return { time12: `${h12}:${String(m).padStart(2, "0")}`, meridiem };
+}
 
 const initialForm = {
   full_name: "",
@@ -133,7 +150,7 @@ export default function BookingForm() {
     if (!date) return toast.error("Please pick a date.");
     if (!form.service_type) return toast.error("Please choose a service type.");
     if (!form.vehicle_type) return toast.error("Please select a vehicle.");
-    if (!form.pickup_time) return toast.error("Please select a pickup time.");
+    if (!form.pickup_time) return toast.error("Please select a pickup time (and AM/PM).");
     if (form.service_type === "Hourly Chauffeur") {
       const h = Number(form.hours);
       if (!h || h < 2 || h > 24)
@@ -314,21 +331,46 @@ export default function BookingForm() {
 
             <div>
               <Label className="text-white/80 text-xs uppercase tracking-wider">Pickup time</Label>
-              <Select value={form.pickup_time} onValueChange={update("pickup_time")}>
-                <SelectTrigger
-                  data-testid="booking-time"
-                  className={cn(inputCls, "mt-2")}
+              <div className="mt-2 flex gap-2">
+                <Select
+                  value={from24h(form.pickup_time).time12}
+                  onValueChange={(v) =>
+                    update("pickup_time")(to24h(v, from24h(form.pickup_time).meridiem || "AM"))
+                  }
                 >
-                  <SelectValue placeholder="Select time" />
-                </SelectTrigger>
-                <SelectContent className="bg-[#111111] border-[#27272A] text-white max-h-64">
-                  {TIME_SLOTS.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                  <SelectTrigger
+                    data-testid="booking-time"
+                    className={cn(inputCls, "flex-1")}
+                  >
+                    <SelectValue placeholder="Time" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#111111] border-[#27272A] text-white max-h-64">
+                    {TIME_SLOTS_12H.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={from24h(form.pickup_time).meridiem}
+                  onValueChange={(v) => {
+                    const t12 = from24h(form.pickup_time).time12 || "12:00";
+                    update("pickup_time")(to24h(t12, v));
+                  }}
+                >
+                  <SelectTrigger
+                    data-testid="booking-time-meridiem"
+                    className={cn(inputCls, "w-[88px] flex-shrink-0")}
+                  >
+                    <SelectValue placeholder="AM" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#111111] border-[#27272A] text-white">
+                    <SelectItem value="AM">AM</SelectItem>
+                    <SelectItem value="PM">PM</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div>

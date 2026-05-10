@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import Logo from "@/components/Logo";
 import { api, formatApiErrorDetail } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, formatTime12h } from "@/lib/utils";
 
 function StatusPill({ status, paymentStatus }) {
   const map = {
@@ -179,7 +179,7 @@ export default function ManageBooking() {
           </div>
 
           <div className="mt-2">
-            <Row icon={CalendarDays} label="When" value={`${b.pickup_date} at ${b.pickup_time}`} />
+            <Row icon={CalendarDays} label="When" value={`${b.pickup_date} at ${formatTime12h(b.pickup_time) || b.pickup_time}`} />
             <Row icon={MapPin} label="Pickup" value={b.pickup_location} />
             <Row icon={MapPin} label="Drop-off" value={b.dropoff_location} />
             {b.return_trip && (
