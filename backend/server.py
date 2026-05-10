@@ -360,14 +360,61 @@ def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
     return 2 * R * math.asin(math.sqrt(a))
 
 
+async def _geocode_google(address: str) -> Optional[dict]:
+    """Geocode via Google Maps Geocoding API. Primary geocoder."""
+    if not GOOGLE_MAPS_API_KEY:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as cli:
+            r = await cli.get(
+                "https://maps.googleapis.com/maps/api/geocode/json",
+                params={
+                    "address": address,
+                    "key": GOOGLE_MAPS_API_KEY,
+                    "region": "us",
+                    # Bias to SF Bay Area
+                    "bounds": "36.8,-123.6|38.9,-121.2",
+                },
+            )
+            if r.status_code != 200:
+                return None
+            data = r.json()
+        if data.get("status") != "OK" or not data.get("results"):
+            return None
+        top = data["results"][0]
+        loc = top["geometry"]["location"]
+        return {
+            "lat": float(loc["lat"]),
+            "lon": float(loc["lng"]),
+            "display": top.get("formatted_address", address),
+        }
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Google geocode failed for '{address}': {e}")
+        return None
+
+
 async def _geocode(address: str) -> Optional[dict]:
-    """Geocode via Nominatim with MongoDB cache (30-day TTL).
-    Tries the raw address first, then with ', California' appended for partial Bay-Area names."""
+    """Geocode with MongoDB cache (30-day TTL).
+    Primary: Google Maps Geocoding API. Fallback: OpenStreetMap Nominatim
+    (used only if Google is unavailable/unconfigured)."""
     key = address.strip().lower()
     cached = await db.geocode_cache.find_one({"key": key}, {"_id": 0})
     if cached and "lat" in cached and "lon" in cached:
         return cached
 
+    # Primary: Google
+    g = await _geocode_google(address)
+    if g:
+        doc = {
+            "key": key,
+            **g,
+            "source": "google",
+            "cached_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.geocode_cache.update_one({"key": key}, {"$set": doc}, upsert=True)
+        return doc
+
+    # Fallback: Nominatim (only when Google unavailable)
     candidates = [address]
     lower = address.lower()
     if "california" not in lower and " ca" not in lower and "usa" not in lower:
@@ -393,13 +440,14 @@ async def _geocode(address: str) -> Optional[dict]:
                         "lat": lat,
                         "lon": lon,
                         "display": display,
+                        "source": "nominatim",
                         "cached_at": datetime.now(timezone.utc).isoformat(),
                     }
                     await db.geocode_cache.update_one({"key": key}, {"$set": doc}, upsert=True)
                     return doc
         return None
     except Exception as e:
-        logging.getLogger(__name__).warning(f"Geocode failed for '{address}': {e}")
+        logging.getLogger(__name__).warning(f"Geocode fallback failed for '{address}': {e}")
         return None
 
 
