@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Menu, X, Phone, MessageCircle } from "lucide-react";
+import { Menu, X, Phone, MessageCircle, Star } from "lucide-react";
 import Logo from "@/components/Logo";
+
+import { api } from "@/lib/api";
 
 const NAV_LINKS = [
   { label: "Fleet", href: "#fleet" },
@@ -14,11 +16,27 @@ const NAV_LINKS = [
 export default function Navbar() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [trust, setTrust] = useState(null); // { rating, count, url } from Google
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 30);
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/reviews/summary")
+      .then((r) => {
+        if (cancelled) return;
+        const g = r.data?.google;
+        if (g && g.rating && g.count) setTrust(g);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -50,6 +68,24 @@ export default function Navbar() {
         </div>
 
         <div className="hidden lg:flex items-center gap-3">
+          {trust && (
+            <a
+              href={trust.url || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="nav-google-trust"
+              title={`${trust.rating} stars from ${trust.count.toLocaleString()} Google reviews`}
+              className="flex items-center gap-2 pl-3 pr-3.5 py-1.5 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-[#D4AF37]/40 transition-all"
+            >
+              <Star className="w-3.5 h-3.5 fill-[#D4AF37] text-[#D4AF37]" />
+              <span className="text-sm text-white/90 font-medium tabular-nums">
+                {trust.rating}
+              </span>
+              <span className="text-xs text-white/50">
+                · {trust.count.toLocaleString()} reviews
+              </span>
+            </a>
+          )}
           <a
             href="sms:+16504100687"
             data-testid="nav-text-button"

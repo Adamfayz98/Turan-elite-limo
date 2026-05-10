@@ -466,6 +466,13 @@ async def public_reviews():
     return await reviews_service.get_reviews()
 
 
+@api_router.get("/reviews/summary")
+async def reviews_summary():
+    """Aggregate rating + count from Google + Yelp for the navbar trust badge.
+    Empty dict for any provider that isn't configured (frontend hides the badge)."""
+    return await reviews_service.get_summary()
+
+
 # ---------- Customer self-service (tokenized) ----------
 class ManageCancelRequest(BaseModel):
     reason: Optional[str] = ""

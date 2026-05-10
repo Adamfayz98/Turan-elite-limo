@@ -138,6 +138,73 @@ async def get_reviews(force_refresh: bool = False) -> dict:
     return payload
 
 
+async def _fetch_google_summary() -> dict:
+    """Pull just the rating + total review count from Google Place Details."""
+    api_key = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()
+    place_id = os.environ.get("GOOGLE_PLACE_ID", "").strip()
+    if not api_key or not place_id:
+        return {}
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as cli:
+            r = await cli.get(
+                "https://maps.googleapis.com/maps/api/place/details/json",
+                params={
+                    "place_id": place_id,
+                    "fields": "rating,user_ratings_total,url,name",
+                    "key": api_key,
+                },
+            )
+            data = r.json()
+    except Exception as e:
+        logger.warning(f"Google summary fetch failed: {e}")
+        return {}
+    res = data.get("result") or {}
+    rating = res.get("rating")
+    count = res.get("user_ratings_total")
+    if rating is None or count is None:
+        return {}
+    return {
+        "rating": round(float(rating), 1),
+        "count": int(count),
+        "url": res.get("url") or "",
+        "name": res.get("name") or "TuranEliteLimo",
+    }
+
+
+async def _fetch_yelp_summary() -> dict:
+    api_key = os.environ.get("YELP_API_KEY", "").strip()
+    business_id = os.environ.get("YELP_BUSINESS_ID", "").strip()
+    if not api_key or not business_id:
+        return {}
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as cli:
+            r = await cli.get(
+                f"https://api.yelp.com/v3/businesses/{business_id}",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            data = r.json()
+    except Exception as e:
+        logger.warning(f"Yelp summary fetch failed: {e}")
+        return {}
+    rating = data.get("rating")
+    count = data.get("review_count")
+    if rating is None or count is None:
+        return {}
+    return {
+        "rating": round(float(rating), 1),
+        "count": int(count),
+        "url": data.get("url") or "",
+        "name": data.get("name") or "TuranEliteLimo",
+    }
+
+
+async def get_summary() -> dict:
+    """Lightweight aggregate ratings (used by the navbar trust badge)."""
+    google = await _fetch_google_summary()
+    yelp = await _fetch_yelp_summary()
+    return {"google": google, "yelp": yelp}
+
+
 def review_links() -> dict:
     """Public-facing links customers click in the post-ride review-request email."""
     place_id = os.environ.get("GOOGLE_PLACE_ID", "").strip()
