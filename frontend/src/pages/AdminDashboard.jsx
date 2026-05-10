@@ -299,7 +299,14 @@ export default function AdminDashboard() {
                         <div className="text-xs text-white/50">{b.email}</div>
                         <div className="text-xs text-white/50">{b.phone}</div>
                       </TableCell>
-                      <TableCell className="text-white/80">{b.service_type}</TableCell>
+                      <TableCell className="text-white/80">
+                        {b.service_type}
+                        {b.hours ? (
+                          <div className="text-[10px] text-[#D4AF37] uppercase tracking-wider mt-1">
+                            {b.hours} hr{b.hours > 1 ? "s" : ""}
+                          </div>
+                        ) : null}
+                      </TableCell>
                       <TableCell className="text-white/80">
                         {b.pickup_date}
                         <div className="text-xs text-white/50">{b.pickup_time}</div>

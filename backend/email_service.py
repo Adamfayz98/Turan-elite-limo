@@ -63,6 +63,8 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str]) -> str:
             </td></tr>
         """
     extras = []
+    if booking.get("hours"):
+        extras.append(f"Duration: {booking['hours']} hour{'s' if booking['hours'] > 1 else ''} (hourly chauffeur)")
     if booking.get("child_seat"):
         extras.append("Child seat: requested")
     if booking.get("luggage_count"):

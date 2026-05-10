@@ -54,6 +54,7 @@ const initialForm = {
   return_location: "",
   vehicle_type: "",
   notes: "",
+  hours: "",
 };
 
 function SectionHead({ icon: Icon, step, title, sub }) {
@@ -124,6 +125,11 @@ export default function BookingForm() {
     if (!form.service_type) return toast.error("Please choose a service type.");
     if (!form.vehicle_type) return toast.error("Please select a vehicle.");
     if (!form.pickup_time) return toast.error("Please select a pickup time.");
+    if (form.service_type === "Hourly Chauffeur") {
+      const h = Number(form.hours);
+      if (!h || h < 1 || h > 24)
+        return toast.error("Please tell us how many hours you need (1–24).");
+    }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim()))
       return toast.error("Please enter a valid email — your confirmation goes there.");
     if (form.return_trip && !form.return_location.trim())
@@ -137,6 +143,10 @@ export default function BookingForm() {
         additional_stops: stops.map((s) => s.trim()).filter(Boolean),
         return_location: form.return_trip ? form.return_location : "",
         pickup_date: format(date, "yyyy-MM-dd"),
+        hours:
+          form.service_type === "Hourly Chauffeur" && form.hours
+            ? Number(form.hours)
+            : null,
       };
       const { data: booking } = await api.post("/bookings", payload);
 
@@ -345,6 +355,30 @@ export default function BookingForm() {
                 <span className="block text-xs text-white/50">Different drop-off OK</span>
               </span>
             </label>
+
+            {form.service_type === "Hourly Chauffeur" && (
+              <div className="md:col-span-2" data-testid="booking-hours-wrap">
+                <Label className="text-white/80 text-xs uppercase tracking-wider">
+                  How many hours do you need? <span className="text-[#D4AF37]">*</span>
+                </Label>
+                <Input
+                  data-testid="booking-hours"
+                  required
+                  type="number"
+                  min={1}
+                  max={24}
+                  step={1}
+                  inputMode="numeric"
+                  className={cn(inputCls, "mt-2")}
+                  value={form.hours}
+                  onChange={(e) => update("hours")(e.target.value)}
+                  placeholder="e.g. 4"
+                />
+                <p className="text-[11px] text-white/50 mt-1.5">
+                  Minimum 1 hour, maximum 24. Hourly bookings are billed for the full booked window.
+                </p>
+              </div>
+            )}
           </div>
 
           {form.return_trip && (

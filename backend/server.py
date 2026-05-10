@@ -135,6 +135,7 @@ class BookingCreate(BaseModel):
     return_location: Optional[str] = ""
     vehicle_type: str
     notes: Optional[str] = ""
+    hours: Optional[int] = Field(None, ge=1, le=24)  # required only for Hourly Chauffeur
 
 
 class Booking(BaseModel):
@@ -156,6 +157,7 @@ class Booking(BaseModel):
     return_location: str = ""
     vehicle_type: str
     notes: str = ""
+    hours: Optional[int] = None
     status: str = "pending"
     confirmation_number: Optional[str] = None
     payment_status: str = "unpaid"  # unpaid | pending | paid | refunded
@@ -293,6 +295,8 @@ async def create_booking(payload: BookingCreate):
         raise HTTPException(status_code=400, detail=f"Invalid vehicle_type. Must be one of {VEHICLE_TYPES}")
     if payload.service_type not in SERVICE_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid service_type. Must be one of {SERVICE_TYPES}")
+    if payload.service_type == "Hourly Chauffeur" and (not payload.hours or payload.hours < 1):
+        raise HTTPException(status_code=400, detail="Please tell us how many hours you need (1–24).")
 
     doc = payload.model_dump()
     doc['id'] = str(uuid.uuid4())
