@@ -40,6 +40,13 @@
 
 ## Recent Fixes (Feb 2026)
 
+### v1.6 — Hourly Pricing Engine + Trust Badge (Feb 2026)
+- **Hourly pricing per vehicle** now editable from the admin Pricing tab — new `hourly_rate` column saved alongside base/per_mile/min. Defaults: Executive Sedan $95/hr, S-Class $125/hr, Luxury SUV $145/hr; call-only vehicles 0.
+- **Live quote engine** now branches: when `service_type=Hourly Chauffeur` AND `hours` provided, returns `hourly_rate × hours` and ignores trip distance. New response fields: `pricing_mode`, `hours`, `included_miles`. Stripe checkout for hourly bookings uses the hourly amount.
+- **Minimum 2 hours** enforced on three layers: HTML5 `min={2}`, JS validation (toast), Pydantic `ge=2`, plus an explicit 400 in `create_booking` for the missing-hours case.
+- **20 miles included per hour** displayed under the hours input as soon as customer types: e.g. "4 hours · ~80 miles included (20 mi per hour)". Trip summary chip switches to "Hourly chauffeur estimate · 4 hr · 80 miles included".
+- **Navbar Google Trust Badge** (`/api/reviews/summary`): renders a "★ rating · count reviews" pill in the navbar when `GOOGLE_PLACE_ID` is set; gracefully hidden when unset.
+
 ### v1.5 — Reviews + Self-Service + SMS Stack (Feb 2026)
 - **Review-request email scheduler**: APScheduler runs every 30 min, scans for bookings with `status=completed` and `completed_at` >24h, sends a branded "How was your ride?" email with Google + Yelp review buttons, then stamps `review_request_sent_at` so each booking only gets one email. Auto-starts on backend boot ("Review-request scheduler started" in logs).
 - **Public reviews aggregator** at `GET /api/reviews`: pulls top reviews from Google Place Details API (uses existing `GOOGLE_MAPS_API_KEY` + new `GOOGLE_PLACE_ID`) and Yelp Fusion (`YELP_API_KEY` + `YELP_BUSINESS_ID`), 6-hour in-memory cache, 4★+ filter, falls back to 3 handpicked testimonials when env keys are blank. Frontend `Testimonials.jsx` auto-uses this (shows "via Google" / "via Yelp" pill on real reviews).
