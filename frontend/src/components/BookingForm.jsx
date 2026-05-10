@@ -92,8 +92,15 @@ export default function BookingForm() {
   useEffect(() => {
     const pickup = form.pickup_location.trim();
     const dropoff = form.dropoff_location.trim();
+    const isHourly = form.service_type === "Hourly Chauffeur";
+    const hoursNum = Number(form.hours);
+    const hourlyReady = isHourly && hoursNum >= 2 && hoursNum <= 24;
+
     if (quoteTimer.current) clearTimeout(quoteTimer.current);
-    if (pickup.length < 3 || dropoff.length < 3) {
+
+    // For non-hourly: need pickup + dropoff
+    // For hourly: only need a valid hour count (distance ignored)
+    if (!hourlyReady && (pickup.length < 3 || dropoff.length < 3)) {
       setQuote(null);
       return;
     }
@@ -101,8 +108,10 @@ export default function BookingForm() {
       setQuoting(true);
       try {
         const { data } = await api.post("/quote", {
-          pickup_location: pickup,
-          dropoff_location: dropoff,
+          pickup_location: pickup || "n/a",
+          dropoff_location: dropoff || "n/a",
+          service_type: form.service_type || null,
+          hours: hourlyReady ? hoursNum : null,
         });
         setQuote(data);
       } catch {
@@ -112,7 +121,7 @@ export default function BookingForm() {
       }
     }, 1100);
     return () => quoteTimer.current && clearTimeout(quoteTimer.current);
-  }, [form.pickup_location, form.dropoff_location]);
+  }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours]);
 
   const addStop = () => setStops((s) => [...s, ""]);
   const removeStop = (idx) => setStops((s) => s.filter((_, i) => i !== idx));
@@ -127,8 +136,8 @@ export default function BookingForm() {
     if (!form.pickup_time) return toast.error("Please select a pickup time.");
     if (form.service_type === "Hourly Chauffeur") {
       const h = Number(form.hours);
-      if (!h || h < 1 || h > 24)
-        return toast.error("Please tell us how many hours you need (1–24).");
+      if (!h || h < 2 || h > 24)
+        return toast.error("Hourly bookings require a minimum of 2 hours.");
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim()))
       return toast.error("Please enter a valid email — your confirmation goes there.");
@@ -365,7 +374,7 @@ export default function BookingForm() {
                   data-testid="booking-hours"
                   required
                   type="number"
-                  min={1}
+                  min={2}
                   max={24}
                   step={1}
                   inputMode="numeric"
@@ -374,9 +383,19 @@ export default function BookingForm() {
                   onChange={(e) => update("hours")(e.target.value)}
                   placeholder="e.g. 4"
                 />
-                <p className="text-[11px] text-white/50 mt-1.5">
-                  Minimum 1 hour, maximum 24. Hourly bookings are billed for the full booked window.
-                </p>
+                {Number(form.hours) >= 2 && Number(form.hours) <= 24 ? (
+                  <p
+                    data-testid="booking-hours-included-miles"
+                    className="text-[12px] text-[#D4AF37] mt-2 font-medium"
+                  >
+                    {Number(form.hours)} hour{Number(form.hours) > 1 ? "s" : ""} · ~{Number(form.hours) * 20} miles included
+                    <span className="text-white/45 font-normal"> (20 mi per hour)</span>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-white/50 mt-1.5">
+                    Minimum 2 hours, maximum 24. Each hour includes 20 miles of driving.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -403,12 +422,22 @@ export default function BookingForm() {
               className="mt-6 rounded-xl border border-[#D4AF37]/20 bg-[#0E0E0E] px-5 py-3 flex flex-wrap items-center justify-between gap-3"
             >
               <span className="text-xs uppercase tracking-[0.25em] text-[#D4AF37]">
-                {quoting ? "Calculating route…" : "Live trip estimate"}
+                {quoting
+                  ? "Calculating…"
+                  : quote?.pricing_mode === "hourly"
+                  ? "Hourly chauffeur estimate"
+                  : "Live trip estimate"}
               </span>
-              {quote?.distance_miles != null && (
+              {quote?.pricing_mode === "hourly" ? (
                 <span className="text-sm text-white/70">
-                  ~{quote.distance_miles} mi · ~{quote.duration_minutes} min
+                  {quote.hours} hr · {quote.included_miles} miles included
                 </span>
+              ) : (
+                quote?.distance_miles != null && (
+                  <span className="text-sm text-white/70">
+                    ~{quote.distance_miles} mi · ~{quote.duration_minutes} min
+                  </span>
+                )
               )}
               {quote?.fallback && (
                 <span className="text-xs text-white/50">

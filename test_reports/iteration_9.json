@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 9: hourly pricing engine + admin Pricing.hourly_rate column + Navbar Google Trust Badge graceful-hide. Backend: 13/13 pytest cases PASS in test_iteration9.py covering quote hourly mode, distance fallback, BookingCreate Pydantic ge=2 + explicit 400, /admin/pricing GET/PATCH hourly_rate persistence, Stripe checkout amount = hourly_rate × hours, /reviews/summary empty when GOOGLE_PLACE_ID unset, plus regression on /options + /contact + /admin/account. Frontend: BookingForm hourly mode (hours input min=2/max=24, included-miles helper '4 hours · ~80 miles included', trip-summary chip 'Hourly chauffeur estimate · 4 hr · 80 miles included'), service-type switch correctly hides hours input, Navbar nav-google-trust badge NOT in DOM when summary empty, Admin PricingTab hourly column saves and persists (verified via API roundtrip).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9.py",
+    "/app/test_reports/pytest/iter9_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:461 quote_ride uses 'payload.hours >= 1' guard for hourly mode — but BookingCreate enforces ge=2. QuoteRequest still allows hours=1 (ge=1) so the live quote will compute for 1hr but booking will reject. Minor inconsistency: consider tightening QuoteRequest.hours to ge=2 to match. Not critical (frontend enforces min=2).",
+    "server.py:842-863 _compute_quote_amount correctly short-circuits to hourly when service_type='Hourly Chauffeur' AND hours present, else falls through to distance — solid.",
+    "server.py:1418-1427 hourly_rate backfill migration is idempotent and uses {'$exists': false} guard — won't overwrite admin-edited values. Good.",
+    "BookingForm.jsx:97 'hourlyReady = isHourly && hoursNum >= 2 && hoursNum <= 24' correctly skips quote until hours valid; setting service_type without hours doesn't fire quote.",
+    "BookingForm.jsx:114 quote payload sends service_type (or null) and hours (or null) — backend handles None gracefully.",
+    "Navbar.jsx:33 condition 'g && g.rating && g.count' correctly hides trust badge when /reviews/summary returns {google: {}, yelp: {}} (empty dicts evaluate truthy in JS but rating/count keys are absent → falsy). Verified live: nav-google-trust NOT in DOM.",
+    "PricingTab.jsx:46 save() coerces hourly_rate via Number() and falls back to 0 — safe, mirrors base/per_mile/min handling.",
+    "PricingTab.jsx Hourly column header reads 'Hourly ($/hr)' and helper line 'Hourly Chauffeur = hourly_rate × hours · 20 mi included per hour' — clear UX.",
+    "QuoteResponse.included_miles correctly computed as hours × HOURLY_MILES_INCLUDED_PER_HOUR (20). Surfaced in chip + helper line on frontend."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration9.py"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13)",
+    "frontend": "100% (4/4 critical flows: trust-badge-hidden, hourly-form-toggle, hourly-chip, pricing-tab-save-persist)"
+  },
+  "test_credentials": "Admin: turonlimosupport@gmail.com / TuronAdmin@2025 — 2FA bypass per /app/memory/test_credentials.md",
+  "seed_data_creation": "Per-test bookings (TEST_iter9 prefix) + one ephemeral payment_transaction created and deleted within tests. 2FA challenge auto-pruned. Executive Sedan hourly_rate was temporarily changed to 110/100 during tests and RESTORED back to 95.0 (verified post-test).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter9 spec fully verified. test_iteration9.py is self-contained and uses 2FA bypass from /app/memory/test_credentials.md. The hourly pricing engine consistency is verified end-to-end: Pydantic (ge=2), explicit backend 400 ('Hourly bookings require a minimum of 2 hours.'), and frontend min=2 — all three layers tested. Stripe checkout amount math (95×4=380) verified live against Stripe test key. /reviews/summary returns {google:{}, yelp:{}} when env keys blank → Navbar hides badge.",
+  "rca of the issue": "N/A — no bugs found."
+}

@@ -100,13 +100,16 @@ VEHICLE_TYPES = [
 
 # Default pricing seeded into MongoDB on first startup (admins can edit live).
 DEFAULT_VEHICLE_PRICING = {
-    "Executive Sedan": {"base": 75.0, "per_mile": 3.50, "minimum": 85.0, "call_only": False},
-    "S-Class": {"base": 95.0, "per_mile": 4.50, "minimum": 115.0, "call_only": False},
-    "Luxury SUV": {"base": 115.0, "per_mile": 4.75, "minimum": 135.0, "call_only": False},
-    "Stretch Limousine": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "call_only": True},
-    "Sprinter Van": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "call_only": True},
-    "Party Bus": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "call_only": True},
+    "Executive Sedan": {"base": 75.0, "per_mile": 3.50, "minimum": 85.0, "hourly_rate": 95.0, "call_only": False},
+    "S-Class": {"base": 95.0, "per_mile": 4.50, "minimum": 115.0, "hourly_rate": 125.0, "call_only": False},
+    "Luxury SUV": {"base": 115.0, "per_mile": 4.75, "minimum": 135.0, "hourly_rate": 145.0, "call_only": False},
+    "Stretch Limousine": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "hourly_rate": 0.0, "call_only": True},
+    "Sprinter Van": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "hourly_rate": 0.0, "call_only": True},
+    "Party Bus": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "hourly_rate": 0.0, "call_only": True},
 }
+
+# Hourly bookings include this many miles per hour at no extra charge
+HOURLY_MILES_INCLUDED_PER_HOUR = 20
 
 SERVICE_TYPES = [
     "Airport Transfer",
@@ -138,7 +141,7 @@ class BookingCreate(BaseModel):
     return_location: Optional[str] = ""
     vehicle_type: str
     notes: Optional[str] = ""
-    hours: Optional[int] = Field(None, ge=1, le=24)  # required only for Hourly Chauffeur
+    hours: Optional[int] = Field(None, ge=2, le=24)  # required only for Hourly Chauffeur, min 2 hours
 
 
 class Booking(BaseModel):
@@ -304,8 +307,8 @@ async def create_booking(payload: BookingCreate):
         raise HTTPException(status_code=400, detail=f"Invalid vehicle_type. Must be one of {VEHICLE_TYPES}")
     if payload.service_type not in SERVICE_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid service_type. Must be one of {SERVICE_TYPES}")
-    if payload.service_type == "Hourly Chauffeur" and (not payload.hours or payload.hours < 1):
-        raise HTTPException(status_code=400, detail="Please tell us how many hours you need (1–24).")
+    if payload.service_type == "Hourly Chauffeur" and (not payload.hours or payload.hours < 2):
+        raise HTTPException(status_code=400, detail="Hourly bookings require a minimum of 2 hours.")
 
     doc = payload.model_dump()
     doc['id'] = str(uuid.uuid4())
@@ -324,6 +327,8 @@ async def create_booking(payload: BookingCreate):
 class QuoteRequest(BaseModel):
     pickup_location: str = Field(..., min_length=2, max_length=300)
     dropoff_location: str = Field(..., min_length=2, max_length=300)
+    service_type: Optional[str] = None
+    hours: Optional[int] = Field(None, ge=1, le=24)
 
 
 class VehicleQuote(BaseModel):
@@ -340,6 +345,9 @@ class QuoteResponse(BaseModel):
     dropoff_resolved: Optional[str] = None
     quotes: List[VehicleQuote]
     fallback: bool = False
+    pricing_mode: str = "distance"  # "distance" or "hourly"
+    hours: Optional[int] = None
+    included_miles: Optional[int] = None  # for hourly mode
 
 
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -417,6 +425,28 @@ def _build_quotes(distance_miles: Optional[float], pricing_map: dict) -> List[Ve
     return quotes
 
 
+def _build_hourly_quotes(hours: int, pricing_map: dict) -> List[VehicleQuote]:
+    """Hourly chauffeur pricing: hourly_rate × hours, ignores trip distance."""
+    quotes: List[VehicleQuote] = []
+    for vt in VEHICLE_TYPES:
+        cfg = pricing_map.get(vt)
+        if cfg is None or cfg.get("call_only"):
+            quotes.append(VehicleQuote(vehicle_type=vt, message="Call for quote"))
+            continue
+        rate = float(cfg.get("hourly_rate") or 0)
+        if rate <= 0:
+            quotes.append(VehicleQuote(vehicle_type=vt, message="Hourly rate not set — call us"))
+            continue
+        price = round(rate * hours, 2)
+        quotes.append(VehicleQuote(
+            vehicle_type=vt,
+            price=price,
+            formatted_price=f"${int(price):,}" if price == int(price) else f"${price:,.2f}",
+            message=f"${int(rate) if rate == int(rate) else rate}/hr × {hours} hrs",
+        ))
+    return quotes
+
+
 async def _load_pricing_map() -> dict:
     cursor = db.pricing_config.find({}, {"_id": 0})
     rows = await cursor.to_list(50)
@@ -426,6 +456,16 @@ async def _load_pricing_map() -> dict:
 @api_router.post("/quote", response_model=QuoteResponse)
 async def quote_ride(payload: QuoteRequest):
     pricing_map = await _load_pricing_map()
+
+    # Hourly mode: ignore distance, use hourly_rate × hours
+    if payload.service_type == "Hourly Chauffeur" and payload.hours and payload.hours >= 1:
+        return QuoteResponse(
+            quotes=_build_hourly_quotes(payload.hours, pricing_map),
+            pricing_mode="hourly",
+            hours=payload.hours,
+            included_miles=payload.hours * HOURLY_MILES_INCLUDED_PER_HOUR,
+        )
+
     pickup = await _geocode(payload.pickup_location)
     dropoff = await _geocode(payload.dropoff_location)
     if not pickup or not dropoff:
@@ -808,6 +848,12 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
     cfg = pricing_map.get(booking["vehicle_type"])
     if not cfg or cfg.get("call_only"):
         return None
+    # Hourly bookings: hourly_rate × hours
+    if booking.get("service_type") == "Hourly Chauffeur" and booking.get("hours"):
+        rate = float(cfg.get("hourly_rate") or 0)
+        if rate <= 0:
+            return None
+        return round(rate * int(booking["hours"]), 2)
     pickup = await _geocode(booking["pickup_location"])
     dropoff = await _geocode(booking["dropoff_location"])
     if not pickup or not dropoff:
@@ -1202,6 +1248,7 @@ class PricingRow(BaseModel):
     base: float = 0.0
     per_mile: float = 0.0
     minimum: float = 0.0
+    hourly_rate: float = 0.0
     call_only: bool = False
     updated_at: Optional[str] = None
 
@@ -1210,6 +1257,7 @@ class PricingUpdate(BaseModel):
     base: Optional[float] = Field(None, ge=0)
     per_mile: Optional[float] = Field(None, ge=0)
     minimum: Optional[float] = Field(None, ge=0)
+    hourly_rate: Optional[float] = Field(None, ge=0)
     call_only: Optional[bool] = None
 
 
@@ -1366,6 +1414,17 @@ async def startup_seed():
             },
             upsert=True,
         )
+
+    # Migration: backfill hourly_rate on existing pricing rows that pre-date this column.
+    # Uses default hourly_rate from DEFAULT_VEHICLE_PRICING; admins can edit afterwards.
+    try:
+        for vt, defaults in DEFAULT_VEHICLE_PRICING.items():
+            await db.pricing_config.update_one(
+                {"vehicle_type": vt, "hourly_rate": {"$exists": False}},
+                {"$set": {"hourly_rate": defaults["hourly_rate"]}},
+            )
+    except Exception as e:
+        logger.warning(f"hourly_rate backfill skipped: {e}")
 
     # Seed admin (idempotent)
     email = ADMIN_EMAIL.lower()
