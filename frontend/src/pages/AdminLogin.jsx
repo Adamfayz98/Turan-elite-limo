@@ -121,7 +121,7 @@ export default function AdminLogin() {
                     className={cn(inputCls, "mt-2")}
                     value={form.email}
                     onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                    placeholder="admin@turonlimo.com"
+                    placeholder="turonlimosupport@gmail.com"
                     autoComplete="email"
                   />
                 </div>
