@@ -4,7 +4,7 @@ const CITIES = [
   "Atherton", "Menlo Park", "Sausalito", "Mill Valley", "Tiburon",
   "Napa", "Sonoma", "Calistoga", "Healdsburg", "St. Helena",
   "Walnut Creek", "Lafayette", "Livermore", "Pleasanton", "Half Moon Bay",
-  "Santa Cruz", "Monterey", "Carmel", "Sacramento", "Tahoe",
+  "Santa Cruz", "Monterey", "Carmel", "Sacramento",
 ];
 
 const AIRPORTS = [

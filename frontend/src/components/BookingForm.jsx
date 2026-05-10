@@ -493,18 +493,20 @@ export default function BookingForm() {
           <div className="my-12 gold-divider" />
 
           {/* STEP 2 — Vehicle picker */}
-          <SectionHead
-            icon={Car}
-            step="2"
-            title="Choose your vehicle"
-            sub="Tap a vehicle to select. Prices update once pickup & drop-off are entered."
-          />
+          <div id="fleet" className="scroll-mt-24">
+            <SectionHead
+              icon={Car}
+              step="2"
+              title="Choose your vehicle"
+              sub="Tap a vehicle to select. Prices update once pickup & drop-off are entered."
+            />
 
-          <FleetPicker
-            quote={quote}
-            selected={form.vehicle_type}
-            onSelect={(v) => update("vehicle_type")(v)}
-          />
+            <FleetPicker
+              quote={quote}
+              selected={form.vehicle_type}
+              onSelect={(v) => update("vehicle_type")(v)}
+            />
+          </div>
 
           {/* Divider */}
           <div className="my-12 gold-divider" />
