@@ -45,8 +45,8 @@ async def send_email(
         return None
 
 
-def render_confirmation_email(booking: dict, payment_url: Optional[str]) -> str:
-    """HTML email with branding + ride summary + optional Pay Now button."""
+def render_confirmation_email(booking: dict, payment_url: Optional[str], manage_url: Optional[str] = None) -> str:
+    """HTML email with branding + ride summary + optional Pay Now button + optional Manage link."""
     cn = booking.get("confirmation_number", "")
     pay_btn = ""
     if payment_url:
@@ -55,13 +55,14 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str]) -> str:
               <a href="{payment_url}" style="display:inline-block;background:#D4AF37;color:#0a0a0a;
                  text-decoration:none;padding:14px 28px;border-radius:999px;font-weight:600;
                  font-family:Arial,sans-serif;font-size:14px;letter-spacing:0.5px;">
-                 Pay & Secure Your Reservation →
+                 Pay & Secure Your Reservation
               </a>
             </td></tr>
             <tr><td style="padding:0 32px 16px 32px;color:#777;font-size:12px;font-family:Arial,sans-serif;">
               Click the button above to complete payment securely via Stripe.
             </td></tr>
         """
+    manage_btn = render_manage_link_html(manage_url) if manage_url else ""
     extras = []
     if booking.get("hours"):
         extras.append(f"Duration: {booking['hours']} hour{'s' if booking['hours'] > 1 else ''} (hourly chauffeur)")
@@ -147,6 +148,7 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str]) -> str:
         </td></tr>
 
         {pay_btn}
+        {manage_btn}
 
         <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
           Questions or changes? Call <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>
@@ -240,3 +242,66 @@ def render_2fa_code_email(code: str, request_meta: Optional[str] = None) -> str:
   </table>
 </body></html>
 """
+
+
+
+def render_review_request_email(booking: dict, google_url: str, yelp_url: str) -> str:
+    cn = booking.get("confirmation_number", "")
+    first = (booking.get("full_name") or "").split(" ")[0] or "there"
+    return f"""
+<!doctype html>
+<html><body style="margin:0;background:#0a0a0a;font-family:Arial,sans-serif;color:#fff;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#111;border-radius:14px;border:1px solid #1f1f1f;">
+        <tr><td style="background:#0a0a0a;padding:28px 32px;border-bottom:1px solid #1f1f1f;">
+          <span style="font-size:24px;font-weight:700;">
+            Turan<span style="color:#D4AF37;">EliteLimo</span>
+          </span>
+        </td></tr>
+        <tr><td style="padding:32px;">
+          <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#D4AF37;margin-bottom:14px;">
+            How was your ride?
+          </div>
+          <h2 style="font-size:24px;margin:0 0 12px 0;">Thanks for riding with us, {first}.</h2>
+          <p style="color:#aaa;font-size:14px;line-height:1.7;margin:0 0 18px 0;">
+            We hope reservation <strong style="color:#D4AF37;font-family:'Courier New',monospace;">{cn}</strong> was everything you expected. If our chauffeur made your ride memorable, would you take 30 seconds to leave a quick review? It's the single biggest thing that helps us keep doing what we love.
+          </p>
+          <table cellpadding="0" cellspacing="0" style="margin:8px 0 4px 0;">
+            <tr>
+              <td style="padding-right:10px;">
+                <a href="{google_url}" style="display:inline-block;background:#D4AF37;color:#0a0a0a;text-decoration:none;padding:13px 24px;border-radius:999px;font-weight:600;font-size:14px;">
+                  Review on Google
+                </a>
+              </td>
+              <td>
+                <a href="{yelp_url}" style="display:inline-block;background:#0a0a0a;border:1px solid #D4AF37;color:#D4AF37;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;font-size:14px;">
+                  Review on Yelp
+                </a>
+              </td>
+            </tr>
+          </table>
+          <p style="color:#888;font-size:12px;line-height:1.6;margin:24px 0 0 0;">
+            Anything we could've done better? Just reply to this email — a real person reads every word.
+          </p>
+        </td></tr>
+        <tr><td style="padding:16px 32px 24px;color:#555;font-size:11px;border-top:1px solid #1f1f1f;">
+          TuranEliteLimo · 501 Broadway #251, Millbrae CA 94030 · {SUPPORT_PHONE}
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+
+
+def render_manage_link_html(manage_url: str) -> str:
+    return f"""
+    <tr><td style="padding:0 32px 8px 32px;">
+      <a href="{manage_url}" style="display:inline-block;background:transparent;border:1px solid #D4AF37;color:#D4AF37;
+         text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:600;
+         font-family:Arial,sans-serif;font-size:13px;letter-spacing:0.3px;">
+         Manage / Cancel my reservation
+      </a>
+    </td></tr>
+    """

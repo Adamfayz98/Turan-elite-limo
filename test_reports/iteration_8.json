@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 8: complete coverage of the 4-feature batch (review-request scheduler, Google/Yelp reviews aggregator with handpicked fallback, customer self-service /manage/:token + cancel, Twilio SMS env-gated wrapper). Backend: 17/17 pytest cases PASS in test_iteration8.py. Frontend: /manage/:token valid + invalid token, cancel flow (unpaid -> cancelled), Testimonials handpicked fallback (no 'via X' pill), Admin dashboard cancellation-flag-{id} badge — all verified visually + via data-testid.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/reviews", "issue": "When env keys are blank, sources.google_count and sources.yelp_count are correctly 0 and the 3 handpicked reviews are returned. No issue — listed only for transparency."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8.py",
+    "/app/test_reports/pytest/iter8_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:507-548 manage_cancel_booking — correctly distinguishes unpaid (status->cancelled) from paid (cancellation_requested=true, status preserved). Returns idempotent {already_cancelled:true} for re-cancel. SMS fires AFTER DB write, gated on admin_phone() being set. Solid state-machine.",
+    "server.py:1148-1149 admin PATCH confirmed correctly back-fills manage_token only if missing (preserves existing token across multiple PATCH calls).",
+    "server.py:1402-1442 _send_pending_review_requests — uses 'completed_at <= cutoff (now-24h)' with a fallback on 'created_at' for legacy rows missing completed_at; sets review_request_sent_at atomically. Correct idempotency guard via {review_request_sent_at: {$exists: false}}.",
+    "sms_service.py:39-40 is_configured() requires SID, TOKEN, FROM_NUMBER AND admin_phone — strict; ensures SMS is genuinely no-op when any leg is missing. send_sms() returns None silently in that case.",
+    "reviews_service.py:118-138 6h in-memory cache via module-level dict — fine for single-process worker but will NOT be shared across uvicorn workers if scaled out. Acceptable for current single-worker deployment; flag for future scaling.",
+    "reviews_service.py:43-79 Google fetch filters out reviews with rating<4 — appropriate UX guard (only happy reviews on public site). Same logic applied to Yelp at lines 99-112.",
+    "ManageBooking.jsx wires data-testids manage-page / manage-not-found / manage-confirmation-number / manage-call-link / manage-cancel-btn / manage-cancel-reason / manage-cancel-confirm — fully testable.",
+    "AdminDashboard.jsx:351-359 cancellation-flag-{id} badge correctly hides when status=='cancelled' to avoid duplicate signal (since the row badge already shows 'cancelled' in that case).",
+    "Testimonials.jsx SOURCE_LABEL maps 'handpicked' to null so the 'via X' pill is suppressed exactly as specified — verified live.",
+    "email_service.render_confirmation_email accepts manage_url as a kwarg — confirmed by usage at server.py:1172."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration8.py"
+  ],
+  "success_rate": {
+    "backend": "100% (17/17 iter8 tests)",
+    "frontend": "100% (manage page valid+invalid+cancel, testimonials handpicked, admin cancellation badge)"
+  },
+  "test_credentials": "Admin: turonlimosupport@gmail.com / TuronAdmin@2025 — 2FA bypass per /app/memory/test_credentials.md (insert challenge into db.admin_2fa_challenges with bcrypt-hashed code '123456').",
+  "seed_data_creation": "Per-test bookings (TEST_iter8 prefix) created and deleted within each test. Two ephemeral frontend-test bookings inserted (TEST_iter8_fe_* and TEST_iter8_dash_*) and cleaned up post-run. 2FA challenges auto-pruned by autouse session fixture. No persistent test data left in DB.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter8 spec fully verified. Backend tests live in /app/backend/tests/test_iteration8.py and use the documented 2FA bypass (insert db.admin_2fa_challenges with code '123456'). The scheduler test directly invokes srv._send_pending_review_requests() against a seeded booking with completed_at>24h old and asserts review_request_sent_at gets stamped. Note: prior-iteration test_iteration5/6/7 still call admin_login expecting {token} (legacy pre-2FA shape) — those will fail as flagged in iter7 report, but iter8 is fully self-contained and clean.",
+  "rca of the issue": "N/A — no bugs. All 4 spec features (review scheduler, reviews aggregator, manage page + tokenized cancel, env-gated Twilio SMS) work as designed."
+}

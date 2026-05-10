@@ -348,6 +348,15 @@ export default function AdminDashboard() {
                             {b.confirmation_number}
                           </div>
                         )}
+                        {b.cancellation_requested && b.status !== "cancelled" && (
+                          <div
+                            data-testid={`cancellation-flag-${b.id}`}
+                            className="text-[10px] text-orange-300 uppercase tracking-wider mt-1 font-medium"
+                            title={b.cancellation_reason || ""}
+                          >
+                            ⚠ Cancel requested
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge

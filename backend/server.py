@@ -25,8 +25,11 @@ from email_service import (
     render_confirmation_email,
     render_payment_receipt_email,
     render_2fa_code_email,
+    render_review_request_email,
     SUPPORT_EMAIL,
 )
+import sms_service
+import reviews_service
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
@@ -158,6 +161,12 @@ class Booking(BaseModel):
     vehicle_type: str
     notes: str = ""
     hours: Optional[int] = None
+    manage_token: Optional[str] = None
+    review_request_sent_at: Optional[str] = None
+    cancellation_requested: bool = False
+    cancellation_reason: Optional[str] = None
+    cancellation_requested_at: Optional[str] = None
+    completed_at: Optional[str] = None
     status: str = "pending"
     confirmation_number: Optional[str] = None
     payment_status: str = "unpaid"  # unpaid | pending | paid | refunded
@@ -449,6 +458,96 @@ async def create_contact(payload: ContactCreate):
     return ContactInquiry(**doc)
 
 
+# ---------- Public reviews (Google + Yelp + handpicked fallback) ----------
+@api_router.get("/reviews")
+async def public_reviews():
+    """Reviews for the homepage Testimonials section.
+    Pulls Google + Yelp if their env keys are set, else returns handpicked fallback."""
+    return await reviews_service.get_reviews()
+
+
+# ---------- Customer self-service (tokenized) ----------
+class ManageCancelRequest(BaseModel):
+    reason: Optional[str] = ""
+
+
+@api_router.get("/bookings/manage/{token}")
+async def manage_view_booking(token: str):
+    """View booking details via the token customers receive in confirmation email."""
+    b = await db.bookings.find_one({"manage_token": token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Reservation not found or link expired.")
+    return {
+        "id": b["id"],
+        "confirmation_number": b.get("confirmation_number"),
+        "status": b.get("status"),
+        "payment_status": b.get("payment_status", "unpaid"),
+        "full_name": b.get("full_name"),
+        "service_type": b.get("service_type"),
+        "vehicle_type": b.get("vehicle_type"),
+        "pickup_date": b.get("pickup_date"),
+        "pickup_time": b.get("pickup_time"),
+        "pickup_location": b.get("pickup_location"),
+        "dropoff_location": b.get("dropoff_location"),
+        "passengers": b.get("passengers"),
+        "luggage_count": b.get("luggage_count"),
+        "child_seat": b.get("child_seat"),
+        "return_trip": b.get("return_trip"),
+        "return_location": b.get("return_location"),
+        "additional_stops": b.get("additional_stops", []),
+        "hours": b.get("hours"),
+        "quote_amount": b.get("quote_amount"),
+        "paid_amount": b.get("paid_amount"),
+        "cancellation_requested": b.get("cancellation_requested", False),
+        "support_phone": "+16504100687",
+        "support_email": SUPPORT_EMAIL,
+    }
+
+
+@api_router.post("/bookings/manage/{token}/cancel")
+async def manage_cancel_booking(token: str, payload: ManageCancelRequest):
+    """Customer-initiated cancellation.
+    - Unpaid: cancel immediately (status -> cancelled).
+    - Paid: flag cancellation_requested for admin to review/refund."""
+    b = await db.bookings.find_one({"manage_token": token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Reservation not found or link expired.")
+    if b.get("status") in ("completed",):
+        raise HTTPException(status_code=400, detail="This ride is already completed.")
+    if b.get("status") == "cancelled":
+        return {"ok": True, "status": "cancelled", "already_cancelled": True}
+
+    is_paid = b.get("payment_status") == "paid"
+    update_doc = {
+        "cancellation_requested": True,
+        "cancellation_reason": (payload.reason or "")[:500],
+        "cancellation_requested_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if not is_paid:
+        update_doc["status"] = "cancelled"
+    await db.bookings.update_one({"id": b["id"]}, {"$set": update_doc})
+
+    # SMS the admin/driver
+    admin_to = sms_service.admin_phone()
+    if admin_to:
+        merged = {**b, **update_doc}
+        await sms_service.send_sms(
+            admin_to, sms_service.render_cancellation_sms(merged, requested=is_paid)
+        )
+
+    if is_paid:
+        return {
+            "ok": True,
+            "status": "cancellation_requested",
+            "message": "We've received your request. Our team will review it and contact you about a refund within 24 hours.",
+        }
+    return {
+        "ok": True,
+        "status": "cancelled",
+        "message": "Your reservation has been cancelled. We hope to chauffeur you another time.",
+    }
+
+
 # ---------- Admin auth (2FA via email) ----------
 def _mask_email(email: str) -> str:
     """Return a privacy-safe masked email like 'a***n@gmail.com'."""
@@ -641,6 +740,17 @@ async def _next_unique_confirmation_number() -> str:
         if not existing:
             return cn
     return _generate_confirmation_number()  # extremely unlikely collision
+
+
+def _generate_manage_token() -> str:
+    """URL-safe random token (~22 chars) used in customer manage links."""
+    return secrets.token_urlsafe(16)
+
+
+def _frontend_origin_from_request(request: Request) -> str:
+    """Best-effort: customer frontend origin (for emailed links)."""
+    o = request.headers.get("origin") or request.headers.get("referer") or str(request.base_url)
+    return o.rstrip("/").split("/admin")[0].split("/api")[0]
 
 
 # ---------- Settings ----------
@@ -880,6 +990,8 @@ async def get_payment_status(session_id: str, request: Request):
                 {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
             )
             if booking and booking.get("payment_status") != "paid":
+                # Generate manage token if not yet issued
+                token = booking.get("manage_token") or _generate_manage_token()
                 # Auto-confirm the booking on payment success
                 await db.bookings.update_one(
                     {"id": txn["booking_id"]},
@@ -889,19 +1001,28 @@ async def get_payment_status(session_id: str, request: Request):
                             "paid_amount": amount,
                             "paid_currency": currency,
                             "status": "confirmed",
+                            "manage_token": token,
                         }
                     },
                 )
                 updated = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
                 if updated:
-                    # Combined branded confirmation email (full ride details)
-                    confirm_html = render_confirmation_email(updated, payment_url=None)
+                    # Customer-facing manage link
+                    client_origin = _frontend_origin_from_request(request)
+                    manage_url = f"{client_origin}/manage/{updated.get('manage_token','')}"
+                    confirm_html = render_confirmation_email(updated, payment_url=None, manage_url=manage_url)
                     await send_email(
                         to=updated["email"],
                         subject=f"Reservation confirmed & paid — {updated.get('confirmation_number','')}",
                         html=confirm_html,
                         bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
                     )
+                    # SMS the admin/driver about the new paid booking (env-gated; no-op if Twilio unset)
+                    admin_to = sms_service.admin_phone()
+                    if admin_to:
+                        await sms_service.send_sms(
+                            admin_to, sms_service.render_new_paid_booking_sms(updated)
+                        )
                     booking = updated
         elif getattr(status, "status", None) == "expired":
             new_status = "expired"
@@ -1014,6 +1135,8 @@ async def update_booking_status(
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of {BOOKING_STATUSES}")
 
     update_doc = {"status": payload.status}
+    if payload.status == "completed":
+        update_doc["completed_at"] = datetime.now(timezone.utc).isoformat()
 
     # Generate confirmation number on first transition to "confirmed"
     if payload.status == "confirmed":
@@ -1022,6 +1145,8 @@ async def update_booking_status(
             raise HTTPException(status_code=404, detail="Booking not found")
         if not existing.get("confirmation_number"):
             update_doc["confirmation_number"] = await _next_unique_confirmation_number()
+        if not existing.get("manage_token"):
+            update_doc["manage_token"] = _generate_manage_token()
         # Snapshot current quote so the customer pays the price they were quoted
         if not existing.get("quote_amount"):
             amt = await _compute_quote_amount(existing)
@@ -1039,13 +1164,12 @@ async def update_booking_status(
 
     # Send confirmation email when transitioning to "confirmed"
     if payload.status == "confirmed":
-        origin = str(request.base_url).rstrip("/")
-        # Try to derive frontend origin from request headers (Origin / Referer); fallback to API host
-        client_origin = request.headers.get("origin") or request.headers.get("referer") or origin
-        if client_origin:
-            client_origin = client_origin.rstrip("/").split("/admin")[0]
+        client_origin = _frontend_origin_from_request(request)
         pay_url = f"{client_origin}/pay/{booking_id}" if result.get("quote_amount") else None
-        html = render_confirmation_email(result, pay_url)
+        manage_url = (
+            f"{client_origin}/manage/{result.get('manage_token')}" if result.get("manage_token") else None
+        )
+        html = render_confirmation_email(result, pay_url, manage_url=manage_url)
         await send_email(
             to=result["email"],
             subject=f"Reservation confirmed — {result.get('confirmation_number','')}",
@@ -1181,6 +1305,7 @@ async def startup_seed():
         await db.admin_users.create_index("email", unique=True)
         await db.bookings.create_index("id", unique=True)
         await db.bookings.create_index("confirmation_number", sparse=True)
+        await db.bookings.create_index("manage_token", sparse=True)
         await db.contacts.create_index("id", unique=True)
         await db.pricing_config.create_index("vehicle_type", unique=True)
         await db.payment_transactions.create_index("session_id", unique=True)
@@ -1255,7 +1380,76 @@ async def startup_seed():
                 {"$set": {"recovery_email": existing["email"]}},
             )
 
+    # Start background scheduler for review-request emails (24h after status=completed)
+    global _scheduler
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        _scheduler = AsyncIOScheduler(timezone="UTC")
+        _scheduler.add_job(
+            _send_pending_review_requests,
+            "interval",
+            minutes=30,
+            id="review_request_email",
+            replace_existing=True,
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=60),
+        )
+        _scheduler.start()
+        logger.info("Review-request scheduler started (runs every 30 min).")
+    except Exception as e:
+        logger.warning(f"Scheduler failed to start: {e}")
+
+
+async def _send_pending_review_requests():
+    """Background job: scan completed bookings older than 24h that haven't been
+    sent a review-request email, and send one. Runs every 30 minutes."""
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        cursor = db.bookings.find(
+            {
+                "status": "completed",
+                "review_request_sent_at": {"$exists": False},
+                "$or": [
+                    {"completed_at": {"$lte": cutoff}},
+                    # Fallback: use created_at if completed_at wasn't recorded
+                    {"completed_at": {"$exists": False}, "created_at": {"$lte": cutoff}},
+                ],
+            },
+            {"_id": 0},
+        )
+        bookings = await cursor.to_list(50)
+        if not bookings:
+            return
+        links = reviews_service.review_links()
+        for b in bookings:
+            try:
+                html = render_review_request_email(b, links["google"], links["yelp"])
+                sent_id = await send_email(
+                    to=b["email"],
+                    subject="How was your ride with TuranEliteLimo?",
+                    html=html,
+                )
+                if sent_id is not None:
+                    await db.bookings.update_one(
+                        {"id": b["id"]},
+                        {"$set": {
+                            "review_request_sent_at": datetime.now(timezone.utc).isoformat(),
+                        }},
+                    )
+                    logger.info(f"Review-request sent for booking {b.get('id')}")
+            except Exception as e:
+                logger.warning(f"Review-request send failed for {b.get('id')}: {e}")
+    except Exception as e:
+        logger.warning(f"_send_pending_review_requests failed: {e}")
+
+
+_scheduler = None
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    try:
+        if _scheduler is not None:
+            _scheduler.shutdown(wait=False)
+    except Exception:
+        pass
     client.close()

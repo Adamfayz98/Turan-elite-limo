@@ -1,27 +1,59 @@
+import { useEffect, useState } from "react";
 import { Quote, Star } from "lucide-react";
 
-const REVIEWS = [
+import { api } from "@/lib/api";
+
+const SOURCE_LABEL = {
+  google: "Google",
+  yelp: "Yelp",
+  handpicked: null,
+};
+
+const FALLBACK = [
   {
-    quote:
+    text:
       "Booked TuranEliteLimo for our wedding party in Napa. The chauffeur was on time to the second, the limo was immaculate, and the bride cried (happy tears). Worth every penny.",
-    name: "Aisha & Jordan",
-    role: "Wedding · Calistoga",
+    author: "Aisha & Jordan",
+    context: "Wedding · Calistoga",
+    rating: 5,
+    source: "handpicked",
   },
   {
-    quote:
+    text:
       "I run a roadshow across SF, Palo Alto and SJ every quarter. TuranEliteLimo is the only service I trust to keep our team on schedule. Their dispatchers are unreal.",
-    name: "Marcus L.",
-    role: "Managing Director · Goldman",
+    author: "Marcus L.",
+    context: "Managing Director · Goldman",
+    rating: 5,
+    source: "handpicked",
   },
   {
-    quote:
+    text:
       "Flight delayed three hours from Heathrow. Driver was still there waiting with a sign and a cold water. Five stars don't cut it.",
-    name: "Priya R.",
-    role: "Frequent Traveler · SFO",
+    author: "Priya R.",
+    context: "Frequent Traveler · SFO",
+    rating: 5,
+    source: "handpicked",
   },
 ];
 
 export default function Testimonials() {
+  const [reviews, setReviews] = useState(FALLBACK);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/reviews")
+      .then((r) => {
+        if (cancelled) return;
+        const list = (r.data?.reviews || []).slice(0, 3);
+        if (list.length) setReviews(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <section
       id="testimonials"
@@ -37,29 +69,42 @@ export default function Testimonials() {
         </div>
 
         <div className="grid md:grid-cols-3 gap-5">
-          {REVIEWS.map((r, i) => (
-            <figure
-              key={i}
-              data-testid={`review-${i}`}
-              className="p-8 rounded-2xl border border-[#1F1F1F] bg-[#0A0A0A] flex flex-col"
-            >
-              <Quote className="w-8 h-8 text-[#D4AF37]/60" />
-              <blockquote className="mt-6 text-white/85 leading-relaxed flex-1">
-                "{r.quote}"
-              </blockquote>
-              <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-between">
-                <div>
-                  <div className="text-white text-sm font-medium">{r.name}</div>
-                  <div className="text-white/50 text-xs">{r.role}</div>
+          {reviews.map((r, i) => {
+            const sourceLabel = SOURCE_LABEL[r.source];
+            return (
+              <figure
+                key={i}
+                data-testid={`review-${i}`}
+                className="p-8 rounded-2xl border border-[#1F1F1F] bg-[#0A0A0A] flex flex-col"
+              >
+                <div className="flex items-center justify-between">
+                  <Quote className="w-8 h-8 text-[#D4AF37]/60" />
+                  {sourceLabel && (
+                    <span
+                      data-testid={`review-source-${i}`}
+                      className="text-[10px] uppercase tracking-[0.25em] text-white/40 px-2 py-1 rounded-full border border-white/10"
+                    >
+                      via {sourceLabel}
+                    </span>
+                  )}
                 </div>
-                <div className="flex">
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Star key={s} className="w-3.5 h-3.5 fill-[#D4AF37] text-[#D4AF37]" />
-                  ))}
+                <blockquote className="mt-6 text-white/85 leading-relaxed flex-1">
+                  "{r.text || r.quote}"
+                </blockquote>
+                <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-between">
+                  <div>
+                    <div className="text-white text-sm font-medium">{r.author || r.name}</div>
+                    <div className="text-white/50 text-xs">{r.context || r.role || ""}</div>
+                  </div>
+                  <div className="flex">
+                    {Array.from({ length: r.rating || 5 }).map((_, s) => (
+                      <Star key={s} className="w-3.5 h-3.5 fill-[#D4AF37] text-[#D4AF37]" />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </figure>
-          ))}
+              </figure>
+            );
+          })}
         </div>
       </div>
     </section>
