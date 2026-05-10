@@ -329,6 +329,7 @@ class QuoteRequest(BaseModel):
     dropoff_location: str = Field(..., min_length=2, max_length=300)
     service_type: Optional[str] = None
     hours: Optional[int] = Field(None, ge=1, le=24)
+    pickup_date: Optional[str] = None  # YYYY-MM-DD — for surge-event matching
 
 
 class VehicleQuote(BaseModel):
@@ -345,6 +346,16 @@ class SurchargeInfo(BaseModel):
     threshold_miles: Optional[float] = None
 
 
+class SurgeInfo(BaseModel):
+    event_name: str
+    pricing_type: str  # "multiplier" or "flat_surcharge"
+    multiplier: Optional[float] = None
+    flat_surcharge: Optional[float] = None
+    reason: str
+    start_date: str
+    end_date: str
+
+
 class QuoteResponse(BaseModel):
     distance_miles: Optional[float] = None
     duration_minutes: Optional[float] = None
@@ -352,10 +363,11 @@ class QuoteResponse(BaseModel):
     dropoff_resolved: Optional[str] = None
     quotes: List[VehicleQuote]
     fallback: bool = False
-    pricing_mode: str = "distance"  # "distance" or "hourly"
+    pricing_mode: str = "distance"
     hours: Optional[int] = None
-    included_miles: Optional[int] = None  # for hourly mode
+    included_miles: Optional[int] = None
     surcharge_applied: Optional[SurchargeInfo] = None
+    surge_applied: Optional[SurgeInfo] = None
 
 
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -459,8 +471,20 @@ async def _geocode(address: str) -> Optional[dict]:
         return None
 
 
-def _build_quotes(distance_miles: Optional[float], pricing_map: dict, surcharge: float = 0.0) -> List[VehicleQuote]:
+def _apply_surge(price: float, surge_mult: float, surge_flat: float) -> float:
+    """Apply surge multiplier first, then flat surcharge on top."""
+    return price * surge_mult + surge_flat
+
+
+def _build_quotes(
+    distance_miles: Optional[float],
+    pricing_map: dict,
+    surcharge: float = 0.0,
+    surge_mult: float = 1.0,
+    surge_flat: float = 0.0,
+) -> List[VehicleQuote]:
     quotes: List[VehicleQuote] = []
+    has_event = surge_mult != 1.0 or surge_flat > 0
     for vt in VEHICLE_TYPES:
         cfg = pricing_map.get(vt)
         if cfg is None or cfg.get("call_only"):
@@ -473,12 +497,54 @@ def _build_quotes(distance_miles: Optional[float], pricing_map: dict, surcharge:
         price = max(raw, float(cfg["minimum"]))
         if surcharge > 0:
             price += surcharge
+        if has_event:
+            price = _apply_surge(price, surge_mult, surge_flat)
         price = round(price, 2)
+        tags = []
+        if surcharge > 0:
+            tags.append("long-distance area")
+        if has_event:
+            tags.append("event surge")
+        msg = "Estimated flat rate" + (" · " + " · ".join(tags) if tags else "")
         quotes.append(VehicleQuote(
             vehicle_type=vt,
             price=price,
             formatted_price=f"${int(price):,}" if price == int(price) else f"${price:,.2f}",
-            message="Estimated flat rate" + (" · long-distance area" if surcharge > 0 else ""),
+            message=msg,
+        ))
+    return quotes
+
+
+def _build_hourly_quotes(
+    hours: int,
+    pricing_map: dict,
+    surge_mult: float = 1.0,
+    surge_flat: float = 0.0,
+) -> List[VehicleQuote]:
+    """Hourly chauffeur pricing: hourly_rate × hours, ignores trip distance."""
+    quotes: List[VehicleQuote] = []
+    has_event = surge_mult != 1.0 or surge_flat > 0
+    for vt in VEHICLE_TYPES:
+        cfg = pricing_map.get(vt)
+        if cfg is None or cfg.get("call_only"):
+            quotes.append(VehicleQuote(vehicle_type=vt, message="Call for quote"))
+            continue
+        rate = float(cfg.get("hourly_rate") or 0)
+        if rate <= 0:
+            quotes.append(VehicleQuote(vehicle_type=vt, message="Hourly rate not set — call us"))
+            continue
+        price = rate * hours
+        if has_event:
+            price = _apply_surge(price, surge_mult, surge_flat)
+        price = round(price, 2)
+        base_msg = f"${int(rate) if rate == int(rate) else rate}/hr × {hours} hrs"
+        if has_event:
+            base_msg += " · event surge"
+        quotes.append(VehicleQuote(
+            vehicle_type=vt,
+            price=price,
+            formatted_price=f"${int(price):,}" if price == int(price) else f"${price:,.2f}",
+            message=base_msg,
         ))
     return quotes
 
@@ -540,26 +606,44 @@ def _select_surcharge_zone(
     return None
 
 
-def _build_hourly_quotes(hours: int, pricing_map: dict) -> List[VehicleQuote]:
-    """Hourly chauffeur pricing: hourly_rate × hours, ignores trip distance."""
-    quotes: List[VehicleQuote] = []
-    for vt in VEHICLE_TYPES:
-        cfg = pricing_map.get(vt)
-        if cfg is None or cfg.get("call_only"):
-            quotes.append(VehicleQuote(vehicle_type=vt, message="Call for quote"))
+async def _load_surge_events() -> List[dict]:
+    cursor = db.surge_events.find({}, {"_id": 0})
+    return await cursor.to_list(200)
+
+
+def _select_surge_event(pickup_date: Optional[str], events: List[dict]) -> Optional[dict]:
+    """Find the first ENABLED event whose [start_date, end_date] window includes pickup_date.
+    Dates are inclusive on both ends. Returns None if pickup_date is missing/invalid."""
+    if not pickup_date:
+        return None
+    try:
+        from datetime import date as _date
+        d = _date.fromisoformat(pickup_date)
+    except Exception:
+        return None
+    for ev in events:
+        if not ev.get("enabled", True):
             continue
-        rate = float(cfg.get("hourly_rate") or 0)
-        if rate <= 0:
-            quotes.append(VehicleQuote(vehicle_type=vt, message="Hourly rate not set — call us"))
+        try:
+            sd = _date.fromisoformat(ev["start_date"])
+            ed = _date.fromisoformat(ev["end_date"])
+        except Exception:
             continue
-        price = round(rate * hours, 2)
-        quotes.append(VehicleQuote(
-            vehicle_type=vt,
-            price=price,
-            formatted_price=f"${int(price):,}" if price == int(price) else f"${price:,.2f}",
-            message=f"${int(rate) if rate == int(rate) else rate}/hr × {hours} hrs",
-        ))
-    return quotes
+        if sd <= d <= ed:
+            return ev
+    return None
+
+
+def _surge_factors(event: Optional[dict]) -> tuple[float, float]:
+    """Return (multiplier, flat_surcharge) tuple from a matched event, or (1.0, 0.0)."""
+    if not event:
+        return 1.0, 0.0
+    pricing_type = event.get("pricing_type", "multiplier")
+    if pricing_type == "multiplier":
+        return float(event.get("multiplier") or 1.0), 0.0
+    if pricing_type == "flat_surcharge":
+        return 1.0, float(event.get("flat_surcharge") or 0.0)
+    return 1.0, 0.0
 
 
 async def _load_pricing_map() -> dict:
@@ -572,13 +656,43 @@ async def _load_pricing_map() -> dict:
 async def quote_ride(payload: QuoteRequest):
     pricing_map = await _load_pricing_map()
 
-    # Hourly mode: ignore distance, use hourly_rate × hours
-    if payload.service_type == "Hourly Chauffeur" and payload.hours and payload.hours >= 1:
+    # Surge events (date-based) — apply on top of all base/hourly pricing
+    surge_events = await _load_surge_events()
+    matched_event = _select_surge_event(payload.pickup_date, surge_events)
+    surge_mult, surge_flat = _surge_factors(matched_event)
+    surge_info = (
+        SurgeInfo(
+            event_name=matched_event["name"],
+            pricing_type=matched_event.get("pricing_type", "multiplier"),
+            multiplier=float(matched_event["multiplier"]) if matched_event.get("pricing_type") == "multiplier" else None,
+            flat_surcharge=float(matched_event["flat_surcharge"]) if matched_event.get("pricing_type") == "flat_surcharge" else None,
+            reason=matched_event.get("reason", ""),
+            start_date=matched_event.get("start_date", ""),
+            end_date=matched_event.get("end_date", ""),
+        )
+        if matched_event else None
+    )
+
+    # Hourly mode: ignore distance, use hourly_rate × hours (minimum 2 hours)
+    if payload.service_type == "Hourly Chauffeur":
+        if not payload.hours or payload.hours < 2:
+            # Don't return distance-based prices — explicitly tell the customer.
+            return QuoteResponse(
+                quotes=[
+                    VehicleQuote(vehicle_type=vt, message="Minimum 2 hours required")
+                    for vt in VEHICLE_TYPES
+                ],
+                pricing_mode="hourly",
+                hours=payload.hours,
+                included_miles=None,
+                fallback=True,
+            )
         return QuoteResponse(
-            quotes=_build_hourly_quotes(payload.hours, pricing_map),
+            quotes=_build_hourly_quotes(payload.hours, pricing_map, surge_mult=surge_mult, surge_flat=surge_flat),
             pricing_mode="hourly",
             hours=payload.hours,
             included_miles=payload.hours * HOURLY_MILES_INCLUDED_PER_HOUR,
+            surge_applied=surge_info,
         )
 
     pickup = await _geocode(payload.pickup_location)
@@ -612,9 +726,15 @@ async def quote_ride(payload: QuoteRequest):
         duration_minutes=duration_minutes,
         pickup_resolved=pickup.get("display"),
         dropoff_resolved=dropoff.get("display"),
-        quotes=_build_quotes(miles, pricing_map, surcharge=surcharge_amt),
+        quotes=_build_quotes(
+            miles, pricing_map,
+            surcharge=surcharge_amt,
+            surge_mult=surge_mult,
+            surge_flat=surge_flat,
+        ),
         fallback=False,
         surcharge_applied=surcharge_info,
+        surge_applied=surge_info,
     )
 
 
@@ -982,12 +1102,21 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
     cfg = pricing_map.get(booking["vehicle_type"])
     if not cfg or cfg.get("call_only"):
         return None
+
+    # Surge event match by pickup_date (applies on top of base/hourly + zone surcharge)
+    surge_events = await _load_surge_events()
+    matched_event = _select_surge_event(booking.get("pickup_date"), surge_events)
+    surge_mult, surge_flat = _surge_factors(matched_event)
+
     # Hourly bookings: hourly_rate × hours
     if booking.get("service_type") == "Hourly Chauffeur" and booking.get("hours"):
         rate = float(cfg.get("hourly_rate") or 0)
         if rate <= 0:
             return None
-        return round(rate * int(booking["hours"]), 2)
+        price = rate * int(booking["hours"])
+        price = _apply_surge(price, surge_mult, surge_flat)
+        return round(price, 2)
+
     pickup = await _geocode(booking["pickup_location"])
     dropoff = await _geocode(booking["dropoff_location"])
     if not pickup or not dropoff:
@@ -1001,6 +1130,7 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
     )
     if matched_zone:
         price += float(matched_zone["surcharge_amount"])
+    price = _apply_surge(price, surge_mult, surge_flat)
     return round(price, 2)
 
 
@@ -1523,6 +1653,107 @@ async def delete_zone(zone_id: str, _: dict = Depends(require_admin)):
     return {"ok": True}
 
 
+# ---------- Admin protected: surge events (date-based pricing) ----------
+class SurgeEventRow(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    name: str = Field(..., min_length=2, max_length=120)
+    start_date: str  # YYYY-MM-DD
+    end_date: str    # YYYY-MM-DD
+    pricing_type: str = "multiplier"  # "multiplier" or "flat_surcharge"
+    multiplier: float = Field(1.0, ge=0.1, le=10.0)
+    flat_surcharge: float = Field(0.0, ge=0)
+    reason: str = Field("", max_length=600)
+    enabled: bool = True
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class SurgeEventCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    start_date: str
+    end_date: str
+    pricing_type: str = Field("multiplier", pattern="^(multiplier|flat_surcharge)$")
+    multiplier: float = Field(1.5, ge=0.1, le=10.0)
+    flat_surcharge: float = Field(0.0, ge=0)
+    reason: str = Field("", max_length=600)
+    enabled: bool = True
+
+
+class SurgeEventUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=2, max_length=120)
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    pricing_type: Optional[str] = Field(None, pattern="^(multiplier|flat_surcharge)$")
+    multiplier: Optional[float] = Field(None, ge=0.1, le=10.0)
+    flat_surcharge: Optional[float] = Field(None, ge=0)
+    reason: Optional[str] = Field(None, max_length=600)
+    enabled: Optional[bool] = None
+
+
+def _validate_date_range(start: str, end: str) -> None:
+    from datetime import date as _date
+    try:
+        sd = _date.fromisoformat(start)
+        ed = _date.fromisoformat(end)
+    except Exception:
+        raise HTTPException(status_code=400, detail="start_date and end_date must be YYYY-MM-DD.")
+    if ed < sd:
+        raise HTTPException(status_code=400, detail="end_date must be on or after start_date.")
+
+
+@api_router.get("/admin/surge-events", response_model=List[SurgeEventRow])
+async def list_surge_events(_: dict = Depends(require_admin)):
+    rows = await _load_surge_events()
+    rows.sort(key=lambda e: (e.get("start_date") or "", e.get("name", "").lower()))
+    return [SurgeEventRow(**r) for r in rows]
+
+
+@api_router.post("/admin/surge-events", response_model=SurgeEventRow)
+async def create_surge_event(payload: SurgeEventCreate, _: dict = Depends(require_admin)):
+    _validate_date_range(payload.start_date, payload.end_date)
+    doc = payload.model_dump()
+    doc["name"] = payload.name.strip()
+    doc["id"] = str(uuid.uuid4())
+    doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    doc["updated_at"] = doc["created_at"]
+    await db.surge_events.insert_one(doc.copy())
+    return SurgeEventRow(**doc)
+
+
+@api_router.patch("/admin/surge-events/{event_id}", response_model=SurgeEventRow)
+async def update_surge_event(event_id: str, payload: SurgeEventUpdate, _: dict = Depends(require_admin)):
+    update_doc = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update_doc:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    # Validate date range if either side is being changed
+    if "start_date" in update_doc or "end_date" in update_doc:
+        existing = await db.surge_events.find_one({"id": event_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Surge event not found")
+        new_start = update_doc.get("start_date", existing.get("start_date"))
+        new_end = update_doc.get("end_date", existing.get("end_date"))
+        _validate_date_range(new_start, new_end)
+    update_doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+    result = await db.surge_events.find_one_and_update(
+        {"id": event_id},
+        {"$set": update_doc},
+        return_document=True,
+        projection={"_id": 0},
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Surge event not found")
+    return SurgeEventRow(**result)
+
+
+@api_router.delete("/admin/surge-events/{event_id}")
+async def delete_surge_event(event_id: str, _: dict = Depends(require_admin)):
+    res = await db.surge_events.delete_one({"id": event_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Surge event not found")
+    return {"ok": True}
+
+
 # ---------- Admin protected: contact inquiries ----------
 @api_router.get("/admin/contacts", response_model=List[ContactInquiry])
 async def list_contacts(_: dict = Depends(require_admin)):
@@ -1602,6 +1833,8 @@ async def startup_seed():
             "created_at", expireAfterSeconds=60 * 60 * 24,
         )
         await db.zone_surcharges.create_index("name", unique=True)
+        await db.surge_events.create_index("id", unique=True)
+        await db.surge_events.create_index([("start_date", 1), ("end_date", 1)])
     except Exception as e:
         logger.warning(f"Index creation skipped: {e}")
 

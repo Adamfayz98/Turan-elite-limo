@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 12 — Hourly Chauffeur minimum-hours bug fix + Surge Calendar feature. Backend: 12/12 pytest pass. Frontend: hourly minimum validation verified end-to-end. Surge banner+date-picker click and admin Surge tab visibility could not be confirmed via Playwright (timing/picker selector and admin-token-injection limitations) but underlying API responses + DOM bindings inspected directly are correct.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Admin /admin token bootstrap via localStorage injection",
+        "issue": "Setting turon_admin_token in localStorage and reloading still rendered the AdminSignIn page. Either AdminDashboard validates the token via /api/admin/me synchronously and silently redirects to /admin on failure, or the storage key is read once on mount before reload completes. The token itself is valid (verified via /api/admin/me 200 over curl). Could not visually verify data-testid=tab-surge / surge-tab / surge-new-form in this run.",
+        "affected_selectors": ["[data-testid=tab-surge]", "[data-testid=surge-tab]", "[data-testid=surge-new-form]"]
+      },
+      {
+        "flow": "Booking date picker — surge banner verification",
+        "issue": "Could not reliably click the shadcn Calendar day cell for tomorrow with role/name selectors in this run (timed out). The /api/quote payload includes pickup_date and BookingForm renders [data-testid=surge-banner] / surge-event-name / surge-reason when surge_applied is present — JSX inspected and confirms ×2.00 formatting + reason text. Recommend main agent self-test by manually picking tomorrow on the date picker."
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration12_surge_hourly.py",
+    "/app/test_reports/pytest/iter12_results.xml"
+  ],
+  "action_items": [
+    "Main agent: visually verify admin Surge Calendar tab (data-testid=tab-surge) by logging in with the 2FA recipe and clicking the new tab. The backend endpoints behind it are 100% green.",
+    "Main agent: visually verify the fuchsia surge-banner appears on the booking form when picking a date inside an enabled surge window (banner DOM + bindings inspected, all priced quotes correctly multiply by surge in API responses)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 2000+ lines — consider splitting into routers/ (admin_surge.py, admin_zones.py, payments.py, quote.py) for maintainability.",
+    "QuoteRequest still allows hours ge=1 in the Pydantic field. Backend correctly rejects hours<2 in hourly mode via explicit check, but tightening the model to ge=2 when service_type=Hourly Chauffeur (or a validator) would be cleaner.",
+    "_apply_surge applies multiplier × base + flat, but the SurgeEventCreate model allows BOTH multiplier and flat_surcharge to be sent — even though pricing_type ought to be exclusive. _surge_factors() ignores the off-type field, so behavior is safe today, but the admin form could mislead an operator. Consider zeroing the unused field server-side on create/patch."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration12_surge_hourly.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "60%"},
+  "test_credentials": "Admin: turonlimosupport@gmail.com / TuronAdmin@2025 — 2FA bypass via direct insert into admin_2fa_challenges with bcrypted code 123456 (see /app/memory/test_credentials.md).",
+  "seed_data_creation": "Created TEST_FrontendBanner surge event for browser testing; cleaned up at end. All backend tests prefix data with TEST_ and self-cleanup.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend (Hourly + Surge CRUD + Surge applied to quote + Zone+Surge stacking + Auth required) is fully covered by /app/backend/tests/test_iteration12_surge_hourly.py — 12 passing tests in ~5s. Frontend hourly minimum-hours UX is verified (error text + included-miles indicator). Two frontend flows still need manual or follow-up automation: (a) admin Surge tab visibility after login, (b) surge banner after picking a date — both were attempted but blocked by selector timing in this run."
+}

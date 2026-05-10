@@ -115,6 +115,13 @@ export default function BookingForm() {
 
     if (quoteTimer.current) clearTimeout(quoteTimer.current);
 
+    // Hourly mode with bad hours value → block the quote entirely so the customer
+    // doesn't see misleading distance-based prices.
+    if (isHourly && (!hoursNum || hoursNum < 2 || hoursNum > 24)) {
+      setQuote(null);
+      return;
+    }
+
     // For non-hourly: need pickup + dropoff
     // For hourly: only need a valid hour count (distance ignored)
     if (!hourlyReady && (pickup.length < 3 || dropoff.length < 3)) {
@@ -129,6 +136,7 @@ export default function BookingForm() {
           dropoff_location: dropoff || "n/a",
           service_type: form.service_type || null,
           hours: hourlyReady ? hoursNum : null,
+          pickup_date: date ? format(date, "yyyy-MM-dd") : null,
         });
         setQuote(data);
       } catch {
@@ -138,7 +146,7 @@ export default function BookingForm() {
       }
     }, 1100);
     return () => quoteTimer.current && clearTimeout(quoteTimer.current);
-  }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours]);
+  }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours, date]);
 
   const addStop = () => setStops((s) => [...s, ""]);
   const removeStop = (idx) => setStops((s) => s.filter((_, i) => i !== idx));
@@ -425,19 +433,37 @@ export default function BookingForm() {
                   onChange={(e) => update("hours")(e.target.value)}
                   placeholder="e.g. 4"
                 />
-                {Number(form.hours) >= 2 && Number(form.hours) <= 24 ? (
-                  <p
-                    data-testid="booking-hours-included-miles"
-                    className="text-[12px] text-[#D4AF37] mt-2 font-medium"
-                  >
-                    {Number(form.hours)} hour{Number(form.hours) > 1 ? "s" : ""} · ~{Number(form.hours) * 20} miles included
-                    <span className="text-white/45 font-normal"> (20 mi per hour)</span>
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-white/50 mt-1.5">
-                    Minimum 2 hours, maximum 24. Each hour includes 20 miles of driving.
-                  </p>
-                )}
+                {(() => {
+                  const h = Number(form.hours);
+                  const valid = h >= 2 && h <= 24;
+                  const tooLow = form.hours && h < 2;
+                  if (valid) {
+                    return (
+                      <p
+                        data-testid="booking-hours-included-miles"
+                        className="text-[12px] text-[#D4AF37] mt-2 font-medium"
+                      >
+                        {h} hour{h > 1 ? "s" : ""} · ~{h * 20} miles included
+                        <span className="text-white/45 font-normal"> (20 mi per hour)</span>
+                      </p>
+                    );
+                  }
+                  if (tooLow) {
+                    return (
+                      <p
+                        data-testid="booking-hours-error"
+                        className="text-[12px] text-red-400 mt-2 font-medium"
+                      >
+                        Minimum 2 hours required. Please increase your duration.
+                      </p>
+                    );
+                  }
+                  return (
+                    <p className="text-[11px] text-white/50 mt-1.5">
+                      Minimum 2 hours, maximum 24. Each hour includes 20 miles of driving.
+                    </p>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -504,6 +530,33 @@ export default function BookingForm() {
                 </div>
                 <p className="text-white/65 mt-1 leading-relaxed" data-testid="surcharge-reason">
                   {quote.surcharge_applied.reason}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Surge / event date pricing banner */}
+          {quote?.surge_applied && (
+            <div
+              data-testid="surge-banner"
+              className="mt-3 rounded-xl border border-fuchsia-400/30 bg-fuchsia-400/5 px-5 py-4 flex items-start gap-3"
+            >
+              <div className="w-7 h-7 rounded-full bg-fuchsia-400/15 border border-fuchsia-400/40 flex items-center justify-center flex-shrink-0">
+                <span className="text-fuchsia-300 text-sm font-bold">★</span>
+              </div>
+              <div className="flex-1 text-sm">
+                <div className="text-fuchsia-200 font-medium" data-testid="surge-event-name">
+                  Special event pricing
+                  {quote.surge_applied.pricing_type === "multiplier" && quote.surge_applied.multiplier ? (
+                    <span> · ×{Number(quote.surge_applied.multiplier).toFixed(2)}</span>
+                  ) : null}
+                  {quote.surge_applied.pricing_type === "flat_surcharge" && quote.surge_applied.flat_surcharge ? (
+                    <span> · +${Number(quote.surge_applied.flat_surcharge).toFixed(0)}</span>
+                  ) : null}
+                  <span className="text-white/55"> · {quote.surge_applied.event_name}</span>
+                </div>
+                <p className="text-white/65 mt-1 leading-relaxed" data-testid="surge-reason">
+                  {quote.surge_applied.reason}
                 </p>
               </div>
             </div>
