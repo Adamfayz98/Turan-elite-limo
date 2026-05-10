@@ -40,6 +40,12 @@
 
 ## Recent Fixes (Feb 2026)
 
+### v1.7 — 12-Hour Time + Admin Search (Feb 2026)
+- **12-hour pickup time** with separate AM/PM selector: split into a wider Time dropdown (1:00–12:45 in 15-min steps) and a small AM/PM dropdown beside it. Wire format saved to MongoDB stays `HH:MM` (24h) for backend stability — frontend converts via `to24h` / `from24h` helpers in `BookingForm.jsx`.
+- **`formatTime12h` utility** in `/app/frontend/src/lib/utils.js` — reused in AdminDashboard table + ManageBooking page.
+- **Backend email + SMS** now display 12-hour times (`_format_time_12h` in email_service.py, `_fmt_12h` in sms_service.py).
+- **Admin bookings search**: new search bar at the top of the bookings tab (`data-testid='bookings-search'`). Client-side filter on already-loaded list — matches confirmation number, name, email, phone, pickup, drop-off (case-insensitive substring). Live "X of Y" count chip + clear button. Empty-state shows "No bookings match \"…\"" when no results.
+
 ### v1.6 — Hourly Pricing Engine + Trust Badge (Feb 2026)
 - **Hourly pricing per vehicle** now editable from the admin Pricing tab — new `hourly_rate` column saved alongside base/per_mile/min. Defaults: Executive Sedan $95/hr, S-Class $125/hr, Luxury SUV $145/hr; call-only vehicles 0.
 - **Live quote engine** now branches: when `service_type=Hourly Chauffeur` AND `hours` provided, returns `hourly_rate × hours` and ignores trip distance. New response fields: `pricing_mode`, `hours`, `included_miles`. Stripe checkout for hourly bookings uses the hourly amount.
