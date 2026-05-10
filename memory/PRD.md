@@ -40,6 +40,24 @@
 
 ## Recent Fixes (Feb 2026)
 
+### v1.8 — Zone Surcharges + Domain Swap + Geocoder Hardening (Feb 2026)
+- **Zone Surcharges** — admin can define "long-distance area" zones from a new `Zones` tab. Each zone has a name, comma-separated address keywords, a flat $ surcharge, a `short_distance_threshold_miles` (default 20), and a customer-facing reason. When pickup OR drop-off matches the zone keywords AND trip distance is below threshold, every priced vehicle quote gets the surcharge added and a "Estimated flat rate · long-distance area" tag. Stretch/Sprinter/Party Bus remain "Call for quote". Hourly mode bypasses surcharges by design.
+- **Customer-facing surcharge banner** on the booking form (`data-testid="surcharge-banner"`): amber info banner with "Long-distance area fee · +$X (Zone Name)" and the admin-written reason text.
+- **Default zones seeded**: "Healdsburg & North Sonoma" ($65, 20mi, covers Healdsburg/Geyserville/Cloverdale/Windsor) and "Calistoga & Upper Napa" ($55, 20mi, covers Calistoga/Angwin/Deer Park/Pope Valley/St. Helena).
+- **Stripe checkout snapshots** the surcharged amount via `_compute_quote_amount` so customers actually pay the surcharged price.
+- **Geocoder hardening** — `_geocode()` now uses **Google Geocoding API as primary** (was Nominatim only, which rate-limited at ~1 req/sec causing intermittent "phone quote required" errors). Nominatim is now the fallback for the rare case Google fails. Cache TTL preserved.
+- **Domain swap** — canonical URL, OG tags, Twitter Card, JSON-LD schema, robots.txt, sitemap.xml all updated to `https://www.turanelitelimo.com/`.
+- **Fleet nav anchor fixed** — clicking "Fleet" in navbar now scrolls to the vehicle picker inside the booking form (wrapped in `<div id="fleet">`). Previously linked to a nonexistent section.
+- **Tahoe removed** from the Coverage section's service-area list.
+- **Stripe LIVE key** is now in preview `/app/backend/.env`. Production env must also be updated via Emergent deployment dashboard for live charges to work.
+
+### Updated Backend APIs (added)
+- `GET /api/admin/zones` — list all zones
+- `POST /api/admin/zones` — create zone
+- `PATCH /api/admin/zones/{zone_id}` — update zone
+- `DELETE /api/admin/zones/{zone_id}` — delete zone
+- `GET /api/admin/account`, `PATCH /api/admin/account` — (from v1.3, still active)
+
 ### v1.7 — 12-Hour Time + Admin Search (Feb 2026)
 - **12-hour pickup time** with separate AM/PM selector: split into a wider Time dropdown (1:00–12:45 in 15-min steps) and a small AM/PM dropdown beside it. Wire format saved to MongoDB stays `HH:MM` (24h) for backend stability — frontend converts via `to24h` / `from24h` helpers in `BookingForm.jsx`.
 - **`formatTime12h` utility** in `/app/frontend/src/lib/utils.js` — reused in AdminDashboard table + ManageBooking page.
