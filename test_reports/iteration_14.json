@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 14 — Flight Number mandatory for Airport Transfer + Cancellation Policy (3 placements) + expanded SEO. Backend: 12/12 pytest pass (1.48s). Frontend: 11/11 dynamic UI tests pass — flight-number/meet-greet show/hide on service type, cancellation chip toggle, airport-only flight-delay block, body bullets. Static SEO: confirmed 26 areaServed (23 cities + 3 Place SFO/OAK/SJC), 6 FAQ Q&A including Meet & Greet + Cancellation Policy, expanded keywords (palo alto limo, silicon valley chauffeur, napa wine tour limo, flight tracking limo, meet and greet sfo all present). NOTE: Frontend needed `supervisorctl restart frontend` to serve the updated public/index.html — CRA dev-server cached the old version. All iteration-14 acceptance criteria pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration14_flight_number.py",
+    "/app/test_reports/pytest/iter14_results.xml"
+  ],
+  "action_items": [
+    "Optional: Main agent may verify ManageBooking page (/manage/:token) end-to-end by creating booking + admin-confirming via 2FA bypass — covered indirectly by backend test_manage_endpoint_404_for_invalid_token; CancellationPolicy `full` variant code is correct (variant='full' forces open=true on mount, body always visible)."
+  ],
+  "critical_code_review_comments": [
+    "server.py still ~2000+ lines — splitting into routers is overdue (carried from iter 13).",
+    "BookingCreate validates flight_number with `(payload.flight_number or '').strip()` — empty/whitespace correctly rejected (verified). Good defensive check.",
+    "render_cancellation_policy_html is_airport flag derived from booking.get('service_type') == 'Airport Transfer' — correct.",
+    "CancellationPolicy.jsx: button is `disabled={variant === 'full'}` which is good a11y, but combined with `cursor-pointer hover:bg-white/[0.02]` only on compact — clean.",
+    "index.html change requires a frontend restart to be picked up by webpack-dev-server — flag this for deploy: production CRA build will include the change automatically, but in preview the dev server needed a restart."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration14_flight_number.py"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% (11/11 dynamic + static SEO verified)"},
+  "test_credentials": "Admin: turonlimosupport@gmail.com / TuronAdmin@2025 (unchanged)",
+  "seed_data_creation": "Created 3 TEST_Iter14 bookings during POST /api/bookings validation tests (Airport Transfer w/ UA1234, Airport Transfer w/ aa1234, Wedding). They remain in db.bookings with TEST_ prefix — main agent / admin can purge if needed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 14 complete. flight_number is now backend-enforced for Airport Transfer (400 + 'flight number' in detail). Conditional UI logic verified: Airport Transfer reveals booking-flight-number + meet-greet-toggle; Wedding hides both. cancellation-policy chip + body work; airport flight-delay section conditionally renders only for Airport Transfer. Confirmation email render includes flight_number line + airport policy block. SEO: index.html keywords/FAQPage/areaServed expanded as specified. IMPORTANT for future: if /index.html changes don't appear in browser, restart frontend supervisor — dev server caches it.",
+  "rca_of_the_issue": "Initial /index.html static SEO checks returned stale content via curl because CRA's webpack-dev-server had cached the previous public/index.html. Resolution: `sudo supervisorctl restart frontend`. After restart, all SEO assertions pass (23 cities + 3 places = 26 areaServed entries, 6 FAQ Q&A, expanded keywords including palo alto limo / silicon valley chauffeur / napa wine tour limo / flight tracking limo / meet and greet sfo)."
+}

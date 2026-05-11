@@ -60,6 +60,44 @@ def _format_time_12h(time24: str) -> str:
     return f"{h12}:{m:02d} {meridiem}"
 
 
+def render_cancellation_policy_html(is_airport: bool = False) -> str:
+    """Cancellation & change policy block for confirmation emails."""
+    airport_block = ""
+    if is_airport:
+        airport_block = """
+        <div style="margin-top:14px;padding-top:14px;border-top:1px dashed #2a2a2a;">
+          <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#D4AF37;margin-bottom:8px;">
+            Airport Transfer · Flight-Delay Protection
+          </div>
+          <ul style="color:#aaa;font-size:12px;line-height:1.7;padding-left:18px;margin:0;">
+            <li>We monitor your flight number in real time — if your flight is <strong>delayed</strong>, your chauffeur adjusts the pickup automatically at <strong>no extra charge</strong>.</li>
+            <li>If your airline <strong>cancels your flight</strong>, you'll receive a full refund or free re-schedule with airline confirmation.</li>
+            <li>Free <strong>15-minute grace period</strong> after landing (45 min for international). After that, wait time bills at the vehicle's hourly rate.</li>
+            <li>No-show without contact 30 minutes past landing = full charge.</li>
+          </ul>
+        </div>
+        """
+    return f"""
+    <tr><td style="padding:0 32px 8px 32px;">
+      <div style="background:#0a0a0a;border:1px solid #1f1f1f;border-radius:10px;padding:18px 22px;">
+        <div style="font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:#D4AF37;margin-bottom:10px;">
+          Cancellation &amp; change policy
+        </div>
+        <ul style="color:#aaa;font-size:12px;line-height:1.7;padding-left:18px;margin:0;">
+          <li><strong style="color:#fff;">Free cancellation</strong> · 24+ hours before pickup → full refund.</li>
+          <li><strong style="color:#fff;">50% refund</strong> · 12–24 hours before pickup.</li>
+          <li><strong style="color:#fff;">No refund</strong> · less than 12 hours before pickup, or no-show.</li>
+          <li><strong style="color:#fff;">Free changes</strong> (date / time / vehicle / route) · 6+ hours before pickup.</li>
+        </ul>
+        {airport_block}
+        <p style="color:#777;font-size:11px;line-height:1.6;margin:14px 0 0 0;">
+          Cancel or change anytime in one click from your <strong style="color:#D4AF37;">Manage Reservation</strong> link above, or call us at {SUPPORT_PHONE}.
+        </p>
+      </div>
+    </td></tr>
+    """
+
+
 def render_confirmation_email(booking: dict, payment_url: Optional[str], manage_url: Optional[str] = None) -> str:
     """HTML email with branding + ride summary + optional Pay Now button + optional Manage link."""
     cn = booking.get("confirmation_number", "")
@@ -81,6 +119,8 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str], manage_
     extras = []
     if booking.get("hours"):
         extras.append(f"Duration: {booking['hours']} hour{'s' if booking['hours'] > 1 else ''} (hourly chauffeur)")
+    if booking.get("flight_number"):
+        extras.append(f"Flight number: {booking['flight_number']} (your chauffeur will monitor your flight)")
     if booking.get("meet_and_greet"):
         extras.append("Meet & Greet: chauffeur will meet you inside the terminal at baggage claim")
     if booking.get("child_seat"):
@@ -166,6 +206,8 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str], manage_
 
         {pay_btn}
         {manage_btn}
+
+        {render_cancellation_policy_html(booking.get('service_type') == 'Airport Transfer')}
 
         <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
           Questions or changes? Call <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>

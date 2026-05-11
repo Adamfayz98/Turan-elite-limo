@@ -21,6 +21,7 @@ import {
 import FleetPicker from "@/components/FleetPicker";
 import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
 import StripeBadge from "@/components/StripeBadge";
+import CancellationPolicy from "@/components/CancellationPolicy";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -73,6 +74,7 @@ const initialForm = {
   notes: "",
   hours: "",
   meet_and_greet: false,
+  flight_number: "",
 };
 
 function SectionHead({ icon: Icon, step, title, sub }) {
@@ -166,6 +168,8 @@ export default function BookingForm() {
       if (!h || h < 2 || h > 24)
         return toast.error("Hourly bookings require a minimum of 2 hours.");
     }
+    if (form.service_type === "Airport Transfer" && !form.flight_number.trim())
+      return toast.error("Please enter your flight number so we can track your arrival.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim()))
       return toast.error("Please enter a valid email — your confirmation goes there.");
     if (form.return_trip && !form.return_location.trim())
@@ -180,6 +184,10 @@ export default function BookingForm() {
         return_location: form.return_trip ? form.return_location : "",
         pickup_date: format(date, "yyyy-MM-dd"),
         meet_and_greet: form.service_type === "Airport Transfer" && !!form.meet_and_greet,
+        flight_number:
+          form.service_type === "Airport Transfer"
+            ? form.flight_number.trim().toUpperCase()
+            : null,
         hours:
           form.service_type === "Hourly Chauffeur" && form.hours
             ? Number(form.hours)
@@ -417,6 +425,27 @@ export default function BookingForm() {
                 <span className="block text-xs text-white/50">Different drop-off OK</span>
               </span>
             </label>
+
+            {form.service_type === "Airport Transfer" && (
+              <div className="md:col-span-2" data-testid="airport-extras">
+                <Label className="text-white/80 text-xs uppercase tracking-wider">
+                  Flight number <span className="text-[#D4AF37]">*</span>
+                </Label>
+                <Input
+                  data-testid="booking-flight-number"
+                  required
+                  className={cn(inputCls, "mt-2 uppercase tracking-wider")}
+                  value={form.flight_number}
+                  onChange={(e) => update("flight_number")(e.target.value)}
+                  placeholder="e.g. UA1234, AA567, DL890"
+                  maxLength={20}
+                />
+                <p className="text-[11px] text-white/50 mt-1.5">
+                  Required for airport transfers. Your chauffeur monitors your flight live and
+                  adjusts pickup automatically if you're delayed — at no extra charge.
+                </p>
+              </div>
+            )}
 
             {form.service_type === "Airport Transfer" && (
               <div className="md:col-span-2" data-testid="meet-greet-wrap">
@@ -756,8 +785,16 @@ export default function BookingForm() {
             </div>
           </div>
 
+          {/* Cancellation policy chip — collapsed by default, expandable */}
+          <div className="mt-8">
+            <CancellationPolicy
+              airport={form.service_type === "Airport Transfer"}
+              variant="compact"
+            />
+          </div>
+
           {/* Submit */}
-          <div className="mt-10 flex flex-wrap items-center justify-between gap-4">
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
             <div className="text-xs text-white/55">
               {(() => {
                 const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);

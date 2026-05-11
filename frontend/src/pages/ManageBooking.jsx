@@ -28,6 +28,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import Logo from "@/components/Logo";
+import CancellationPolicy from "@/components/CancellationPolicy";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { cn, formatTime12h } from "@/lib/utils";
 
@@ -194,6 +195,12 @@ export default function ManageBooking() {
               label="Service"
               value={`${b.service_type}${b.hours ? ` · ${b.hours} hour${b.hours > 1 ? "s" : ""}` : ""}`}
             />
+            {b.flight_number && (
+              <Row icon={User} label="Flight" value={`${b.flight_number} — monitored live by your chauffeur`} />
+            )}
+            {b.meet_and_greet && (
+              <Row icon={User} label="Add-on" value="Meet & Greet at baggage claim" />
+            )}
             <Row
               icon={User}
               label="Party size"
@@ -226,6 +233,14 @@ export default function ManageBooking() {
                 ? "Since this booking is already paid, our team will review your request and contact you about a refund within 24 hours."
                 : "Cancelling now releases your slot. We'll send a confirmation email."}
             </p>
+
+            <div className="mt-5">
+              <CancellationPolicy
+                airport={b.service_type === "Airport Transfer"}
+                variant="full"
+              />
+            </div>
+
             <Textarea
               data-testid="manage-cancel-reason"
               value={reason}

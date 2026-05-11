@@ -143,6 +143,7 @@ class BookingCreate(BaseModel):
     notes: Optional[str] = ""
     hours: Optional[int] = Field(None, ge=2, le=24)  # required only for Hourly Chauffeur, min 2 hours
     meet_and_greet: bool = False  # Airport Transfer only — chauffeur meets at baggage claim
+    flight_number: Optional[str] = Field(None, max_length=20)  # required for Airport Transfer
 
 
 class Booking(BaseModel):
@@ -166,6 +167,7 @@ class Booking(BaseModel):
     notes: str = ""
     hours: Optional[int] = None
     meet_and_greet: bool = False
+    flight_number: Optional[str] = None
     manage_token: Optional[str] = None
     review_request_sent_at: Optional[str] = None
     cancellation_requested: bool = False
@@ -311,6 +313,11 @@ async def create_booking(payload: BookingCreate):
         raise HTTPException(status_code=400, detail=f"Invalid service_type. Must be one of {SERVICE_TYPES}")
     if payload.service_type == "Hourly Chauffeur" and (not payload.hours or payload.hours < 2):
         raise HTTPException(status_code=400, detail="Hourly bookings require a minimum of 2 hours.")
+    if payload.service_type == "Airport Transfer" and not (payload.flight_number or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Flight number is required for airport transfers so your chauffeur can track your arrival.",
+        )
 
     doc = payload.model_dump()
     doc['id'] = str(uuid.uuid4())
@@ -819,6 +826,8 @@ async def manage_view_booking(token: str):
         "return_location": b.get("return_location"),
         "additional_stops": b.get("additional_stops", []),
         "hours": b.get("hours"),
+        "meet_and_greet": b.get("meet_and_greet", False),
+        "flight_number": b.get("flight_number"),
         "quote_amount": b.get("quote_amount"),
         "paid_amount": b.get("paid_amount"),
         "cancellation_requested": b.get("cancellation_requested", False),
