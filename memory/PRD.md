@@ -40,6 +40,21 @@
 
 ## Recent Fixes (Feb 2026)
 
+### v2.0 — Flight Number + Cancellation Policy + SEO Expansion (Feb 2026)
+- **Mandatory Flight Number** for Airport Transfer bookings — new `flight_number` field on `BookingCreate`/`Booking`. Backend returns 400 if missing for Airport Transfer; frontend toast-validates pre-submit. Captured in admin email + manage page so chauffeurs can monitor arrivals via flight-tracker.
+- **Cancellation & Change Policy** in three places (industry best-practice triple-disclosure):
+  - **Booking form** — collapsible chip just above the "Proceed to Payment" button (compact variant)
+  - **Manage page** — always-expanded full policy above the cancel-reason textarea
+  - **Confirmation email** — branded policy block with airport-specific section
+- **Airport-specific flight-delay protection rules** surface only when service_type=Airport Transfer: monitor flight #, auto-adjust pickup at no charge, full refund if airline cancels, 15-min free grace after landing (45 min international), no-show 30 min past landing = full charge.
+- **SEO Expansion**:
+  - **Keywords meta** ~3.5x larger: 60+ Bay Area phrases (Peninsula cities, Silicon Valley campuses, wine country, venues like Levi's Stadium, Chase Center, Oracle Park, plus "flight tracking limo", "meet and greet sfo", "MGL limo alternative")
+  - **LocalBusiness `areaServed`** expanded from 9 to 26 entries (23 cities + 3 Place entries for SFO/OAK/SJC airports)
+  - **New `makesOffer` array** in LocalBusiness schema (6 offers with areaServed)
+  - **New FAQPage JSON-LD schema** with 6 Q&A pairs (airport transfer, Meet & Greet, coverage area, cancellation, pricing, wine tours) → enables Google rich snippets
+- **CancellationPolicy.jsx** is a reusable component (compact + full variants, optional `airport` prop).
+
+
 ### v1.9 — Meet & Greet + Business Email Swap + z-index hardening (Feb 2026)
 - **Meet & Greet (Airport Transfer only)**: New `meet_and_greet` boolean on `BookingCreate`, `Booking`, `QuoteRequest`. When `service_type=Airport Transfer` and `meet_and_greet=True`, a flat fee (configurable per `Settings.meet_greet_fee`, default $25) is added to every priced vehicle quote AFTER zone surcharge and surge multiplier. Call-only vehicles ignore the fee. `_compute_quote_amount` applies the same fee so Stripe charges the right amount.
 - **Frontend toggle** in `BookingForm.jsx`: Appears only when service type is `Airport Transfer`. Has an info popover (powered by Shadcn `Popover`) explaining the service ("chauffeur meets you at baggage claim, assists with luggage, escorts you to vehicle"). When toggled on, the fee chip "+$X flat fee" appears and the live quote re-computes.
