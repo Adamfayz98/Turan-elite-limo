@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Loader2, Plus, X, MapPin, Car, User, Info } from "lucide-react";
+import { Calendar as CalendarIcon, Loader2, Plus, X, MapPin, Car, User, Info, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -430,8 +430,14 @@ export default function BookingForm() {
                     className="mt-0.5 data-[state=checked]:bg-[#D4AF37]"
                   />
                   <span className="text-sm flex-1">
-                    <span className="text-white flex items-center gap-2">
+                    <span className="text-white flex items-center gap-2 flex-wrap">
                       Add Meet &amp; Greet
+                      <span
+                        data-testid="meet-greet-popular-badge"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#D4AF37] text-[9px] font-semibold uppercase tracking-[0.18em]"
+                      >
+                        <Sparkles className="w-2.5 h-2.5" /> Most popular add-on
+                      </span>
                       <Popover>
                         <PopoverTrigger asChild>
                           <button
