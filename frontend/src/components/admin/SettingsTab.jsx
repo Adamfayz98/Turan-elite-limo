@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Save, Percent } from "lucide-react";
+import { Loader2, Save, Percent, DollarSign } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 export default function SettingsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [settings, setSettings] = useState({ deposit_percent: 100, currency: "usd" });
+  const [settings, setSettings] = useState({ deposit_percent: 100, currency: "usd", meet_greet_fee: 25 });
 
   const load = async () => {
     setLoading(true);
@@ -35,6 +35,7 @@ export default function SettingsTab() {
       const payload = {
         deposit_percent: Number(settings.deposit_percent) || 0,
         currency: settings.currency || "usd",
+        meet_greet_fee: Number(settings.meet_greet_fee) || 0,
       };
       await api.patch("/admin/settings", payload);
       toast.success("Settings saved");
@@ -97,6 +98,33 @@ export default function SettingsTab() {
             className="bg-[#0E0E0E] border-[#27272A] text-white focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] h-11 mt-2"
             maxLength={3}
           />
+        </div>
+
+        <div className="md:col-span-2 pt-4 border-t border-[#1F1F1F]">
+          <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            Meet &amp; Greet flat fee (Airport Transfers)
+          </Label>
+          <div className="mt-2 flex items-center gap-3">
+            <div className="relative w-40">
+              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#D4AF37]" />
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                data-testid="settings-meet-greet-fee"
+                value={settings.meet_greet_fee ?? 0}
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, meet_greet_fee: e.target.value }))
+                }
+                className={cn(
+                  "bg-[#0E0E0E] border-[#27272A] text-white focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] h-11 pl-9",
+                )}
+              />
+            </div>
+            <span className="text-xs text-white/55">
+              Added when customer toggles <em>Meet &amp; Greet</em> on an Airport Transfer booking. Set to 0 to disable.
+            </span>
+          </div>
         </div>
       </div>
 

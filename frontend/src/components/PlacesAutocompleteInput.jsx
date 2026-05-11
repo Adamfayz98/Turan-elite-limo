@@ -128,7 +128,7 @@ export default function PlacesAutocompleteInput({
       {open && predictions.length > 0 && (
         <div
           data-testid={`${testId}-dropdown`}
-          className="absolute z-[90] mt-2 w-full bg-[#0A0A0A] border border-[#27272A] rounded-xl overflow-hidden shadow-2xl"
+          className="absolute z-[150] mt-2 w-full bg-[#0A0A0A] border border-[#27272A] rounded-xl overflow-hidden shadow-2xl"
         >
           {predictions.map((p, i) => (
             <button

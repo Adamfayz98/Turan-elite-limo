@@ -40,6 +40,15 @@
 
 ## Recent Fixes (Feb 2026)
 
+### v1.9 — Meet & Greet + Business Email Swap + z-index hardening (Feb 2026)
+- **Meet & Greet (Airport Transfer only)**: New `meet_and_greet` boolean on `BookingCreate`, `Booking`, `QuoteRequest`. When `service_type=Airport Transfer` and `meet_and_greet=True`, a flat fee (configurable per `Settings.meet_greet_fee`, default $25) is added to every priced vehicle quote AFTER zone surcharge and surge multiplier. Call-only vehicles ignore the fee. `_compute_quote_amount` applies the same fee so Stripe charges the right amount.
+- **Frontend toggle** in `BookingForm.jsx`: Appears only when service type is `Airport Transfer`. Has an info popover (powered by Shadcn `Popover`) explaining the service ("chauffeur meets you at baggage claim, assists with luggage, escorts you to vehicle"). When toggled on, the fee chip "+$X flat fee" appears and the live quote re-computes.
+- **Admin Settings tab** now has a "Meet & Greet flat fee" input (`data-testid="settings-meet-greet-fee"`). Owner can change or set to 0 to disable.
+- **Email confirmation**: When `meet_and_greet=True`, confirmation email shows "Meet & Greet: chauffeur will meet you inside the terminal at baggage claim" in the extras list.
+- **Business email swap**: `SUPPORT_EMAIL=support@turanelitelimo.com` is now the public-facing inquiry/contact address (Footer, Contact form, ManageBooking, PayBooking, JSON-LD schema). Admin login email remains `turonlimosupport@gmail.com`.
+- **Dropdown z-index hardening**: `SelectContent` and `PopoverContent` bumped to `z-[200]`, `PlacesAutocompleteInput` dropdown to `z-[150]`. Fixes Service Type dropdown being visually obscured by the FleetPicker grid (recurrent bug).
+- **Meet & Greet fee surfaces in QuoteResponse** as `meet_and_greet_fee` field for the frontend chip.
+
 ### v1.8 — Zone Surcharges + Domain Swap + Geocoder Hardening (Feb 2026)
 - **Zone Surcharges** — admin can define "long-distance area" zones from a new `Zones` tab. Each zone has a name, comma-separated address keywords, a flat $ surcharge, a `short_distance_threshold_miles` (default 20), and a customer-facing reason. When pickup OR drop-off matches the zone keywords AND trip distance is below threshold, every priced vehicle quote gets the surcharge added and a "Estimated flat rate · long-distance area" tag. Stretch/Sprinter/Party Bus remain "Call for quote". Hourly mode bypasses surcharges by design.
 - **Customer-facing surcharge banner** on the booking form (`data-testid="surcharge-banner"`): amber info banner with "Long-distance area fee · +$X (Zone Name)" and the admin-written reason text.

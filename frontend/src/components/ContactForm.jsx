@@ -81,10 +81,10 @@ export default function ContactForm() {
               <div>
                 <div className="text-xs uppercase tracking-[0.2em] text-white/50">Email</div>
                 <a
-                  href="mailto:turonlimosupport@gmail.com"
+                  href="mailto:support@turanelitelimo.com"
                   className="text-white text-lg hover:text-[#D4AF37] transition-colors"
                 >
-                  turonlimosupport@gmail.com
+                  support@turanelitelimo.com
                 </a>
               </div>
             </div>

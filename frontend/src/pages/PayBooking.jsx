@@ -259,7 +259,7 @@ export default function PayBooking() {
 
         <p className="text-center text-xs text-white/40 mt-8">
           Questions? Call <a href="tel:+16504100687" className="text-[#D4AF37]">(650) 410‑0687</a>{" "}
-          or email <a href="mailto:turonlimosupport@gmail.com" className="text-[#D4AF37]">turonlimosupport@gmail.com</a>
+          or email <a href="mailto:support@turanelitelimo.com" className="text-[#D4AF37]">support@turanelitelimo.com</a>
         </p>
       </div>
     </main>

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 resend.api_key = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
-SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "turonlimosupport@gmail.com")
+SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "support@turanelitelimo.com")
 SUPPORT_PHONE = os.environ.get("SUPPORT_PHONE", "(650) 410-0687")
 COMPANY_NAME = "TuranEliteLimo"
 
@@ -81,6 +81,8 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str], manage_
     extras = []
     if booking.get("hours"):
         extras.append(f"Duration: {booking['hours']} hour{'s' if booking['hours'] > 1 else ''} (hourly chauffeur)")
+    if booking.get("meet_and_greet"):
+        extras.append("Meet & Greet: chauffeur will meet you inside the terminal at baggage claim")
     if booking.get("child_seat"):
         extras.append("Child seat: requested")
     if booking.get("luggage_count"):

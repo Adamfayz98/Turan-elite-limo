@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Loader2, Plus, X, MapPin, Car, User } from "lucide-react";
+import { Calendar as CalendarIcon, Loader2, Plus, X, MapPin, Car, User, Info } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -72,6 +72,7 @@ const initialForm = {
   vehicle_type: "",
   notes: "",
   hours: "",
+  meet_and_greet: false,
 };
 
 function SectionHead({ icon: Icon, step, title, sub }) {
@@ -137,6 +138,7 @@ export default function BookingForm() {
           service_type: form.service_type || null,
           hours: hourlyReady ? hoursNum : null,
           pickup_date: date ? format(date, "yyyy-MM-dd") : null,
+          meet_and_greet: !!form.meet_and_greet,
         });
         setQuote(data);
       } catch {
@@ -146,7 +148,7 @@ export default function BookingForm() {
       }
     }, 1100);
     return () => quoteTimer.current && clearTimeout(quoteTimer.current);
-  }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours, date]);
+  }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours, form.meet_and_greet, date]);
 
   const addStop = () => setStops((s) => [...s, ""]);
   const removeStop = (idx) => setStops((s) => s.filter((_, i) => i !== idx));
@@ -177,6 +179,7 @@ export default function BookingForm() {
         additional_stops: stops.map((s) => s.trim()).filter(Boolean),
         return_location: form.return_trip ? form.return_location : "",
         pickup_date: format(date, "yyyy-MM-dd"),
+        meet_and_greet: form.service_type === "Airport Transfer" && !!form.meet_and_greet,
         hours:
           form.service_type === "Hourly Chauffeur" && form.hours
             ? Number(form.hours)
@@ -414,6 +417,69 @@ export default function BookingForm() {
                 <span className="block text-xs text-white/50">Different drop-off OK</span>
               </span>
             </label>
+
+            {form.service_type === "Airport Transfer" && (
+              <div className="md:col-span-2" data-testid="meet-greet-wrap">
+                <label
+                  className="flex items-start gap-3 px-4 py-3 rounded-xl border border-[#27272A] bg-[#0E0E0E] cursor-pointer hover:border-[#D4AF37]/30 transition-colors"
+                  data-testid="meet-greet-toggle"
+                >
+                  <Switch
+                    checked={form.meet_and_greet}
+                    onCheckedChange={(v) => update("meet_and_greet")(!!v)}
+                    className="mt-0.5 data-[state=checked]:bg-[#D4AF37]"
+                  />
+                  <span className="text-sm flex-1">
+                    <span className="text-white flex items-center gap-2">
+                      Add Meet &amp; Greet
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            data-testid="meet-greet-info"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10 transition-colors"
+                            aria-label="What is Meet & Greet?"
+                          >
+                            <Info className="w-3 h-3" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          align="start"
+                          side="top"
+                          className="w-80 bg-[#0A0A0A] border-[#27272A] text-white text-xs leading-relaxed"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="text-[#D4AF37] uppercase tracking-[0.2em] text-[10px] mb-2">
+                            What is Meet &amp; Greet?
+                          </div>
+                          <p className="text-white/80">
+                            Your chauffeur will park, walk inside the terminal, and meet you at
+                            baggage claim holding a sign with your name. They'll help with your
+                            luggage and escort you directly to your vehicle.
+                          </p>
+                          <p className="text-white/55 mt-2">
+                            Ideal for international arrivals, families, and first-time visitors.
+                            A flat fee is added to your fare.
+                          </p>
+                        </PopoverContent>
+                      </Popover>
+                    </span>
+                    <span className="block text-xs text-white/55 mt-0.5">
+                      Chauffeur meets you at baggage claim, assists with luggage, escorts you to the vehicle.
+                    </span>
+                    {quote?.meet_and_greet_fee ? (
+                      <span
+                        data-testid="meet-greet-fee"
+                        className="inline-block mt-1.5 text-[11px] text-[#D4AF37] font-medium"
+                      >
+                        +${Number(quote.meet_and_greet_fee).toFixed(0)} flat fee
+                      </span>
+                    ) : null}
+                  </span>
+                </label>
+              </div>
+            )}
 
             {form.service_type === "Hourly Chauffeur" && (
               <div className="md:col-span-2" data-testid="booking-hours-wrap">

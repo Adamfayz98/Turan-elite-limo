@@ -142,6 +142,7 @@ class BookingCreate(BaseModel):
     vehicle_type: str
     notes: Optional[str] = ""
     hours: Optional[int] = Field(None, ge=2, le=24)  # required only for Hourly Chauffeur, min 2 hours
+    meet_and_greet: bool = False  # Airport Transfer only — chauffeur meets at baggage claim
 
 
 class Booking(BaseModel):
@@ -164,6 +165,7 @@ class Booking(BaseModel):
     vehicle_type: str
     notes: str = ""
     hours: Optional[int] = None
+    meet_and_greet: bool = False
     manage_token: Optional[str] = None
     review_request_sent_at: Optional[str] = None
     cancellation_requested: bool = False
@@ -330,6 +332,7 @@ class QuoteRequest(BaseModel):
     service_type: Optional[str] = None
     hours: Optional[int] = Field(None, ge=1, le=24)
     pickup_date: Optional[str] = None  # YYYY-MM-DD — for surge-event matching
+    meet_and_greet: bool = False  # Airport Transfer only
 
 
 class VehicleQuote(BaseModel):
@@ -368,6 +371,7 @@ class QuoteResponse(BaseModel):
     included_miles: Optional[int] = None
     surcharge_applied: Optional[SurchargeInfo] = None
     surge_applied: Optional[SurgeInfo] = None
+    meet_and_greet_fee: Optional[float] = None  # flat fee added when meet_and_greet=True and Airport Transfer
 
 
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -482,6 +486,7 @@ def _build_quotes(
     surcharge: float = 0.0,
     surge_mult: float = 1.0,
     surge_flat: float = 0.0,
+    addon_flat: float = 0.0,
 ) -> List[VehicleQuote]:
     quotes: List[VehicleQuote] = []
     has_event = surge_mult != 1.0 or surge_flat > 0
@@ -499,12 +504,17 @@ def _build_quotes(
             price += surcharge
         if has_event:
             price = _apply_surge(price, surge_mult, surge_flat)
+        # Add-on (e.g., Meet & Greet) is added AFTER surge so it's a true flat add
+        if addon_flat > 0:
+            price += addon_flat
         price = round(price, 2)
         tags = []
         if surcharge > 0:
             tags.append("long-distance area")
         if has_event:
             tags.append("event surge")
+        if addon_flat > 0:
+            tags.append("meet & greet")
         msg = "Estimated flat rate" + (" · " + " · ".join(tags) if tags else "")
         quotes.append(VehicleQuote(
             vehicle_type=vt,
@@ -656,6 +666,12 @@ async def _load_pricing_map() -> dict:
 async def quote_ride(payload: QuoteRequest):
     pricing_map = await _load_pricing_map()
 
+    # Meet & Greet flat fee (only for Airport Transfer)
+    mg_fee = 0.0
+    if payload.meet_and_greet and payload.service_type == "Airport Transfer":
+        settings = await _load_settings()
+        mg_fee = float(settings.meet_greet_fee or 0.0)
+
     # Surge events (date-based) — apply on top of all base/hourly pricing
     surge_events = await _load_surge_events()
     matched_event = _select_surge_event(payload.pickup_date, surge_events)
@@ -698,7 +714,11 @@ async def quote_ride(payload: QuoteRequest):
     pickup = await _geocode(payload.pickup_location)
     dropoff = await _geocode(payload.dropoff_location)
     if not pickup or not dropoff:
-        return QuoteResponse(quotes=_build_quotes(None, pricing_map), fallback=True)
+        return QuoteResponse(
+            quotes=_build_quotes(None, pricing_map, addon_flat=mg_fee),
+            fallback=True,
+            meet_and_greet_fee=mg_fee if mg_fee > 0 else None,
+        )
 
     miles = _haversine_miles(pickup["lat"], pickup["lon"], dropoff["lat"], dropoff["lon"])
     miles = round(miles, 1)
@@ -731,10 +751,12 @@ async def quote_ride(payload: QuoteRequest):
             surcharge=surcharge_amt,
             surge_mult=surge_mult,
             surge_flat=surge_flat,
+            addon_flat=mg_fee,
         ),
         fallback=False,
         surcharge_applied=surcharge_info,
         surge_applied=surge_info,
+        meet_and_greet_fee=mg_fee if mg_fee > 0 else None,
     )
 
 
@@ -1059,6 +1081,7 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     deposit_percent: int = Field(100, ge=0, le=100)
     currency: str = "usd"
+    meet_greet_fee: float = Field(25.0, ge=0)
 
 
 async def _load_settings() -> Settings:
@@ -1076,6 +1099,7 @@ async def get_settings(_: dict = Depends(require_admin)):
 class SettingsUpdate(BaseModel):
     deposit_percent: Optional[int] = Field(None, ge=0, le=100)
     currency: Optional[str] = None
+    meet_greet_fee: Optional[float] = Field(None, ge=0)
 
 
 @api_router.patch("/admin/settings", response_model=Settings)
@@ -1131,6 +1155,10 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
     if matched_zone:
         price += float(matched_zone["surcharge_amount"])
     price = _apply_surge(price, surge_mult, surge_flat)
+    # Meet & Greet flat fee (Airport Transfer only) — added AFTER surge
+    if booking.get("meet_and_greet") and booking.get("service_type") == "Airport Transfer":
+        settings = await _load_settings()
+        price += float(settings.meet_greet_fee or 0.0)
     return round(price, 2)
 
 
@@ -1846,11 +1874,20 @@ async def startup_seed():
                 "key": "global",
                 "deposit_percent": 100,
                 "currency": "usd",
+                "meet_greet_fee": 25.0,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
         },
         upsert=True,
     )
+    # Backfill meet_greet_fee for legacy settings docs that pre-date this field
+    try:
+        await db.settings.update_one(
+            {"key": "global", "meet_greet_fee": {"$exists": False}},
+            {"$set": {"meet_greet_fee": 25.0}},
+        )
+    except Exception as e:
+        logger.warning(f"meet_greet_fee backfill skipped: {e}")
 
     # Migration: rename legacy "Luxury Sedan" → "S-Class" in existing bookings
     try:

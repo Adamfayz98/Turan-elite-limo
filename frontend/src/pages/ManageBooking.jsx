@@ -287,7 +287,7 @@ export default function ManageBooking() {
             <PhoneCall className="w-3 h-3 inline mr-1" /> Call us
           </a>
           <span className="mx-2 text-white/20">·</span>
-          <a href={`mailto:${b.support_email || "turonlimosupport@gmail.com"}`} className="text-[#D4AF37] hover:underline">
+          <a href={`mailto:${b.support_email || "support@turanelitelimo.com"}`} className="text-[#D4AF37] hover:underline">
             <Mail className="w-3 h-3 inline mr-1" /> Email us
           </a>
         </div>
