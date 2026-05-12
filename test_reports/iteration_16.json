@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 16 — Stripe-first payment flow + admin quick-confirm. Backend pytest 15/15 PASS (3.0s) on /app/backend/tests/test_iteration16_stripe_first.py covering: (1) POST /api/bookings creates pending booking with manage_token and NO email sent on create; validation 400/422 for invalid vehicle, invalid service, hours<2, missing flight_number. (2) render_payment_received_pending_email renders 'Payment Received', 'Confirming Your Chauffeur', confirmation_number, $250.00, customer first name, 'within an hour', manage_url. (3) GET /api/payments/status/{session_id} robust to Stripe-lookup failure; after simulated paid transition (DB-level) admin sees booking with status=pending + payment_status=paid + confirmation_number. (4) PATCH /api/admin/bookings/{id} confirmed succeeds for both paid and unpaid bookings — render_confirmation_email branches verified: paid -> no 'Pay & Secure...' button; unpaid -> button present. (5) Smoke: /api/quote, /api/bookings/manage/{bogus} 404, /api/admin/zones, /api/admin/surge-events, /api/admin/settings (meet_greet_fee). Frontend UI verified live: two-step-notice banner text exactly matches spec ('How it works', 'pay now via Stripe', 'chauffeur confirmation within an hour', 'refund you instantly') and contains NO old phrasing. Submit button default reads 'Proceed to Payment'. Vehicle/service selection works via cards + select. Admin quick-confirm button verified via code review (data-testid='quick-confirm-{id}', conditional 'Confirm chauffeur' for paid+pending vs 'Confirm' for unpaid+pending, only renders for pending status).",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "POST /api/bookings (Airport Transfer, flight_number='')", "issue": "Returns 422 (Pydantic min_length on flight_number string) before custom 400 handler can fire. Functionally rejects invalid input — spec said 400 but only fires when flight_number=None. Same minor mismatch as iter-15."}
+  ]},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration16_stripe_first.py",
+    "/app/test_reports/pytest/iter16_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Live Stripe Checkout redirect from BookingForm can't be intercepted in CI; recommend adding data-testid='vehicle-card-{name}' on each vehicle card and a [data-testid='quick-confirm-{id}'] e2e test once an automated admin login bypass exists.",
+    "(Optional) Frontend admin 2FA login is gated behind a real email code; for testability, the main agent could expose a dev-only header or env flag to bypass 2FA in non-prod (currently testers must POST /api/admin/verify-2fa after directly seeding a challenge in MongoDB — pytest does this)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~2114 lines — still monolithic; modularizing into routers (bookings, admin, payments, manage) is overdue (carried since iter-13).",
+    "/api/payments/status side-effect block (lines 1385–1429) correctly: keeps booking.status='pending', sets payment_status='paid', generates confirmation_number, sends render_payment_received_pending_email with BCC to SUPPORT_EMAIL. NOT auto-confirming is the desired behavior per spec.",
+    "/api/admin/bookings PATCH (lines 1568–1592) correctly chooses subject + pay_url branch based on already_paid = (payment_status=='paid'). Logic is correct and matches spec.",
+    "create_booking (lines 314–345) correctly drops the email send — comment block on line 341–343 explains the new behavior. Good.",
+    "BookingForm.onSubmit (lines 196–222) correctly: posts /bookings -> if instant price posts /payments/checkout -> redirects window.location to Stripe; for call-for-quote shows toast and resets form. Matches spec.",
+    "Two-step-notice banner (lines 789–813) correctly uses 'How it works' / 'pay now via Stripe' / 'within an hour' / 'refund you instantly'. No legacy phrasing.",
+    "AdminDashboard quick-confirm button (lines 445–457) correctly: only renders for status=='pending', uses data-testid='quick-confirm-{id}', dynamically labels 'Confirm chauffeur' vs 'Confirm' based on payment_status=='paid'. Calls updateStatus(id,'confirmed').",
+    "render_request_received_email is now dead code (no callers) — per agent-to-agent note this is intentional, leaving in case of flip-back. Worth a // TODO comment in source noting it's unused.",
+    "Submit button label fallback when no quote exists is 'Proceed to Payment' — slight risk for call-for-quote-only vehicles before they're selected. Once Stretch Limousine is picked, it correctly switches to 'Request Reservation'. Verified in code (lines 846–855)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration16_stripe_first.py"
+  ],
+  "success_rate": {"backend": "100% (15/15 pytest)", "frontend": "Banner + submit text 100%. Stripe redirect & admin quick-confirm verified via code review (live e2e blocked by 2FA / live-Stripe gates)."},
+  "test_credentials": "Admin: turonlimosupport@gmail.com / TuronAdmin@2025 (2FA bypass: insert admin_2fa_challenges with bcrypt('123456'))",
+  "seed_data_creation": "~5 TEST_Iter16-prefixed bookings + 1 cs_test_iter16_* payment_transactions row + a few admin_2fa_challenges; all cleaned up via module-scope autouse fixture.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-16 verified end-to-end at backend layer (pytest) + frontend UI for banner and submit button. Live Stripe redirect cannot be e2e tested because live key is in env and we must not initiate live sessions. Admin quick-confirm UI not exercised via Playwright because admin login requires real 2FA email code; the underlying PATCH endpoint is tested via pytest using a DB-seeded 2FA challenge with bcrypt('123456'). For future iters, consider adding a dev-only env flag to skip 2FA, or adding data-testid='vehicle-card-{Name}' for deterministic card selection in Playwright. render_request_received_email remains as dead code in email_service.py — intentional carry-over.",
+  "rca_of_the_issue": "N/A — no production bugs. Spec said 400 for missing flight_number; in practice Pydantic min_length kicks in first and returns 422 — semantically equivalent rejection. Same minor as iter-15."
+}

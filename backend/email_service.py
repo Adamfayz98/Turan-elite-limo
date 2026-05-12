@@ -332,6 +332,80 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str], manage_
 """
 
 
+def render_payment_received_pending_email(booking: dict, amount: float, manage_url: Optional[str] = None) -> str:
+    """Sent immediately AFTER successful Stripe payment, before admin has reviewed.
+    Tells the customer: we've got your money, your slot is held, we're confirming
+    chauffeur details and will email final confirmation within an hour.
+    """
+    cn = booking.get("confirmation_number", "")
+    first_name = (booking.get('full_name') or '').split(' ')[0] or 'there'
+    manage_btn = render_manage_link_html(manage_url) if manage_url else ""
+    return f"""
+<!doctype html>
+<html><body style="margin:0;background:#0a0a0a;font-family:Arial,Helvetica,sans-serif;color:#fff;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#111;border-radius:14px;border:1px solid #1f1f1f;overflow:hidden;">
+        <tr><td style="background:#0a0a0a;padding:28px 32px;border-bottom:1px solid #1f1f1f;">
+          <span style="font-size:24px;font-weight:700;">
+            Turan<span style="color:#D4AF37;">EliteLimo</span>
+          </span>
+        </td></tr>
+
+        <tr><td style="padding:32px 32px 8px 32px;">
+          <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#D4AF37;margin-bottom:12px;">
+            Payment Received · Confirming Your Chauffeur
+          </div>
+          <h1 style="font-size:24px;margin:0 0 12px 0;font-weight:600;">
+            Thanks {first_name} — your slot is held.
+          </h1>
+          <p style="color:#bbb;font-size:14px;line-height:1.7;margin:0;">
+            We've received your payment of <strong style="color:#D4AF37;">${amount:,.2f}</strong>.
+            Our team is now finalizing your chauffeur and vehicle assignment.
+            You'll receive a <strong style="color:#fff;">final confirmation email</strong> with
+            your driver's name and contact info <span style="color:#D4AF37;">within an hour</span>.
+          </p>
+        </td></tr>
+
+        <tr><td style="padding:20px 32px 4px 32px;">
+          <table cellpadding="0" cellspacing="0" width="100%" style="background:#0a0a0a;border:1px solid #D4AF37;border-radius:10px;">
+            <tr><td style="padding:18px 22px;">
+              <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#888;">
+                Confirmation Number
+              </div>
+              <div style="font-size:30px;color:#D4AF37;letter-spacing:3px;font-weight:700;margin-top:6px;font-family:'Courier New',monospace;">
+                {cn}
+              </div>
+            </td></tr>
+          </table>
+        </td></tr>
+
+        <tr><td style="padding:20px 32px 4px 32px;">
+          <div style="background:#0a0a0a;border:1px dashed #2a2a2a;border-radius:10px;padding:14px 18px;">
+            <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#D4AF37;margin-bottom:6px;">
+              What happens next
+            </div>
+            <ol style="color:#aaa;font-size:13px;line-height:1.7;padding-left:20px;margin:0;">
+              <li>We verify chauffeur &amp; vehicle availability for your date/time.</li>
+              <li>You receive <strong style="color:#fff;">final confirmation</strong> with chauffeur contact info.</li>
+              <li><strong style="color:#fff;">Rare case:</strong> if we can't fulfill, you're auto-refunded within 24 hours.</li>
+            </ol>
+          </div>
+        </td></tr>
+
+        {manage_btn}
+
+        <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
+          Need to change something? Reply to this email or call
+          <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+
+
 def render_payment_receipt_email(booking: dict, amount: float) -> str:
     cn = booking.get("confirmation_number", "")
     return f"""

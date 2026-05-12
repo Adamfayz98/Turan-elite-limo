@@ -195,13 +195,32 @@ export default function BookingForm() {
       };
       const { data: booking } = await api.post("/bookings", payload);
 
-      // 2-stage flow: NO immediate Stripe redirect. Admin reviews → sends payment link.
-      toast.success(
-        "Request received — check your email. We'll confirm within an hour and send your payment link.",
-        { duration: 7000 },
-      );
+      // Determine if this vehicle has an instant price (i.e., not "Call for quote")
+      const vQuote = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
+      const hasInstantPrice = vQuote && vQuote.price != null;
 
-      // Reset form
+      if (hasInstantPrice) {
+        // Redirect straight to Stripe checkout — premium, familiar UX
+        try {
+          const { data: co } = await api.post("/payments/checkout", {
+            booking_id: booking.id,
+            origin_url: window.location.origin,
+          });
+          window.location.href = co.url;
+          return; // don't reset state — redirect imminent
+        } catch (err) {
+          toast.error(
+            formatApiErrorDetail(err.response?.data?.detail) ||
+              "Booking saved, but couldn't start payment. We'll call you to finalize.",
+          );
+        }
+      } else {
+        toast.success(
+          "Reservation request received. We'll call you with a custom quote shortly.",
+        );
+      }
+
+      // Reset form (only reached when no redirect)
       setForm(initialForm);
       setStops([]);
       setDate(null);
@@ -785,11 +804,11 @@ export default function BookingForm() {
               <polyline points="22,6 12,13 2,6" />
             </svg>
             <div className="text-xs text-white/75 leading-relaxed">
-              <span className="text-white font-medium">Two-step confirmation.</span>{" "}
-              You'll get an instant <em>request received</em> email now. We review every
-              booking personally and send a separate <em>confirmation + secure payment link</em>{" "}
-              <span className="text-[#D4AF37]">within an hour</span>. Your reservation isn't
-              locked in until you pay.
+              <span className="text-white font-medium">How it works.</span>{" "}
+              You'll pay now via Stripe to hold your slot. We personally review every
+              booking and send you a final{" "}
+              <span className="text-[#D4AF37]">chauffeur confirmation within an hour</span>.
+              In the rare case we can't fulfill your request, we'll refund you instantly.
             </div>
           </div>
 
@@ -823,13 +842,16 @@ export default function BookingForm() {
             >
               {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {submitting
-                ? "Submitting…"
+                ? "Processing…"
                 : (() => {
                     const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
                     if (vq && vq.price != null) {
-                      return `Request Reservation · ${vq.formatted_price}`;
+                      return `Proceed to Payment · ${vq.formatted_price}`;
                     }
-                    return "Request Reservation";
+                    if (vq && vq.price == null) {
+                      return "Request Reservation";
+                    }
+                    return "Proceed to Payment";
                   })()}
             </Button>
           </div>

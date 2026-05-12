@@ -441,7 +441,21 @@ export default function AdminDashboard() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <DropdownMenu>
+                        <div className="flex items-center justify-end gap-2">
+                          {b.status === "pending" && (
+                            <Button
+                              size="sm"
+                              data-testid={`quick-confirm-${b.id}`}
+                              onClick={() => updateStatus(b.id, "confirmed")}
+                              className="bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 rounded-full h-8 px-3 text-xs font-medium"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                              {b.payment_status === "paid"
+                                ? "Confirm chauffeur"
+                                : "Confirm"}
+                            </Button>
+                          )}
+                          <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
                               variant="outline"
@@ -536,6 +550,7 @@ export default function AdminDashboard() {
                             </AlertDialog>
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

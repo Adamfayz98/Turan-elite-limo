@@ -24,6 +24,7 @@ from email_service import (
     send_email,
     render_confirmation_email,
     render_request_received_email,
+    render_payment_received_pending_email,
     render_payment_receipt_email,
     render_2fa_code_email,
     render_review_request_email,
@@ -337,20 +338,9 @@ async def create_booking(payload: BookingCreate, request: Request):
     insert_doc = doc.copy()
     await db.bookings.insert_one(insert_doc)
 
-    # Stage 1 email: instant request acknowledgment (no payment link yet)
-    try:
-        client_origin = _frontend_origin_from_request(request)
-        manage_url = f"{client_origin}/manage/{doc['manage_token']}"
-        html = render_request_received_email(doc, manage_url=manage_url)
-        await send_email(
-            to=doc["email"],
-            subject="We've received your ride request — TuranEliteLimo",
-            html=html,
-            bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
-        )
-    except Exception as e:
-        # Email failure must not break the booking creation flow
-        logger.error(f"request-received email failed for {doc['id']}: {e}")
+    # NOTE: No email is sent here. The customer will be redirected to Stripe immediately
+    # after this booking is created. The "Payment received, confirming chauffeur" email
+    # is sent only AFTER successful payment (see /api/payments/status webhook handler).
 
     return Booking(**doc)
 
@@ -1399,9 +1389,12 @@ async def get_payment_status(session_id: str, request: Request):
                 {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
             )
             if booking and booking.get("payment_status") != "paid":
-                # Generate manage token if not yet issued
+                # Generate manage token if not yet issued (legacy bookings)
                 token = booking.get("manage_token") or _generate_manage_token()
-                # Auto-confirm the booking on payment success
+                # Generate confirmation number now so the customer has one in their receipt
+                cn = booking.get("confirmation_number") or await _next_unique_confirmation_number()
+                # IMPORTANT: do NOT auto-confirm — admin reviews chauffeur availability first.
+                # Status stays "pending" until admin explicitly confirms in the dashboard.
                 await db.bookings.update_one(
                     {"id": txn["booking_id"]},
                     {
@@ -1409,21 +1402,22 @@ async def get_payment_status(session_id: str, request: Request):
                             "payment_status": "paid",
                             "paid_amount": amount,
                             "paid_currency": currency,
-                            "status": "confirmed",
                             "manage_token": token,
+                            "confirmation_number": cn,
+                            "quote_amount": booking.get("quote_amount") or amount,
                         }
                     },
                 )
                 updated = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
                 if updated:
-                    # Customer-facing manage link
                     client_origin = _frontend_origin_from_request(request)
                     manage_url = f"{client_origin}/manage/{updated.get('manage_token','')}"
-                    confirm_html = render_confirmation_email(updated, payment_url=None, manage_url=manage_url)
+                    # Send "Payment received, awaiting chauffeur confirmation" email
+                    pending_html = render_payment_received_pending_email(updated, amount, manage_url=manage_url)
                     await send_email(
                         to=updated["email"],
-                        subject=f"Reservation confirmed & paid — {updated.get('confirmation_number','')}",
-                        html=confirm_html,
+                        subject=f"Payment received — confirming your chauffeur · {cn}",
+                        html=pending_html,
                         bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
                     )
                     # SMS the admin/driver about the new paid booking (env-gated; no-op if Twilio unset)
@@ -1574,14 +1568,25 @@ async def update_booking_status(
     # Send confirmation email when transitioning to "confirmed"
     if payload.status == "confirmed":
         client_origin = _frontend_origin_from_request(request)
-        pay_url = f"{client_origin}/pay/{booking_id}" if result.get("quote_amount") else None
+        # Only include pay link if booking is NOT already paid
+        already_paid = result.get("payment_status") == "paid"
+        pay_url = (
+            f"{client_origin}/pay/{booking_id}"
+            if (not already_paid and result.get("quote_amount"))
+            else None
+        )
         manage_url = (
             f"{client_origin}/manage/{result.get('manage_token')}" if result.get("manage_token") else None
         )
         html = render_confirmation_email(result, pay_url, manage_url=manage_url)
+        subject = (
+            f"Your chauffeur is confirmed — {result.get('confirmation_number','')}"
+            if already_paid
+            else f"Reservation confirmed — {result.get('confirmation_number','')}"
+        )
         await send_email(
             to=result["email"],
-            subject=f"Reservation confirmed — {result.get('confirmation_number','')}",
+            subject=subject,
             html=html,
             bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
         )
