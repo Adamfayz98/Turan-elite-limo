@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Save, Plus, Trash2, MapPin } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, MapPin, Radio, Tag } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,9 +35,11 @@ function blankZone() {
   return {
     id: null,
     name: "",
+    match_type: "keyword_short",
     keywords_text: "",
     surcharge_amount: 50,
     short_distance_threshold_miles: 20,
+    radius_miles: 40,
     reason: "",
     enabled: true,
   };
@@ -40,9 +49,11 @@ function toClientShape(z) {
   return {
     id: z.id,
     name: z.name,
+    match_type: z.match_type || "keyword_short",
     keywords_text: (z.keywords || []).join(", "),
     surcharge_amount: z.surcharge_amount ?? 0,
     short_distance_threshold_miles: z.short_distance_threshold_miles ?? 20,
+    radius_miles: z.radius_miles ?? 40,
     reason: z.reason || "",
     enabled: z.enabled !== false,
   };
@@ -51,15 +62,165 @@ function toClientShape(z) {
 function toServerShape(z) {
   return {
     name: z.name.trim(),
+    match_type: z.match_type || "keyword_short",
     keywords: (z.keywords_text || "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
     surcharge_amount: Number(z.surcharge_amount) || 0,
     short_distance_threshold_miles: Number(z.short_distance_threshold_miles) || 20,
+    radius_miles: Number(z.radius_miles) || 0,
     reason: (z.reason || "").trim(),
     enabled: !!z.enabled,
   };
+}
+
+function ZoneFields({ z, idPrefix, onChange }) {
+  const isRadius = z.match_type === "outside_radius";
+  return (
+    <>
+      <div className="md:col-span-12 -mb-2">
+        <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+          How does this zone match?
+        </Label>
+        <Select
+          value={z.match_type}
+          onValueChange={(v) => onChange("match_type", v)}
+        >
+          <SelectTrigger
+            data-testid={`${idPrefix}-match-type`}
+            className={cn(inputCls, "mt-1 h-10 md:w-[420px]")}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#111111] border-[#27272A] text-white">
+            <SelectItem value="keyword_short">
+              <span className="flex items-center gap-2">
+                <Tag className="w-3.5 h-3.5 text-[#D4AF37]" />
+                Keyword match · short trips in a far area (positioning fee)
+              </span>
+            </SelectItem>
+            <SelectItem value="outside_radius">
+              <span className="flex items-center gap-2">
+                <Radio className="w-3.5 h-3.5 text-[#D4AF37]" />
+                Outside service radius from HQ (out-of-area fee)
+              </span>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-[11px] text-white/45 mt-1.5 leading-relaxed">
+          {isRadius
+            ? "Surcharge applied when pickup OR drop-off is farther than the radius below from your Millbrae HQ. Best for blanket out-of-area fees."
+            : "Surcharge applied when pickup/drop-off contains any keyword AND total trip is below the threshold. Best for positioning fees on short rides in distant areas."}
+        </p>
+      </div>
+
+      <div className="md:col-span-3">
+        <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">Zone name</Label>
+        <Input
+          data-testid={`${idPrefix}-name`}
+          className={cn(inputCls, "mt-1 h-10")}
+          value={z.name}
+          onChange={(e) => onChange("name", e.target.value)}
+          placeholder={isRadius ? "e.g. Out-of-Bay-Area" : "e.g. Healdsburg & North Sonoma"}
+        />
+      </div>
+
+      {!isRadius && (
+        <div className="md:col-span-4">
+          <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            Matching keywords (comma-separated)
+          </Label>
+          <Input
+            data-testid={`${idPrefix}-keywords`}
+            className={cn(inputCls, "mt-1 h-10")}
+            value={z.keywords_text}
+            onChange={(e) => onChange("keywords_text", e.target.value)}
+            placeholder="healdsburg, geyserville, cloverdale"
+          />
+        </div>
+      )}
+
+      <div className={cn("md:col-span-2", isRadius && "md:col-span-3")}>
+        <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+          Surcharge ($)
+        </Label>
+        <Input
+          data-testid={`${idPrefix}-amount`}
+          type="number"
+          step="0.01"
+          min="0"
+          className={cn(inputCls, "mt-1 h-10")}
+          value={z.surcharge_amount}
+          onChange={(e) => onChange("surcharge_amount", e.target.value)}
+        />
+      </div>
+
+      {isRadius ? (
+        <div className="md:col-span-3">
+          <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            Service radius (miles from HQ)
+          </Label>
+          <Input
+            data-testid={`${idPrefix}-radius`}
+            type="number"
+            step="1"
+            min="0"
+            max="500"
+            className={cn(inputCls, "mt-1 h-10")}
+            value={z.radius_miles}
+            onChange={(e) => onChange("radius_miles", e.target.value)}
+            placeholder="40"
+          />
+        </div>
+      ) : (
+        <div className="md:col-span-2">
+          <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            If trip &lt; (miles)
+          </Label>
+          <Input
+            data-testid={`${idPrefix}-threshold`}
+            type="number"
+            step="1"
+            min="0"
+            max="200"
+            className={cn(inputCls, "mt-1 h-10")}
+            value={z.short_distance_threshold_miles}
+            onChange={(e) => onChange("short_distance_threshold_miles", e.target.value)}
+          />
+        </div>
+      )}
+
+      <div className="md:col-span-1">
+        <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">On</Label>
+        <div className="mt-2.5">
+          <Switch
+            data-testid={`${idPrefix}-enabled`}
+            checked={!!z.enabled}
+            onCheckedChange={(v) => onChange("enabled", !!v)}
+            className="data-[state=checked]:bg-[#D4AF37]"
+          />
+        </div>
+      </div>
+
+      <div className="md:col-span-12">
+        <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+          Why this fee (shown to the customer)
+        </Label>
+        <Textarea
+          data-testid={`${idPrefix}-reason`}
+          className={cn(inputCls, "mt-1 min-h-[64px]")}
+          value={z.reason}
+          onChange={(e) => onChange("reason", e.target.value)}
+          placeholder={
+            isRadius
+              ? "This trip is outside our standard service radius. The flat fee helps cover the deadhead drive."
+              : "This area is 60+ miles from our Millbrae base — short rides include a positioning fee so we can dispatch a chauffeur in time."
+          }
+        />
+      </div>
+    </>
+  );
 }
 
 export default function ZonesTab() {
@@ -90,6 +251,10 @@ export default function ZonesTab() {
 
   const save = async (zone) => {
     if (!zone.name.trim()) return toast.error("Zone name is required.");
+    if (zone.match_type === "outside_radius" && Number(zone.radius_miles) <= 0)
+      return toast.error("Service radius (miles) is required.");
+    if (zone.match_type === "keyword_short" && !zone.keywords_text.trim())
+      return toast.error("At least one keyword is required for keyword-match zones.");
     setSavingId(zone.id);
     try {
       const payload = toServerShape(zone);
@@ -115,6 +280,10 @@ export default function ZonesTab() {
 
   const create = async () => {
     if (!newZone.name.trim()) return toast.error("Zone name is required.");
+    if (newZone.match_type === "outside_radius" && Number(newZone.radius_miles) <= 0)
+      return toast.error("Service radius (miles) is required.");
+    if (newZone.match_type === "keyword_short" && !newZone.keywords_text.trim())
+      return toast.error("At least one keyword is required for keyword-match zones.");
     setCreating(true);
     try {
       await api.post("/admin/zones", toServerShape(newZone));
@@ -146,10 +315,11 @@ export default function ZonesTab() {
               <span className="text-[10px] uppercase tracking-[0.3em]">Long-distance area fees</span>
             </div>
             <h3 className="font-serif text-2xl mt-1">Zone Surcharges</h3>
-            <p className="text-sm text-white/55 mt-1 max-w-xl leading-relaxed">
-              When a customer's pickup or drop-off keyword-matches a zone <em>and</em> the trip is below the
-              threshold miles, a flat surcharge is added to every priced vehicle. Customers see your "Why this fee?"
-              note on their booking form.
+            <p className="text-sm text-white/55 mt-1 max-w-2xl leading-relaxed">
+              Two ways to trigger a surcharge: <strong className="text-white">Keyword-match</strong> (positioning
+              fee on short rides in distant cities) or <strong className="text-white">Outside service radius</strong>{" "}
+              (blanket out-of-area fee when pickup or drop-off is beyond a radius from your HQ). Customers see your
+              "Why this fee?" note on the booking form.
             </p>
           </div>
         </div>
@@ -169,85 +339,11 @@ export default function ZonesTab() {
               )}
             >
               <div className="grid md:grid-cols-12 gap-4 items-start">
-                <div className="md:col-span-3">
-                  <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">Zone name</Label>
-                  <Input
-                    data-testid={`zone-name-${z.id}`}
-                    className={cn(inputCls, "mt-1 h-10")}
-                    value={z.name}
-                    onChange={(e) => updateLocal(z.id, "name", e.target.value)}
-                    placeholder="e.g. Healdsburg & North Sonoma"
-                  />
-                </div>
-
-                <div className="md:col-span-4">
-                  <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-                    Matching keywords (comma-separated)
-                  </Label>
-                  <Input
-                    data-testid={`zone-keywords-${z.id}`}
-                    className={cn(inputCls, "mt-1 h-10")}
-                    value={z.keywords_text}
-                    onChange={(e) => updateLocal(z.id, "keywords_text", e.target.value)}
-                    placeholder="healdsburg, geyserville, cloverdale"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-                    Surcharge ($)
-                  </Label>
-                  <Input
-                    data-testid={`zone-amount-${z.id}`}
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    className={cn(inputCls, "mt-1 h-10")}
-                    value={z.surcharge_amount}
-                    onChange={(e) => updateLocal(z.id, "surcharge_amount", e.target.value)}
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-                    If trip &lt; (miles)
-                  </Label>
-                  <Input
-                    data-testid={`zone-threshold-${z.id}`}
-                    type="number"
-                    step="1"
-                    min="0"
-                    max="200"
-                    className={cn(inputCls, "mt-1 h-10")}
-                    value={z.short_distance_threshold_miles}
-                    onChange={(e) => updateLocal(z.id, "short_distance_threshold_miles", e.target.value)}
-                  />
-                </div>
-
-                <div className="md:col-span-1">
-                  <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">On</Label>
-                  <div className="mt-2.5">
-                    <Switch
-                      data-testid={`zone-enabled-${z.id}`}
-                      checked={!!z.enabled}
-                      onCheckedChange={(v) => updateLocal(z.id, "enabled", !!v)}
-                      className="data-[state=checked]:bg-[#D4AF37]"
-                    />
-                  </div>
-                </div>
-
-                <div className="md:col-span-12">
-                  <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-                    Why this fee (shown to the customer)
-                  </Label>
-                  <Textarea
-                    data-testid={`zone-reason-${z.id}`}
-                    className={cn(inputCls, "mt-1 min-h-[64px]")}
-                    value={z.reason}
-                    onChange={(e) => updateLocal(z.id, "reason", e.target.value)}
-                    placeholder="e.g. This area is 60+ miles from our Millbrae base — short rides include a positioning fee so we can dispatch a chauffeur in time."
-                  />
-                </div>
+                <ZoneFields
+                  z={z}
+                  idPrefix={`zone-${z.id}`}
+                  onChange={(k, v) => updateLocal(z.id, k, v)}
+                />
 
                 <div className="md:col-span-12 flex justify-end gap-2 pt-1">
                   <AlertDialog>
@@ -311,78 +407,11 @@ export default function ZonesTab() {
           <Plus className="w-4 h-4 text-[#D4AF37]" /> Add a new zone
         </h3>
         <div className="grid md:grid-cols-12 gap-4 mt-5">
-          <div className="md:col-span-3">
-            <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">Zone name</Label>
-            <Input
-              data-testid="zone-new-name"
-              className={cn(inputCls, "mt-1 h-10")}
-              value={newZone.name}
-              onChange={(e) => setNewZone({ ...newZone, name: e.target.value })}
-              placeholder="Tahoe & Sierra"
-            />
-          </div>
-          <div className="md:col-span-4">
-            <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              Keywords (comma-separated)
-            </Label>
-            <Input
-              data-testid="zone-new-keywords"
-              className={cn(inputCls, "mt-1 h-10")}
-              value={newZone.keywords_text}
-              onChange={(e) => setNewZone({ ...newZone, keywords_text: e.target.value })}
-              placeholder="tahoe, truckee, kings beach"
-            />
-          </div>
-          <div className="md:col-span-2">
-            <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">Surcharge ($)</Label>
-            <Input
-              data-testid="zone-new-amount"
-              type="number"
-              step="0.01"
-              min="0"
-              className={cn(inputCls, "mt-1 h-10")}
-              value={newZone.surcharge_amount}
-              onChange={(e) => setNewZone({ ...newZone, surcharge_amount: e.target.value })}
-            />
-          </div>
-          <div className="md:col-span-2">
-            <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">If trip &lt; (miles)</Label>
-            <Input
-              data-testid="zone-new-threshold"
-              type="number"
-              step="1"
-              min="0"
-              max="200"
-              className={cn(inputCls, "mt-1 h-10")}
-              value={newZone.short_distance_threshold_miles}
-              onChange={(e) =>
-                setNewZone({ ...newZone, short_distance_threshold_miles: e.target.value })
-              }
-            />
-          </div>
-          <div className="md:col-span-1">
-            <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">On</Label>
-            <div className="mt-2.5">
-              <Switch
-                data-testid="zone-new-enabled"
-                checked={!!newZone.enabled}
-                onCheckedChange={(v) => setNewZone({ ...newZone, enabled: !!v })}
-                className="data-[state=checked]:bg-[#D4AF37]"
-              />
-            </div>
-          </div>
-          <div className="md:col-span-12">
-            <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              Why this fee (shown to customer)
-            </Label>
-            <Textarea
-              data-testid="zone-new-reason"
-              className={cn(inputCls, "mt-1 min-h-[64px]")}
-              value={newZone.reason}
-              onChange={(e) => setNewZone({ ...newZone, reason: e.target.value })}
-              placeholder="This area requires a chauffeur to be positioned in advance — a flat fee covers the deadhead drive."
-            />
-          </div>
+          <ZoneFields
+            z={newZone}
+            idPrefix="zone-new"
+            onChange={(k, v) => setNewZone((s) => ({ ...s, [k]: v }))}
+          />
           <div className="md:col-span-12 flex justify-end">
             <Button
               onClick={create}

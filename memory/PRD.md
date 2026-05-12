@@ -40,6 +40,17 @@
 
 ## Recent Fixes (Feb 2026)
 
+### v2.1 — Radius-Based Zone Surcharges (Feb 2026)
+- **Two zone match modes** in the admin Zones tab — choose per zone via dropdown:
+  - **`keyword_short` (legacy/default)** — pickup or dropoff address contains a keyword AND trip distance below the threshold → flat surcharge (positioning fee for short rides in distant areas)
+  - **`outside_radius` (new)** — pickup OR dropoff is farther than `radius_miles` from HQ (Millbrae 37.5985, -122.3873) → flat surcharge (blanket out-of-area fee)
+- Backend: `_select_surcharge_zone` now takes `pickup_coord` + `dropoff_coord` and branches on `match_type`. `_haversine_miles(HQ_LAT, HQ_LON, ...)` used for radius checks.
+- Legacy zones automatically backfilled with `match_type=keyword_short` on startup.
+- Frontend: ZonesTab refactored into shared `ZoneFields` subcomponent rendering different inputs depending on selected `match_type` (keywords + threshold OR radius miles).
+- Verified: Sacramento→Roseville (outside 40mi from HQ) correctly applied $75 radius surcharge; SFO→Burlingame (inside radius) applied none.
+
+
+
 ### v2.0 — Flight Number + Cancellation Policy + SEO Expansion (Feb 2026)
 - **Mandatory Flight Number** for Airport Transfer bookings — new `flight_number` field on `BookingCreate`/`Booking`. Backend returns 400 if missing for Airport Transfer; frontend toast-validates pre-submit. Captured in admin email + manage page so chauffeurs can monitor arrivals via flight-tracker.
 - **Cancellation & Change Policy** in three places (industry best-practice triple-disclosure):

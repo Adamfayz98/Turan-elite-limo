@@ -111,6 +111,10 @@ DEFAULT_VEHICLE_PRICING = {
 # Hourly bookings include this many miles per hour at no extra charge
 HOURLY_MILES_INCLUDED_PER_HOUR = 20
 
+# Headquarters coordinates (Millbrae, CA) — used as default center for radius-based zones.
+HQ_LAT = 37.5985
+HQ_LON = -122.3873
+
 SERVICE_TYPES = [
     "Airport Transfer",
     "Wedding",
@@ -595,6 +599,17 @@ def _address_matches_zone(address: str, zone: dict) -> bool:
     return any(kw.lower() in a for kw in zone.get("keywords", []))
 
 
+def _coord_outside_radius(coord: Optional[dict], zone: dict) -> bool:
+    """True if coord (geocode result dict) is OUTSIDE the zone's radius from HQ."""
+    if not coord:
+        return False
+    radius = float(zone.get("radius_miles") or 0)
+    if radius <= 0:
+        return False
+    dist = _haversine_miles(HQ_LAT, HQ_LON, coord["lat"], coord["lon"])
+    return dist > radius
+
+
 async def _load_zones() -> List[dict]:
     cursor = db.zone_surcharges.find({}, {"_id": 0})
     return await cursor.to_list(100)
@@ -605,21 +620,34 @@ def _select_surcharge_zone(
     dropoff_addr: str,
     distance_miles: Optional[float],
     zones: List[dict],
+    pickup_coord: Optional[dict] = None,
+    dropoff_coord: Optional[dict] = None,
 ) -> Optional[dict]:
-    """Return the FIRST matching enabled zone where pickup or drop-off matches
-    AND the trip distance falls below that zone's threshold. None otherwise."""
-    if distance_miles is None:
-        return None
+    """Return the FIRST matching enabled zone.
+    Supports two zone types via `match_type`:
+      - "keyword_short" (default, legacy): pickup/dropoff address contains one of
+        the keywords AND total trip miles < short_distance_threshold_miles.
+        Use case: positioning fee for short rides in a far-away area.
+      - "outside_radius": pickup OR dropoff geocoded coord is > radius_miles from HQ.
+        Use case: blanket out-of-area surcharge.
+    """
     for z in zones:
         if not z.get("enabled", True):
             continue
-        threshold = float(z.get("short_distance_threshold_miles") or 0)
-        if threshold <= 0:
-            continue
-        if distance_miles >= threshold:
-            continue
-        if _address_matches_zone(pickup_addr, z) or _address_matches_zone(dropoff_addr, z):
-            return z
+        match_type = z.get("match_type") or "keyword_short"
+        if match_type == "outside_radius":
+            if _coord_outside_radius(pickup_coord, z) or _coord_outside_radius(dropoff_coord, z):
+                return z
+        else:  # keyword_short (default)
+            if distance_miles is None:
+                continue
+            threshold = float(z.get("short_distance_threshold_miles") or 0)
+            if threshold <= 0:
+                continue
+            if distance_miles >= threshold:
+                continue
+            if _address_matches_zone(pickup_addr, z) or _address_matches_zone(dropoff_addr, z):
+                return z
     return None
 
 
@@ -731,11 +759,11 @@ async def quote_ride(payload: QuoteRequest):
     miles = round(miles, 1)
     duration_minutes = round((miles * 1.4) / 32.0 * 60.0 + 8.0, 0)
 
-    # Zone surcharge: if pickup/dropoff is in a configured "long-distance" zone
-    # AND trip distance is below that zone's threshold, add a flat surcharge.
+    # Zone surcharge: legacy keyword-short OR new outside-radius
     zones = await _load_zones()
     matched_zone = _select_surcharge_zone(
         payload.pickup_location, payload.dropoff_location, miles, zones,
+        pickup_coord=pickup, dropoff_coord=dropoff,
     )
     surcharge_amt = float(matched_zone["surcharge_amount"]) if matched_zone else 0.0
     surcharge_info = (
@@ -1160,6 +1188,7 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
     zones = await _load_zones()
     matched_zone = _select_surcharge_zone(
         booking["pickup_location"], booking["dropoff_location"], round(miles, 1), zones,
+        pickup_coord=pickup, dropoff_coord=dropoff,
     )
     if matched_zone:
         price += float(matched_zone["surcharge_amount"])
@@ -1606,9 +1635,11 @@ class ZoneRow(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
     name: str = Field(..., min_length=2, max_length=80)
+    match_type: str = "keyword_short"  # "keyword_short" or "outside_radius"
     keywords: List[str] = Field(default_factory=list)
     surcharge_amount: float = Field(0.0, ge=0)
     short_distance_threshold_miles: float = Field(20.0, ge=0, le=200)
+    radius_miles: float = Field(0.0, ge=0, le=500)
     reason: str = Field("", max_length=600)
     enabled: bool = True
     created_at: Optional[str] = None
@@ -1617,18 +1648,22 @@ class ZoneRow(BaseModel):
 
 class ZoneCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=80)
+    match_type: str = Field("keyword_short", pattern="^(keyword_short|outside_radius)$")
     keywords: List[str] = Field(default_factory=list)
     surcharge_amount: float = Field(0.0, ge=0)
     short_distance_threshold_miles: float = Field(20.0, ge=0, le=200)
+    radius_miles: float = Field(0.0, ge=0, le=500)
     reason: str = Field("", max_length=600)
     enabled: bool = True
 
 
 class ZoneUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=80)
+    match_type: Optional[str] = Field(None, pattern="^(keyword_short|outside_radius)$")
     keywords: Optional[List[str]] = None
     surcharge_amount: Optional[float] = Field(None, ge=0)
     short_distance_threshold_miles: Optional[float] = Field(None, ge=0, le=200)
+    radius_miles: Optional[float] = Field(None, ge=0, le=500)
     reason: Optional[str] = Field(None, max_length=600)
     enabled: Optional[bool] = None
 
@@ -1938,6 +1973,15 @@ async def startup_seed():
             },
             upsert=True,
         )
+
+    # Backfill match_type for legacy zones (default to "keyword_short")
+    try:
+        await db.zone_surcharges.update_many(
+            {"match_type": {"$exists": False}},
+            {"$set": {"match_type": "keyword_short", "radius_miles": 0.0}},
+        )
+    except Exception as e:
+        logger.warning(f"zone match_type backfill skipped: {e}")
 
     # Migration: backfill hourly_rate on existing pricing rows that pre-date this column.
     # Uses default hourly_rate from DEFAULT_VEHICLE_PRICING; admins can edit afterwards.
