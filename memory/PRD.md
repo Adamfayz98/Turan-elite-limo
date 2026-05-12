@@ -40,6 +40,34 @@
 
 ## Recent Fixes (Feb 2026)
 
+### v2.3 — Stripe-First Flow + 1-Tap Admin Confirm (Feb 2026)
+**Reverted iter-15's email-only payment flow per user feedback** (looked suspicious / un-premium). Final flow:
+
+1. **Customer fills booking → clicks "Proceed to Payment"** → immediately redirected to Stripe Checkout (familiar premium UX, classic e-commerce)
+2. **Stripe payment succeeds** → backend `/api/payments/status` handler:
+   - Sets `payment_status="paid"`
+   - Generates `confirmation_number` and `manage_token`
+   - **Keeps `status="pending"`** (NO auto-confirm — admin still reviews chauffeur availability)
+   - Sends Email #1: `render_payment_received_pending_email` — "Payment received, confirming chauffeur within an hour"
+3. **Admin opens dashboard** → sees the new **1-tap "Confirm chauffeur"** button (emerald-tinted, only for pending bookings, label changes to "Confirm" if unpaid)
+4. **Admin clicks Confirm** → Email #2 sent (existing `render_confirmation_email`):
+   - **No pay button** if already paid (subject: "Your chauffeur is confirmed — {cn}")
+   - Pay button included if unpaid (subject: "Reservation confirmed — {cn}") — legacy path
+5. **(Rare) Admin can't fulfill** → existing refund endpoint refunds via Stripe + email
+
+**Frontend changes**:
+- "How it works" banner now reads: "You'll pay now via Stripe to hold your slot. We personally review every booking and send chauffeur confirmation within an hour. If we can't fulfill, instant refund."
+- 1-tap quick-confirm button: `data-testid="quick-confirm-{id}"` next to Manage dropdown.
+- Submit button restored to "Proceed to Payment · $X" for instant-price vehicles.
+
+**Backend changes**:
+- `create_booking` no longer sends email (Stripe redirects immediately, email comes after payment).
+- `/api/payments/status` no longer auto-confirms — only marks `payment_status=paid` and sends pending email.
+- `/api/admin/bookings/{id}` confirm now omits pay button if `payment_status==paid`.
+- New `render_payment_received_pending_email` template in `email_service.py`.
+
+
+
 ### v2.2 — Two-Stage Email Confirmation Flow (Feb 2026)
 **Major behavior change**: customers no longer auto-redirect to Stripe after submitting. The flow is now:
 
