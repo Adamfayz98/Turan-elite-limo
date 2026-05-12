@@ -195,32 +195,13 @@ export default function BookingForm() {
       };
       const { data: booking } = await api.post("/bookings", payload);
 
-      // Determine if this vehicle has an instant price (i.e., not "Call for quote")
-      const vQuote = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
-      const hasInstantPrice = vQuote && vQuote.price != null;
+      // 2-stage flow: NO immediate Stripe redirect. Admin reviews → sends payment link.
+      toast.success(
+        "Request received — check your email. We'll confirm within an hour and send your payment link.",
+        { duration: 7000 },
+      );
 
-      if (hasInstantPrice) {
-        // Proceed straight to Stripe checkout
-        try {
-          const { data: co } = await api.post("/payments/checkout", {
-            booking_id: booking.id,
-            origin_url: window.location.origin,
-          });
-          window.location.href = co.url;
-          return; // don't reset state — redirect imminent
-        } catch (err) {
-          toast.error(
-            formatApiErrorDetail(err.response?.data?.detail) ||
-              "Booking saved, but couldn't start payment. We'll call you to finalize.",
-          );
-        }
-      } else {
-        toast.success(
-          "Reservation request received. We'll call you with a custom quote shortly.",
-        );
-      }
-
-      // Reset form (only reached when no redirect)
+      // Reset form
       setForm(initialForm);
       setStops([]);
       setDate(null);
@@ -785,8 +766,35 @@ export default function BookingForm() {
             </div>
           </div>
 
+          {/* Two-step confirmation notice — sets expectation BEFORE submit */}
+          <div
+            data-testid="two-step-notice"
+            className="mt-8 rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/[0.06] px-4 py-3 flex items-start gap-3"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-4 h-4 text-[#D4AF37] flex-shrink-0 mt-0.5"
+            >
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+              <polyline points="22,6 12,13 2,6" />
+            </svg>
+            <div className="text-xs text-white/75 leading-relaxed">
+              <span className="text-white font-medium">Two-step confirmation.</span>{" "}
+              You'll get an instant <em>request received</em> email now. We review every
+              booking personally and send a separate <em>confirmation + secure payment link</em>{" "}
+              <span className="text-[#D4AF37]">within an hour</span>. Your reservation isn't
+              locked in until you pay.
+            </div>
+          </div>
+
           {/* Cancellation policy chip — collapsed by default, expandable */}
-          <div className="mt-8">
+          <div className="mt-4">
             <CancellationPolicy
               airport={form.service_type === "Airport Transfer"}
               variant="compact"
@@ -815,16 +823,13 @@ export default function BookingForm() {
             >
               {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {submitting
-                ? "Processing…"
+                ? "Submitting…"
                 : (() => {
                     const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
                     if (vq && vq.price != null) {
-                      return `Proceed to Payment · ${vq.formatted_price}`;
+                      return `Request Reservation · ${vq.formatted_price}`;
                     }
-                    if (vq && vq.price == null) {
-                      return "Request Reservation";
-                    }
-                    return "Proceed to Payment";
+                    return "Request Reservation";
                   })()}
             </Button>
           </div>

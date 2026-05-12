@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 15 — 2-stage email confirmation flow. Backend pytest: 13/13 pass (4.2s) covering manage_token-upfront, render_request_received_email content, validation (flight_number / hours / vehicle_type / service_type), GET+cancel on pending via /api/bookings/manage/{token}, admin PATCH confirm reuses manage_token + generates confirmation_number, Resend failure swallowed. Frontend: two-step-notice banner is present with data-testid='two-step-notice' above the cancellation policy chip and contains all required phrases ('Two-step confirmation', 'request received', 'within an hour', 'confirmation + secure payment link'). Submit button text is 'Request Reservation' (never 'Proceed to Payment'). End-to-end submit: NO Stripe network call observed, browser stays on booking page, toast text appears. Critical iter-15 behavior change verified.",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "POST /api/bookings (Hourly Chauffeur, hours=1)", "issue": "Returns 422 (Pydantic Field(ge=2)) instead of 400. Still rejects invalid input — semantically correct, but spec said 400. Manual 400 path only fires when hours is None."}
+  ]},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration15_two_stage_email.py",
+    "/app/test_reports/pytest/iter15_results.xml"
+  ],
+  "action_items": [
+    "(Optional) If strict 400 is desired for Hourly hours<2, drop Field(ge=2) constraint on BookingCreate.hours and rely solely on the manual 400 check at line 319 — current behavior still rejects, just with 422.",
+    "(Optional) Main agent may verify Luxury SUV price suffix '· $XXX' on submit button by selecting the vehicle card via [data-testid=...] (current card may need data-testid='vehicle-card-Luxury SUV' for robust test selection)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~2100 lines — splitting into routers (bookings, admin, manage, payments) is overdue (carried since iter 13).",
+    "create_booking correctly wraps send_email in try/except and logs but doesn't raise — Resend failure cannot break booking creation. Verified.",
+    "Admin confirm flow reuses existing manage_token when present (line 1557 check `if not existing.get('manage_token')`), and only generates a fresh one on legacy bookings — backward compatible.",
+    "render_request_received_email correctly omits payment link (no payment_url param) and conditionally renders manage button via render_manage_link_html. Customer first name parsed from full_name. Verified.",
+    "BookingForm.onSubmit no longer calls /api/payments/checkout — only POST /bookings, then resets state. No Stripe redirect path remains in the submit handler.",
+    "Vehicle cards don't have data-testid='vehicle-card-<name>' — adding one would make automated testing of vehicle selection deterministic."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration15_two_stage_email.py"
+  ],
+  "success_rate": {"backend": "100% (13/13 pytest)", "frontend": "100% on critical iter-15 acceptance checks (banner present + positioned correctly, button text correct, no Stripe call on submit)"},
+  "test_credentials": "Admin: turonlimosupport@gmail.com / TuronAdmin@2025 (2FA bypass via direct DB insert into admin_2fa_challenges — code='123456' bcrypt hashed)",
+  "seed_data_creation": "Created ~6 TEST_Iter15 bookings during pytest (mix of Wedding/Luxury SUV, Airport Transfer error paths, manage flows) + 1 TEST_Manage UI booking via API in frontend test. All have TEST_ prefix in full_name for identification.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-15 verified: 2-stage email flow works end-to-end. Backend POST /api/bookings always returns manage_token (>=16 chars), sends acknowledgment email via Resend (swallowed on failure), no payment_url generated. Admin PATCH /api/admin/bookings/{id} status=confirmed reuses the existing manage_token and only then generates confirmation_number + sends Email #2 with Stripe payment link. Manage endpoints live at /api/bookings/manage/{token} and /api/bookings/manage/{token}/cancel (not /api/manage/...). Frontend BookingForm submit handler no longer redirects to Stripe — only toasts + resets form. Two-step banner has data-testid='two-step-notice'.",
+  "rca_of_the_issue": "N/A — no production bugs. Only a minor spec-vs-implementation status-code mismatch (422 vs 400 when Pydantic catches hours<2 first). Test methodology note: 'request received' and 'within an hour' phrases appear in BOTH the persistent two-step-notice banner AND the success toast — body-text scraping can't distinguish them. Future frontend test should scope to the toast container (e.g. [data-sonner-toast]) for unambiguous toast verification."
+}

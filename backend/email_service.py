@@ -98,6 +98,115 @@ def render_cancellation_policy_html(is_airport: bool = False) -> str:
     """
 
 
+def render_request_received_email(booking: dict, manage_url: Optional[str] = None) -> str:
+    """Stage-1 acknowledgment email — sent the instant a customer submits a request,
+    BEFORE the admin reviews and confirms. No payment link. Sets the expectation:
+    "We'll confirm within an hour and send you a payment link."
+    """
+    first_name = (booking.get('full_name') or '').split(' ')[0] or 'there'
+    extras = []
+    if booking.get("hours"):
+        extras.append(f"Duration: {booking['hours']} hour{'s' if booking['hours'] > 1 else ''} (hourly chauffeur)")
+    if booking.get("flight_number"):
+        extras.append(f"Flight number: {booking['flight_number']}")
+    if booking.get("meet_and_greet"):
+        extras.append("Meet & Greet: requested")
+    if booking.get("luggage_count"):
+        extras.append(f"Luggage: {booking['luggage_count']} bags")
+    if booking.get("return_trip"):
+        extras.append(f"Round trip → {booking.get('return_location') or 'TBA'}")
+    extras_html = "".join(
+        f'<tr><td style="padding:4px 0;color:#888;font-family:Arial,sans-serif;font-size:13px;">• {e}</td></tr>'
+        for e in extras
+    )
+    manage_btn = render_manage_link_html(manage_url) if manage_url else ""
+    return f"""
+<!doctype html>
+<html><body style="margin:0;padding:0;background:#0a0a0a;font-family:Arial,Helvetica,sans-serif;color:#ffffff;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#111111;border-radius:14px;overflow:hidden;border:1px solid #1f1f1f;">
+        <tr><td style="background:#0a0a0a;padding:28px 32px;border-bottom:1px solid #1f1f1f;">
+          <span style="font-size:24px;color:#ffffff;font-weight:700;letter-spacing:-0.3px;">
+            Turan<span style="color:#D4AF37;">EliteLimo</span>
+          </span>
+        </td></tr>
+
+        <tr><td style="padding:32px 32px 8px 32px;">
+          <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#D4AF37;margin-bottom:12px;">
+            Request Received
+          </div>
+          <h1 style="font-size:24px;color:#ffffff;margin:0 0 12px 0;font-weight:600;">
+            Hi {first_name} — we've got your request.
+          </h1>
+          <p style="color:#bbbbbb;font-size:14px;line-height:1.7;margin:0;">
+            Thanks for choosing TuranEliteLimo. We're reviewing the details below now and
+            will follow up with a <strong style="color:#D4AF37;">confirmation email + secure
+            payment link within an hour</strong>. Your reservation is not finalized until
+            you receive that second email and complete payment.
+          </p>
+        </td></tr>
+
+        <tr><td style="padding:20px 32px 4px 32px;">
+          <div style="background:#0a0a0a;border:1px dashed #2a2a2a;border-radius:10px;padding:14px 18px;">
+            <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#D4AF37;margin-bottom:6px;">
+              What happens next
+            </div>
+            <ol style="color:#aaa;font-size:13px;line-height:1.7;padding-left:20px;margin:0;">
+              <li>We verify availability of your chauffeur &amp; vehicle.</li>
+              <li>You receive a <strong style="color:#fff;">confirmation email</strong> with your reservation number and a Stripe payment link.</li>
+              <li>Once paid, your slot is locked in — your chauffeur contacts you before pickup.</li>
+            </ol>
+          </div>
+        </td></tr>
+
+        <tr><td style="padding:16px 32px 8px 32px;">
+          <table cellpadding="0" cellspacing="0" width="100%" style="margin-top:12px;border-top:1px solid #1f1f1f;">
+            <tr><td style="padding-top:16px;color:#888;font-size:11px;letter-spacing:2px;text-transform:uppercase;">When</td>
+                <td style="padding-top:16px;color:#ffffff;font-size:14px;text-align:right;">
+                  {booking.get('pickup_date','')} at {_format_time_12h(booking.get('pickup_time',''))}
+                </td></tr>
+            <tr><td style="padding-top:10px;color:#888;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Pickup</td>
+                <td style="padding-top:10px;color:#ffffff;font-size:14px;text-align:right;">
+                  {booking.get('pickup_location','')}
+                </td></tr>
+            <tr><td style="padding-top:10px;color:#888;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Drop-off</td>
+                <td style="padding-top:10px;color:#ffffff;font-size:14px;text-align:right;">
+                  {booking.get('dropoff_location','')}
+                </td></tr>
+            <tr><td style="padding-top:10px;color:#888;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Vehicle</td>
+                <td style="padding-top:10px;color:#ffffff;font-size:14px;text-align:right;">
+                  {booking.get('vehicle_type','')}
+                </td></tr>
+            <tr><td style="padding-top:10px;color:#888;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Service</td>
+                <td style="padding-top:10px;color:#ffffff;font-size:14px;text-align:right;">
+                  {booking.get('service_type','')}
+                </td></tr>
+            <tr><td style="padding-top:10px;color:#888;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Passengers</td>
+                <td style="padding-top:10px;color:#ffffff;font-size:14px;text-align:right;">
+                  {booking.get('passengers','')}
+                </td></tr>
+          </table>
+          {f'<table style="margin-top:12px;">{extras_html}</table>' if extras_html else ''}
+        </td></tr>
+
+        {manage_btn}
+
+        <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
+          Need to change something before we confirm? Reply to this email or call
+          <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>.
+          We're here to help.
+        </td></tr>
+        <tr><td style="padding:16px 32px 24px 32px;color:#555;font-size:11px;">
+          TuranEliteLimo · Bay Area & Northern California · Licensed · Insured · TCP-Compliant
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+
+
 def render_confirmation_email(booking: dict, payment_url: Optional[str], manage_url: Optional[str] = None) -> str:
     """HTML email with branding + ride summary + optional Pay Now button + optional Manage link."""
     cn = booking.get("confirmation_number", "")

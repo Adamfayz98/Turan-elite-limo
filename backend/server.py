@@ -23,6 +23,7 @@ from emergentintegrations.payments.stripe.checkout import (
 from email_service import (
     send_email,
     render_confirmation_email,
+    render_request_received_email,
     render_payment_receipt_email,
     render_2fa_code_email,
     render_review_request_email,
@@ -310,7 +311,7 @@ async def places_autocomplete(input: str = "", session: Optional[str] = None):
 
 
 @api_router.post("/bookings", response_model=Booking)
-async def create_booking(payload: BookingCreate):
+async def create_booking(payload: BookingCreate, request: Request):
     if payload.vehicle_type not in VEHICLE_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid vehicle_type. Must be one of {VEHICLE_TYPES}")
     if payload.service_type not in SERVICE_TYPES:
@@ -330,9 +331,27 @@ async def create_booking(payload: BookingCreate):
     doc['notes'] = doc.get('notes') or ""
     doc['return_location'] = doc.get('return_location') or ""
     doc['additional_stops'] = doc.get('additional_stops') or []
+    # Manage token issued upfront so the customer can cancel/change even while pending
+    doc['manage_token'] = _generate_manage_token()
 
     insert_doc = doc.copy()
     await db.bookings.insert_one(insert_doc)
+
+    # Stage 1 email: instant request acknowledgment (no payment link yet)
+    try:
+        client_origin = _frontend_origin_from_request(request)
+        manage_url = f"{client_origin}/manage/{doc['manage_token']}"
+        html = render_request_received_email(doc, manage_url=manage_url)
+        await send_email(
+            to=doc["email"],
+            subject="We've received your ride request — TuranEliteLimo",
+            html=html,
+            bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+        )
+    except Exception as e:
+        # Email failure must not break the booking creation flow
+        logger.error(f"request-received email failed for {doc['id']}: {e}")
+
     return Booking(**doc)
 
 
