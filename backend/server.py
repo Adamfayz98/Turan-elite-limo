@@ -2018,24 +2018,34 @@ async def startup_seed():
     except Exception as e:
         logger.warning(f"hourly_rate backfill skipped: {e}")
 
-    # Seed admin (idempotent + migration-safe)
+    # Seed admin (idempotent + migration-safe + self-healing).
+    # Goal: end every startup with EXACTLY ONE admin account whose email matches
+    # the configured ADMIN_EMAIL env var. Any orphan records are renamed or removed.
     email = ADMIN_EMAIL.lower()
-    existing = await db.admin_users.find_one({"email": email})
-    if existing is None:
-        # Migration: if there's an admin under the legacy gmail address, rename it
-        # rather than creating a duplicate.
-        legacy = await db.admin_users.find_one({"email": "turonlimosupport@gmail.com"})
-        if legacy is not None:
+    target = await db.admin_users.find_one({"email": email})
+    other_admins = await db.admin_users.find({"email": {"$ne": email}}).to_list(50)
+
+    if target is None:
+        if other_admins:
+            # No admin at the target email yet, but there's at least one other
+            # admin (e.g., the legacy gmail). Rename the FIRST one to the target
+            # email — preserves their password & 2FA setup.
+            legacy = other_admins[0]
             await db.admin_users.update_one(
-                {"email": "turonlimosupport@gmail.com"},
+                {"email": legacy["email"]},
                 {"$set": {
                     "email": email,
                     "recovery_email": email,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }},
             )
-            logger.info(f"Migrated legacy admin gmail → {email}")
+            logger.info(f"Renamed admin {legacy['email']} → {email}")
+            # Delete any REMAINING extras (rare but possible)
+            for extra in other_admins[1:]:
+                await db.admin_users.delete_one({"email": extra["email"]})
+                logger.warning(f"Removed orphan admin {extra['email']}")
         else:
+            # No admin exists at all — fresh install. Seed one.
             await db.admin_users.insert_one({
                 "email": email,
                 "password_hash": hash_password(ADMIN_PASSWORD),
@@ -2045,11 +2055,16 @@ async def startup_seed():
             })
             logger.info(f"Seeded admin user: {email}")
     else:
-        # Backfill recovery_email for legacy admin accounts
-        if not existing.get("recovery_email"):
+        # Target admin exists. Clean up any other admin records left behind
+        # (e.g., from prior migrations that didn't fully run).
+        for extra in other_admins:
+            await db.admin_users.delete_one({"email": extra["email"]})
+            logger.warning(f"Removed orphan admin {extra['email']}")
+        # Backfill recovery_email if missing
+        if not target.get("recovery_email"):
             await db.admin_users.update_one(
                 {"email": email},
-                {"$set": {"recovery_email": existing["email"]}},
+                {"$set": {"recovery_email": email}},
             )
 
     # Start background scheduler for review-request emails (24h after status=completed)
