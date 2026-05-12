@@ -2018,18 +2018,32 @@ async def startup_seed():
     except Exception as e:
         logger.warning(f"hourly_rate backfill skipped: {e}")
 
-    # Seed admin (idempotent)
+    # Seed admin (idempotent + migration-safe)
     email = ADMIN_EMAIL.lower()
     existing = await db.admin_users.find_one({"email": email})
     if existing is None:
-        await db.admin_users.insert_one({
-            "email": email,
-            "password_hash": hash_password(ADMIN_PASSWORD),
-            "recovery_email": email,
-            "role": "admin",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-        logger.info(f"Seeded admin user: {email}")
+        # Migration: if there's an admin under the legacy gmail address, rename it
+        # rather than creating a duplicate.
+        legacy = await db.admin_users.find_one({"email": "turonlimosupport@gmail.com"})
+        if legacy is not None:
+            await db.admin_users.update_one(
+                {"email": "turonlimosupport@gmail.com"},
+                {"$set": {
+                    "email": email,
+                    "recovery_email": email,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+            logger.info(f"Migrated legacy admin gmail → {email}")
+        else:
+            await db.admin_users.insert_one({
+                "email": email,
+                "password_hash": hash_password(ADMIN_PASSWORD),
+                "recovery_email": email,
+                "role": "admin",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info(f"Seeded admin user: {email}")
     else:
         # Backfill recovery_email for legacy admin accounts
         if not existing.get("recovery_email"):

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Loader2, ShieldCheck, Mail } from "lucide-react";
+import { Loader2, ShieldCheck, Mail, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ export default function AdminLogin() {
   const [submitting, setSubmitting] = useState(false);
   const [resending, setResending] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
+  const [showPassword, setShowPassword] = useState(false);
   const [challenge, setChallenge] = useState(null); // { challenge_id, recovery_email_masked }
   const [code, setCode] = useState("");
   const codeInputRef = useRef(null);
@@ -121,22 +122,34 @@ export default function AdminLogin() {
                     className={cn(inputCls, "mt-2")}
                     value={form.email}
                     onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                    placeholder="turonlimosupport@gmail.com"
+                    placeholder="support@turanelitelimo.com"
                     autoComplete="email"
                   />
                 </div>
                 <div>
                   <Label className="text-white/80 text-xs uppercase tracking-wider">Password</Label>
-                  <Input
-                    data-testid="admin-password"
-                    required
-                    type="password"
-                    className={cn(inputCls, "mt-2")}
-                    value={form.password}
-                    onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                  />
+                  <div className="relative mt-2">
+                    <Input
+                      data-testid="admin-password"
+                      required
+                      type={showPassword ? "text" : "password"}
+                      className={cn(inputCls, "pr-11 mt-0")}
+                      value={form.password}
+                      onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                      placeholder="••••••••"
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      data-testid="admin-password-toggle"
+                      onClick={() => setShowPassword((s) => !s)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      tabIndex={-1}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-white/45 hover:text-[#D4AF37] transition-colors p-1"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
                 <Button
                   type="submit"
