@@ -40,6 +40,28 @@
 
 ## Recent Fixes (Feb 2026)
 
+### v2.2 — Two-Stage Email Confirmation Flow (Feb 2026)
+**Major behavior change**: customers no longer auto-redirect to Stripe after submitting. The flow is now:
+
+1. **Customer submits booking** → `POST /api/bookings`
+   - `manage_token` is generated upfront (was previously generated on admin confirm only)
+   - **Email #1 sent immediately**: `render_request_received_email()` — "We've received your request, you'll get a confirmation + payment link within an hour". No Stripe link.
+   - Customer stays on booking form, sees success toast, form resets.
+2. **Admin reviews in dashboard** → PATCH `/api/admin/bookings/{id}` status=confirmed
+   - Confirmation number generated
+   - **Email #2 sent**: existing `render_confirmation_email()` with Stripe Pay-Now button
+3. **Customer clicks Pay** in Email #2 → `/pay/:id` → Stripe Checkout (unchanged)
+4. **Payment success** → existing receipt email (unchanged)
+
+**Frontend additions**:
+- New "Two-step confirmation" banner (data-testid=`two-step-notice`) above the cancellation policy chip, sets customer expectations
+- Submit button renamed from "Proceed to Payment" → **"Request Reservation"**
+- onSubmit no longer calls `/payments/checkout` — just shows toast
+
+**Why this matters**: customers know exactly what to expect, you keep human review in the loop (avoid bad bookings), and you only collect payment for confirmed slots — eliminates refund hassle.
+
+
+
 ### v2.1 — Radius-Based Zone Surcharges (Feb 2026)
 - **Two zone match modes** in the admin Zones tab — choose per zone via dropdown:
   - **`keyword_short` (legacy/default)** — pickup or dropoff address contains a keyword AND trip distance below the threshold → flat surcharge (positioning fee for short rides in distant areas)
