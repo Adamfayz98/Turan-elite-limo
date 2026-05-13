@@ -1434,6 +1434,8 @@ async def get_public_booking(booking_id: str):
         "deposit_percent": settings.deposit_percent,
         "currency": settings.currency,
         "paid_amount": b.get("paid_amount"),
+        "driver_name": b.get("driver_name"),
+        "trip_status": b.get("trip_status"),
     }
 
 

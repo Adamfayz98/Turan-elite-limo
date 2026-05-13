@@ -116,6 +116,8 @@ export default function PayBooking() {
   }
 
   const isPaid = booking.payment_status === "paid";
+  const isConfirmed = booking.status === "confirmed";
+  const hasDriver = !!booking.driver_name;
   const callOnly = booking.quote_amount == null;
 
   return (
@@ -143,9 +145,19 @@ export default function PayBooking() {
               <h1 className="font-serif text-4xl md:text-5xl mt-4">
                 Thank you, {booking.full_name?.split(" ")[0] || "friend"}.
               </h1>
-              <p className="text-white/55 mt-3">
-                Your reservation is fully paid. Your chauffeur will be in touch shortly before pickup.
-              </p>
+              {hasDriver && isConfirmed ? (
+                <p className="text-white/60 mt-3 leading-relaxed max-w-xl mx-auto">
+                  Your chauffeur <span className="text-[#D4AF37]">{booking.driver_name}</span> is confirmed and will be in touch shortly before pickup.
+                </p>
+              ) : (
+                <p className="text-white/60 mt-3 leading-relaxed max-w-xl mx-auto">
+                  Our team is now reviewing your booking and assigning your chauffeur. You'll receive a <span className="text-[#D4AF37]">final confirmation email with driver details within an hour</span>. In the rare case we can't fulfill your request, you'll be auto-refunded.
+                </p>
+              )}
+              <div className="mt-5 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-xs text-white/65">
+                Confirmation
+                <span className="text-[#D4AF37] font-mono">{booking.confirmation_number}</span>
+              </div>
             </>
           ) : pollMsg === "processing" ? (
             <>
