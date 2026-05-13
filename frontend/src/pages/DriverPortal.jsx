@@ -122,14 +122,23 @@ export default function DriverPortal() {
         <h1 className="font-serif text-3xl mt-1">
           {trip.customer_name}
         </h1>
-        <a
-          href={`tel:${trip.customer_phone}`}
-          data-testid="driver-customer-phone"
-          className="inline-flex items-center gap-2 mt-2 text-[#D4AF37] hover:underline"
-        >
-          <Phone className="w-4 h-4" />
-          {trip.customer_phone}
-        </a>
+        <div className="flex flex-wrap items-center gap-3 mt-2">
+          <a
+            href={`tel:${trip.customer_phone}`}
+            data-testid="driver-customer-phone"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/20 transition-colors text-sm font-medium"
+          >
+            <Phone className="w-4 h-4" />
+            Call customer · {trip.customer_phone}
+          </a>
+          <a
+            href={`sms:${trip.customer_phone}`}
+            data-testid="driver-customer-sms"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/15 text-white/80 hover:bg-white/[0.08] transition-colors text-sm"
+          >
+            Text
+          </a>
+        </div>
 
         {/* Status pill */}
         <div className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-full border border-white/20 bg-white/[0.03]">

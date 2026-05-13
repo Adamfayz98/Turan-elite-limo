@@ -40,6 +40,26 @@ def is_configured() -> bool:
     return bool(_client() and _from_number() and admin_phone())
 
 
+def _normalize_us_phone(raw: str) -> str:
+    """Best-effort normalize a phone number into Twilio-friendly E.164 format.
+    - Strips spaces, parens, dashes, dots.
+    - If already starts with '+', returns as-is.
+    - 10 digits → prefixes '+1'.
+    - 11 digits starting with '1' → prefixes '+'.
+    - Otherwise returns the cleaned string (Twilio will likely reject; logged).
+    """
+    if not raw:
+        return ""
+    s = "".join(ch for ch in raw if ch.isdigit() or ch == "+")
+    if s.startswith("+"):
+        return s
+    if len(s) == 10:
+        return f"+1{s}"
+    if len(s) == 11 and s.startswith("1"):
+        return f"+{s}"
+    return s
+
+
 async def send_sms(to: str, body: str) -> Optional[str]:
     """Send a single SMS. Returns Twilio SID on success, None on no-op/failure."""
     cli = _client()
@@ -50,13 +70,19 @@ async def send_sms(to: str, body: str) -> Optional[str]:
     if not to:
         logger.info("[SMS skipped — empty recipient]")
         return None
+    normalized = _normalize_us_phone(to)
+    if not normalized.startswith("+"):
+        logger.warning(
+            f"[SMS skipped — invalid recipient format] raw={to!r} normalized={normalized!r}"
+        )
+        return None
     try:
         msg = await asyncio.to_thread(
-            cli.messages.create, to=to, from_=frm, body=body[:1500]
+            cli.messages.create, to=normalized, from_=frm, body=body[:1500]
         )
         return getattr(msg, "sid", None)
     except Exception as e:
-        logger.warning(f"Twilio send failed: {e}")
+        logger.warning(f"Twilio send failed for to={normalized!r}: {e}")
         return None
 
 
