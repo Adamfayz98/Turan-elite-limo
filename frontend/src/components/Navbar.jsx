@@ -47,11 +47,8 @@ export default function Navbar() {
       }`}
     >
       <div className="max-w-7xl mx-auto px-6 md:px-10 h-20 flex items-center justify-between">
-        <a href="#top" data-testid="logo-link" className="flex items-center gap-2.5 group">
-          <Logo size={36} className="text-[#D4AF37]" />
-          <span className="font-serif text-2xl tracking-tight">
-            Turan<span className="gold-text font-semibold">EliteLimo</span>
-          </span>
+        <a href="#top" data-testid="logo-link" className="flex items-center group">
+          <Logo variant="full" height={44} />
         </a>
 
         <div className="hidden lg:flex items-center gap-8">

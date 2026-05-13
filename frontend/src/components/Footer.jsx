@@ -16,12 +16,7 @@ export default function Footer() {
     >
       <div className="max-w-7xl mx-auto grid md:grid-cols-12 gap-12">
         <div className="md:col-span-4">
-          <div className="flex items-center gap-3">
-            <Logo size={48} className="text-[#D4AF37]" />
-            <div className="font-serif text-3xl">
-              Turan<span className="gold-text">EliteLimo</span>
-            </div>
-          </div>
+          <Logo variant="full" height={56} />
           <p className="mt-5 text-white/55 leading-relaxed max-w-md">
             A private chauffeur service for the Bay Area & Northern California. Sedans, SUVs, stretch limousines and party buses — staffed by chauffeurs who care.
           </p>
