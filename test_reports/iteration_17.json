@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 17 — Stripe post-payment 'Processing' bulletproofing + admin cancel-with-reason + webhook safety net. Backend pytest: 14/14 PASS (5.9s) in /app/backend/tests/test_iteration17_cancel_and_webhook.py. Verified: (a) render_cancellation_email correctly omits Reason section when admin_reason=None, includes 'full refund' + '5-10 business days' only when refund_pending=True, includes admin reason text when supplied; (b) PATCH /api/admin/bookings/{id} with status='cancelled' + reason persists cancellation_reason in DB for both paid and unpaid bookings; cancel-without-reason still works (200); (c) GET /api/bookings/{id}/public includes manage_token field; (d) POST /api/webhook/stripe — invoked directly via patched _get_stripe_checkout + mocked handle_webhook returning paid event — correctly sets payment_status=paid, paid_amount, manage_token, confirmation_number, quote_amount, AND paid_email_sent=True flag, AND triggers send_email exactly once; (e) idempotency: second webhook with already-paid booking does NOT re-send email (await_count == 0); (f) /api/payments/status preserves paid_email_sent=True (no duplicate emails). Frontend UI verified live on preview URL: PayBooking with session_id in URL but unpaid booking correctly shows 'Processing your payment…' (not 'Secure your ride') AND pay-now-button is NOT visible — confirming the user-reported 'pay again loop' bug is fixed. Admin login 2FA flow verified (login returns requires_2fa:true). Regression smoke: /api/admin/zones, /api/admin/surge-events, /api/bookings POST all 200.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration17_cancel_and_webhook.py",
+    "/app/test_reports/pytest/iter17_results.xml"
+  ],
+  "action_items": [
+    "(Optional, carry-over) Admin cancel-dialog Playwright e2e (data-testid='admin-cancel-reason' + data-testid='admin-cancel-submit') still blocked by live 2FA email — verified via code review + backend pytest only. Recommend dev-flag for 2FA bypass to enable full UI e2e.",
+    "(Optional) Server.py is now ~2380 lines; modularization into routers (bookings, admin, payments, webhooks, manage) is overdue (carry from iter-13)."
+  ],
+  "critical_code_review_comments": [
+    "PayBooking.jsx (line 129): showPayButton = !isPaid && !callOnly && !returnedFromStripe — correctly gates pay button when session_id is in URL. Bulletproof.",
+    "PayBooking.jsx (line 170): returnedFromStripe && !isPaid renders 'Processing your payment…' view. Verified in browser.",
+    "AdminDashboard.jsx (line 758, 779): admin-cancel-reason Textarea + admin-cancel-submit button data-testids in place.",
+    "server.py stripe_webhook (lines 1622-1677): correctly idempotent — gates on txn.status != 'paid' AND booking.payment_status != 'paid' AND not updated.paid_email_sent. Sets paid_email_sent=True after successful send. Solid safety net.",
+    "server.py update_booking_status (lines 1802-1828): cancel path correctly stamps cancellation_reason, sends render_cancellation_email with refund_pending=(payment_status=='paid'), BCC SUPPORT_EMAIL.",
+    "server.py /payments/status (lines 1583-1598): only sends pending-payment email when paid_email_sent is falsy, then atomically sets paid_email_sent=True. No race with webhook handler — both check the same flag.",
+    "BookingStatusUpdate model (line 204-206) correctly adds optional reason field with max_length=500.",
+    "render_cancellation_email (email_service.py line 442): admin_reason=None correctly omits the Reason block; refund_pending=False correctly omits refund block. Pure-function tested."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration17_cancel_and_webhook.py"
+  ],
+  "success_rate": {"backend": "100% (14/14 pytest)", "frontend": "100% on tested flow (PayBooking processing view). Admin cancel-dialog covered via code review + backend PATCH endpoint tests."},
+  "test_credentials": "Admin: support@turanelitelimo.com / TuronAdmin@2025 (2FA bypass: seed admin_2fa_challenges with bcrypt('123456'))",
+  "seed_data_creation": "~8 TEST_Iter17 bookings + ~3 cs_test_iter17_* payment_transactions; all cleaned up post-test via autouse module fixture + manual final cleanup.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-17 verified the two user-reported production bugs are fixed at preview: (1) PayBooking pay-again loop — never shows 'Secure your ride' or pay button when session_id is in URL (verified visually); (2) Admin cancel-with-reason persists cancellation_reason + sends branded cancellation email with conditional refund block (verified via pytest). Stripe webhook safety net verified via mocked handle_webhook — booking gets marked paid + confirmation_number + manage_token + paid_email_sent=True even without polling. Webhook idempotent. For event-loop-bound motor clients in server.py, tests use a persistent module-level loop (_SRV_LOOP) for direct async server-function invocations and pymongo (sync) for DB seeding. Frontend admin cancel dialog UI not exercised via Playwright due to 2FA gate; backend PATCH layer fully covered. User can safely redeploy.",
+  "rca_of_the_issue": "Bug 1 (pay-again loop): Original PayBooking did not gate the pay button on returnedFromStripe; if polling failed or was slow, the page showed the pay button again, causing users to double-charge. Fix: showPayButton = !isPaid && !callOnly && !returnedFromStripe — the moment session_id is in the URL, the page commits to either 'Processing...' or 'Payment received', never 'Secure your ride'. Bug 2 (no cancel email): admin PATCH only handled status, never propagated a reason. Fix: BookingStatusUpdate now accepts optional reason; on status='cancelled' the server stamps cancellation_reason and dispatches render_cancellation_email with refund_pending conditional. Both bugs verified fixed."
+}

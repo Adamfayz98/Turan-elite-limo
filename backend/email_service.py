@@ -439,6 +439,94 @@ def render_payment_receipt_email(booking: dict, amount: float) -> str:
 
 
 
+def render_cancellation_email(
+    booking: dict,
+    admin_reason: Optional[str] = None,
+    refund_pending: bool = False,
+    manage_url: Optional[str] = None,
+) -> str:
+    """Sent when admin (or customer via manage page) cancels a booking.
+    - admin_reason: optional note from the admin shown to the customer.
+    - refund_pending: True if booking was paid → mention refund timeline.
+    """
+    cn = booking.get("confirmation_number") or booking.get("id", "")[:8]
+    first_name = (booking.get("full_name") or "").split(" ")[0] or "there"
+    when_text = f"{booking.get('pickup_date','')} at {_format_time_12h(booking.get('pickup_time',''))}".strip(" at ")
+
+    reason_html = ""
+    if admin_reason:
+        reason_html = f"""
+        <div style="margin-top:16px;padding:14px 18px;background:#0a0a0a;border-left:3px solid #D4AF37;border-radius:8px;">
+          <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#D4AF37;margin-bottom:6px;">
+            Reason
+          </div>
+          <p style="color:#ddd;font-size:13px;line-height:1.7;margin:0;white-space:pre-wrap;">{admin_reason}</p>
+        </div>
+        """
+
+    refund_html = ""
+    if refund_pending:
+        refund_html = """
+        <div style="margin-top:16px;padding:14px 18px;background:#0a0a0a;border:1px dashed #2a2a2a;border-radius:8px;">
+          <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#D4AF37;margin-bottom:6px;">
+            Refund
+          </div>
+          <p style="color:#bbb;font-size:13px;line-height:1.7;margin:0;">
+            A <strong style="color:#fff;">full refund</strong> has been issued. It typically appears in your
+            account in 5–10 business days, depending on your bank.
+          </p>
+        </div>
+        """
+
+    return f"""
+<!doctype html>
+<html><body style="margin:0;background:#0a0a0a;font-family:Arial,Helvetica,sans-serif;color:#fff;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#111;border-radius:14px;border:1px solid #1f1f1f;overflow:hidden;">
+        <tr><td style="background:#0a0a0a;padding:28px 32px;border-bottom:1px solid #1f1f1f;">
+          <span style="font-size:24px;font-weight:700;">
+            Turan<span style="color:#D4AF37;">EliteLimo</span>
+          </span>
+        </td></tr>
+
+        <tr><td style="padding:32px 32px 8px 32px;">
+          <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#D4AF37;margin-bottom:12px;">
+            Reservation Cancelled
+          </div>
+          <h1 style="font-size:24px;margin:0 0 12px 0;font-weight:600;">
+            Hi {first_name},
+          </h1>
+          <p style="color:#bbb;font-size:14px;line-height:1.7;margin:0;">
+            We're writing to confirm that your TuranEliteLimo reservation
+            (<strong style="color:#D4AF37;">{cn}</strong>) for <strong style="color:#fff;">{when_text or 'your scheduled trip'}</strong>
+            has been <strong style="color:#fff;">cancelled</strong>.
+          </p>
+          {reason_html}
+          {refund_html}
+        </td></tr>
+
+        <tr><td style="padding:24px 32px 8px 32px;">
+          <p style="color:#aaa;font-size:13px;line-height:1.7;margin:0;">
+            We're sorry for the inconvenience. We'd love to chauffeur you another time —
+            simply book again at any point and we'll make it happen.
+          </p>
+        </td></tr>
+
+        <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
+          Questions? Call <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>
+          or email <a href="mailto:{SUPPORT_EMAIL}" style="color:#D4AF37;text-decoration:none;">{SUPPORT_EMAIL}</a>.
+        </td></tr>
+        <tr><td style="padding:16px 32px 24px 32px;color:#555;font-size:11px;">
+          TuranEliteLimo · Bay Area &amp; Northern California
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+
+
 def render_2fa_code_email(code: str, request_meta: Optional[str] = None) -> str:
     """Branded email containing a 6-digit admin login verification code."""
     meta_html = (

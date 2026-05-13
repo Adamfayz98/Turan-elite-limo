@@ -26,6 +26,7 @@ from email_service import (
     render_request_received_email,
     render_payment_received_pending_email,
     render_payment_receipt_email,
+    render_cancellation_email,
     render_2fa_code_email,
     render_review_request_email,
     SUPPORT_EMAIL,
@@ -202,6 +203,7 @@ class Booking(BaseModel):
 
 class BookingStatusUpdate(BaseModel):
     status: str
+    reason: Optional[str] = Field(None, max_length=500)  # admin-supplied note (for cancellations)
 
 
 class ContactCreate(BaseModel):
@@ -1436,6 +1438,7 @@ async def get_public_booking(booking_id: str):
         "paid_amount": b.get("paid_amount"),
         "driver_name": b.get("driver_name"),
         "trip_status": b.get("trip_status"),
+        "manage_token": b.get("manage_token"),
     }
 
 
@@ -1578,7 +1581,7 @@ async def get_payment_status(session_id: str, request: Request):
                     },
                 )
                 updated = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
-                if updated:
+                if updated and not updated.get("paid_email_sent"):
                     client_origin = _frontend_origin_from_request(request)
                     manage_url = f"{client_origin}/manage/{updated.get('manage_token','')}"
                     # Send "Payment received, awaiting chauffeur confirmation" email
@@ -1588,6 +1591,10 @@ async def get_payment_status(session_id: str, request: Request):
                         subject=f"Payment received — confirming your chauffeur · {cn}",
                         html=pending_html,
                         bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+                    )
+                    await db.bookings.update_one(
+                        {"id": txn["booking_id"]},
+                        {"$set": {"paid_email_sent": True}},
                     )
                     # SMS the admin/driver about the new paid booking (env-gated; no-op if Twilio unset)
                     admin_to = sms_service.admin_phone()
@@ -1622,19 +1629,51 @@ async def stripe_webhook(request: Request):
         logging.getLogger(__name__).warning(f"Stripe webhook verification failed: {e}")
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    # Best-effort idempotent update on checkout.session.completed
+    # Idempotent update on checkout.session.completed — works as a safety net so
+    # the booking gets marked paid even if the customer's browser closes before
+    # the frontend polling completes.
     if event and getattr(event, "session_id", None):
         sid = event.session_id
         txn = await db.payment_transactions.find_one({"session_id": sid}, {"_id": 0})
         if txn and event.payment_status == "paid" and txn.get("status") != "paid":
+            booking = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
             await db.payment_transactions.update_one(
                 {"session_id": sid},
                 {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
             )
-            await db.bookings.update_one(
-                {"id": txn["booking_id"]},
-                {"$set": {"payment_status": "paid"}},
-            )
+            if booking and booking.get("payment_status") != "paid":
+                amount = float(txn.get("amount", 0))
+                cn = booking.get("confirmation_number") or await _next_unique_confirmation_number()
+                token = booking.get("manage_token") or _generate_manage_token()
+                await db.bookings.update_one(
+                    {"id": txn["booking_id"]},
+                    {"$set": {
+                        "payment_status": "paid",
+                        "paid_amount": amount,
+                        "paid_currency": txn.get("currency", "usd"),
+                        "manage_token": token,
+                        "confirmation_number": cn,
+                        "quote_amount": booking.get("quote_amount") or amount,
+                    }},
+                )
+                # Send payment-received email (best-effort)
+                try:
+                    updated = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
+                    if updated and not updated.get("paid_email_sent"):
+                        client_origin = _frontend_origin_from_request(request)
+                        manage_url = f"{client_origin}/manage/{updated.get('manage_token','')}"
+                        await send_email(
+                            to=updated["email"],
+                            subject=f"Payment received — confirming your chauffeur · {cn}",
+                            html=render_payment_received_pending_email(updated, amount, manage_url=manage_url),
+                            bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+                        )
+                        await db.bookings.update_one(
+                            {"id": txn["booking_id"]},
+                            {"$set": {"paid_email_sent": True}},
+                        )
+                except Exception as e:
+                    logging.getLogger(__name__).warning(f"Webhook paid-email failed: {e}")
     return {"received": True}
 
 
@@ -1756,6 +1795,34 @@ async def update_booking_status(
         await send_email(
             to=result["email"],
             subject=subject,
+            html=html,
+            bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+        )
+
+    # When admin transitions to "cancelled", email the customer (with optional reason
+    # supplied by the admin) and stamp the reason on the booking.
+    if payload.status == "cancelled":
+        reason = (payload.reason or "").strip()
+        if reason and not result.get("cancellation_reason"):
+            await db.bookings.update_one(
+                {"id": booking_id},
+                {"$set": {"cancellation_reason": reason}},
+            )
+            result["cancellation_reason"] = reason
+        already_paid = result.get("payment_status") == "paid"
+        manage_url = (
+            f"{_frontend_origin_from_request(request)}/manage/{result.get('manage_token')}"
+            if result.get("manage_token") else None
+        )
+        html = render_cancellation_email(
+            result,
+            admin_reason=reason or None,
+            refund_pending=already_paid,
+            manage_url=manage_url,
+        )
+        await send_email(
+            to=result["email"],
+            subject=f"Your reservation has been cancelled — {result.get('confirmation_number','')}",
             html=html,
             bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
         )

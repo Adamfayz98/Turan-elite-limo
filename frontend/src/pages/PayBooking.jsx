@@ -46,9 +46,11 @@ export default function PayBooking() {
   // Poll status if returning from Stripe
   const pollStatus = useCallback(
     async (sid, attempts = 0) => {
-      const max = 8;
+      const max = 20;  // ~40 seconds total
       if (attempts >= max) {
-        setPollMsg("Still processing — refresh in a moment.");
+        // Don't give up loudly — try one more booking refresh
+        try { await load(); } catch {}
+        setPollMsg("Still processing — your payment will reflect shortly. Refresh in a moment.");
         return;
       }
       try {
@@ -65,7 +67,9 @@ export default function PayBooking() {
         setPollMsg("processing");
         setTimeout(() => pollStatus(sid, attempts + 1), 2000);
       } catch {
-        setPollMsg("error");
+        // Transient error — keep trying. Don't break the UI.
+        setPollMsg("processing");
+        setTimeout(() => pollStatus(sid, attempts + 1), 2500);
       }
     },
     [load],
@@ -119,6 +123,10 @@ export default function PayBooking() {
   const isConfirmed = booking.status === "confirmed";
   const hasDriver = !!booking.driver_name;
   const callOnly = booking.quote_amount == null;
+  // If user just returned from Stripe, treat as a payment-in-flight: never show
+  // the Pay button (prevents the "pay again" loop if polling is slow/fails).
+  const returnedFromStripe = !!sessionId;
+  const showPayButton = !isPaid && !callOnly && !returnedFromStripe;
 
   return (
     <main data-testid="pay-page" className="min-h-screen bg-[#050505] text-white">
@@ -159,11 +167,14 @@ export default function PayBooking() {
                 <span className="text-[#D4AF37] font-mono">{booking.confirmation_number}</span>
               </div>
             </>
-          ) : pollMsg === "processing" ? (
+          ) : pollMsg === "processing" || (returnedFromStripe && !isPaid) ? (
             <>
               <Loader2 className="w-12 h-12 animate-spin text-[#D4AF37] mx-auto mb-5" />
               <h1 className="font-serif text-3xl">Processing your payment…</h1>
-              <p className="text-white/55 mt-3 text-sm">This usually takes a few seconds.</p>
+              <p className="text-white/55 mt-3 text-sm max-w-md mx-auto">
+                Stripe is confirming your payment with us. This usually takes a few seconds.
+                Please don't close this window.
+              </p>
             </>
           ) : (
             <>
@@ -237,7 +248,7 @@ export default function PayBooking() {
             )}
           </div>
 
-          {!isPaid && !callOnly && (
+          {showPayButton && (
             <div className="mt-7">
               <Button
                 onClick={onPay}
@@ -259,6 +270,26 @@ export default function PayBooking() {
                 <ShieldCheck className="w-3.5 h-3.5 text-[#D4AF37]" />
                 <span>Secured by Stripe · SSL encrypted</span>
               </div>
+            </div>
+          )}
+
+          {isPaid && (
+            <div className="mt-7 flex flex-col gap-3">
+              <Link
+                to="/"
+                data-testid="return-home-button"
+                className="w-full inline-flex items-center justify-center bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-12 font-medium text-base transition-colors"
+              >
+                Return to home
+              </Link>
+              {booking.manage_token && (
+                <Link
+                  to={`/manage/${booking.manage_token}`}
+                  className="w-full inline-flex items-center justify-center border border-white/20 text-white/85 hover:bg-white/[0.04] rounded-full h-11 text-sm transition-colors"
+                >
+                  Manage my reservation
+                </Link>
+              )}
             </div>
           )}
 

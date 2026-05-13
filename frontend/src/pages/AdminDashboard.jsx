@@ -51,6 +51,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import PricingTab from "@/components/admin/PricingTab";
 import SettingsTab from "@/components/admin/SettingsTab";
 import AccountTab from "@/components/admin/AccountTab";
@@ -69,6 +76,23 @@ const STATUS_COLOR = {
   paid: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
   refunded: "bg-orange-500/15 text-orange-300 border-orange-500/30",
 };
+
+function formatReceivedAt(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  const diffMs = now - d;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDays = Math.floor(diffHr / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  // Older — show date
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
 
 function StatBlock({ icon: Icon, label, value, testid }) {
   return (
@@ -131,13 +155,40 @@ export default function AdminDashboard() {
     fetchAll();
   }, [fetchAll, nav]);
 
-  const updateStatus = async (id, status) => {
+  const updateStatus = async (id, status, reason = null) => {
     try {
-      await api.patch(`/admin/bookings/${id}`, { status });
-      toast.success(`Marked as ${status}`);
+      await api.patch(`/admin/bookings/${id}`, { status, reason });
+      toast.success(`Marked as ${status} — customer notified`);
       fetchAll();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    }
+  };
+
+  const [cancelTarget, setCancelTarget] = useState(null); // booking object
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+
+  const submitCancel = async () => {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    try {
+      await api.patch(`/admin/bookings/${cancelTarget.id}`, {
+        status: "cancelled",
+        reason: cancelReason.trim() || null,
+      });
+      toast.success(
+        cancelTarget.payment_status === "paid"
+          ? "Cancelled — customer emailed with refund details"
+          : "Cancelled — customer emailed",
+      );
+      setCancelTarget(null);
+      setCancelReason("");
+      fetchAll();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to cancel");
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -363,6 +414,11 @@ export default function AdminDashboard() {
                         <div className="text-white font-medium">{b.full_name}</div>
                         <div className="text-xs text-white/50">{b.email}</div>
                         <div className="text-xs text-white/50">{b.phone}</div>
+                        {b.created_at && (
+                          <div className="text-[10px] text-white/35 mt-1 uppercase tracking-wider">
+                            Received {formatReceivedAt(b.created_at)}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-white/80">
                         {b.service_type}
@@ -482,7 +538,7 @@ export default function AdminDashboard() {
                             <DropdownMenuItem onClick={() => updateStatus(b.id, "completed")}>
                               <CheckCircle2 className="w-4 h-4 mr-2 text-sky-400" /> Complete
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => updateStatus(b.id, "cancelled")}>
+                            <DropdownMenuItem onClick={() => setCancelTarget(b)}>
                               <XCircle className="w-4 h-4 mr-2 text-red-400" /> Cancel
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => updateStatus(b.id, "pending")}>
@@ -678,6 +734,59 @@ export default function AdminDashboard() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Admin Cancel-with-reason Dialog */}
+      <Dialog open={!!cancelTarget} onOpenChange={(open) => !open && setCancelTarget(null)}>
+        <DialogContent className="bg-[#0A0A0A] border-[#1F1F1F] text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-2xl">Cancel reservation</DialogTitle>
+            <p className="text-xs text-white/55 mt-1">
+              Customer <strong className="text-white">{cancelTarget?.full_name}</strong> ({cancelTarget?.confirmation_number}) will receive a cancellation email immediately.
+              {cancelTarget?.payment_status === "paid" && (
+                <span className="block mt-1 text-[#D4AF37]">
+                  ⚠️ This booking is paid. The email will tell them their refund is being processed. Don't forget to refund them in your Stripe dashboard!
+                </span>
+              )}
+            </p>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-[0.2em] text-white/50 block mb-2">
+                Reason (shown to customer)
+              </label>
+              <Textarea
+                data-testid="admin-cancel-reason"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. We're unable to fulfill this booking due to vehicle availability. Apologies for the inconvenience."
+                rows={4}
+                maxLength={500}
+                className="bg-[#0E0E0E] border-[#27272A] text-white placeholder:text-white/40 focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37]"
+              />
+              <div className="text-[10px] text-white/40 mt-1 text-right">
+                {cancelReason.length}/500 — optional but recommended
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#1F1F1F]">
+              <Button
+                variant="outline"
+                onClick={() => { setCancelTarget(null); setCancelReason(""); }}
+                className="bg-transparent border-white/20 hover:bg-white/10 rounded-full h-9 px-4"
+              >
+                Keep reservation
+              </Button>
+              <Button
+                data-testid="admin-cancel-submit"
+                onClick={submitCancel}
+                disabled={cancelling}
+                className="bg-red-500 hover:bg-red-600 rounded-full h-9 px-5 font-medium"
+              >
+                {cancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : "Cancel & notify customer"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
