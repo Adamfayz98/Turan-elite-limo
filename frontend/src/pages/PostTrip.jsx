@@ -18,7 +18,7 @@ export default function PostTrip() {
   const [trip, setTrip] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tipSelection, setTipSelection] = useState(20);
-  const [customTip, setCustomTip] = useState("");
+  const [customTip, setCustomTip] = useState(null); // null=preset mode, string=custom mode
   const [tippingNow, setTippingNow] = useState(false);
 
   const [rating, setRating] = useState(0);
@@ -70,8 +70,10 @@ export default function PostTrip() {
     tick();
   }, [tipSessionId, token, load]);
 
+  const tipAmount = customTip !== null ? parseFloat(customTip || 0) : tipSelection;
+
   const onTip = async () => {
-    const amount = customTip ? parseFloat(customTip) : tipSelection;
+    const amount = tipAmount;
     if (!amount || isNaN(amount) || amount < 1) {
       toast.error("Enter a tip of $1 or more");
       return;
@@ -201,16 +203,16 @@ export default function PostTrip() {
                   100% goes directly to {trip.driver_name?.split(" ")[0] || "your driver"} — no fees taken.
                 </p>
               </div>
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="grid grid-cols-4 gap-2 md:gap-3 mb-4">
                 {TIP_PRESETS.map((amt) => {
-                  const active = tipSelection === amt && !customTip;
+                  const active = tipSelection === amt && customTip === null;
                   return (
                     <button
                       key={amt}
                       type="button"
                       data-testid={`tip-preset-${amt}`}
-                      onClick={() => { setTipSelection(amt); setCustomTip(""); }}
-                      className={`relative h-16 rounded-xl border transition-all font-serif text-2xl ${
+                      onClick={() => { setTipSelection(amt); setCustomTip(null); }}
+                      className={`h-16 rounded-xl border transition-all font-serif text-xl md:text-2xl ${
                         active
                           ? "border-[#D4AF37] bg-[#D4AF37]/15 text-[#D4AF37] shadow-[0_0_0_3px_rgba(212,175,55,0.12)]"
                           : "border-white/15 bg-white/[0.02] hover:bg-white/[0.05] text-white/85"
@@ -220,35 +222,51 @@ export default function PostTrip() {
                     </button>
                   );
                 })}
+                <button
+                  type="button"
+                  data-testid="tip-preset-custom"
+                  onClick={() => { setTipSelection(0); setCustomTip(customTip ?? ""); }}
+                  className={`h-16 rounded-xl border transition-all font-medium text-sm md:text-base ${
+                    customTip !== null
+                      ? "border-[#D4AF37] bg-[#D4AF37]/15 text-[#D4AF37] shadow-[0_0_0_3px_rgba(212,175,55,0.12)]"
+                      : "border-white/15 bg-white/[0.02] hover:bg-white/[0.05] text-white/85"
+                  }`}
+                >
+                  Custom
+                </button>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-white/55 text-sm">Custom</span>
-                <div className="flex-1 relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50">$</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    data-testid="tip-custom-input"
-                    placeholder="Other amount"
-                    value={customTip}
-                    onChange={(e) => { setCustomTip(e.target.value); setTipSelection(0); }}
-                    className="w-full h-11 pl-7 pr-3 rounded-xl bg-[#0E0E0E] border border-[#27272A] text-white placeholder:text-white/35 focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]"
-                    min="1"
-                    max="2000"
-                    step="1"
-                  />
+              {customTip !== null && (
+                <div className="mb-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#D4AF37] text-lg font-serif">$</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      autoFocus
+                      data-testid="tip-custom-input"
+                      placeholder="Enter amount"
+                      value={customTip}
+                      onChange={(e) => setCustomTip(e.target.value)}
+                      className="w-full h-14 pl-10 pr-4 rounded-xl bg-[#0E0E0E] border border-[#D4AF37]/40 text-white text-xl placeholder:text-white/35 focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]"
+                      min="1"
+                      max="2000"
+                      step="1"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
               <Button
                 onClick={onTip}
-                disabled={tippingNow}
+                disabled={tippingNow || !tipAmount || tipAmount < 1}
                 data-testid="tip-submit-button"
-                className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-12 mt-5 font-medium text-base"
+                className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-12 mt-1 font-medium text-base disabled:opacity-50"
               >
                 {tippingNow ? (
                   <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Redirecting to Stripe…</>
+                ) : tipAmount && tipAmount >= 1 ? (
+                  `Send $${tipAmount} tip`
                 ) : (
-                  `Send $${customTip || tipSelection} tip`
+                  "Enter tip amount"
                 )}
               </Button>
               <p className="text-center text-[10px] text-white/40 mt-3">
