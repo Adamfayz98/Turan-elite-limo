@@ -237,11 +237,21 @@ export default function AdminDashboard() {
       return;
     }
     try {
+      // First try the regular /payments/status endpoint (has dual-channel + REST fallback)
       const { data } = await api.get(`/payments/status/${b.payment_session_id}`);
       if (data.payment_status === "paid") {
         toast.success("Payment confirmed — booking marked paid");
+        fetchAll();
+        return;
+      }
+      // If still not paid, escalate to the force-sync endpoint that bypasses the SDK
+      const { data: forced } = await api.post(
+        `/admin/bookings/${b.id}/force-sync-payment`,
+      );
+      if (forced.reconciled) {
+        toast.success(`Reconciled — booking marked paid ($${forced.amount?.toFixed(2)})`);
       } else {
-        toast.info(`Stripe says: ${data.payment_status}`);
+        toast.info(`Stripe says: ${forced.stripe_payment_status}. ${forced.message || ""}`);
       }
       fetchAll();
     } catch (err) {

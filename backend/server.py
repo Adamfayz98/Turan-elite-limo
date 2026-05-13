@@ -1539,14 +1539,49 @@ async def get_payment_status(session_id: str, request: Request):
     currency = txn.get("currency", "usd")
 
     # Try to fetch authoritative status from Stripe; degrade gracefully on failure.
+    # We use TWO strategies in sequence: (1) the emergentintegrations SDK wrapper,
+    # (2) direct REST call. The SDK has occasionally failed to retrieve live
+    # sessions even though direct curl works — so the REST fallback is critical.
     status = None
     try:
         checkout = _get_stripe_checkout(request)
         status = await checkout.get_checkout_status(session_id)
     except Exception as e:
         logging.getLogger(__name__).warning(
-            f"Stripe status lookup failed for session {session_id}: {e}"
+            f"Stripe SDK status lookup failed for session {session_id}: {e}"
         )
+
+    # Fallback: direct REST call to Stripe (bypasses the SDK)
+    if status is None or getattr(status, "payment_status", None) != "paid":
+        try:
+            api_key = os.environ.get("STRIPE_API_KEY", "")
+            if api_key:
+                async with httpx.AsyncClient(timeout=10.0) as cli:
+                    r = await cli.get(
+                        f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                    )
+                    if r.status_code == 200:
+                        sj = r.json()
+
+                        class _S:
+                            pass
+
+                        s = _S()
+                        s.status = sj.get("status")
+                        s.payment_status = sj.get("payment_status")
+                        s.amount_total = sj.get("amount_total")
+                        s.currency = sj.get("currency", "usd")
+                        s.metadata = sj.get("metadata") or {}
+                        status = s
+                    else:
+                        logging.getLogger(__name__).warning(
+                            f"Stripe REST fallback failed for {session_id}: HTTP {r.status_code} {r.text[:200]}"
+                        )
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Stripe REST fallback errored for {session_id}: {e}"
+            )
 
     if status is not None:
         if getattr(status, "amount_total", None):
@@ -1725,6 +1760,114 @@ async def admin_refund(booking_id: str, payload: RefundRequest, _: dict = Depend
         },
     )
     return {"refunded": True, "amount": refund_amount, "stripe_refund_id": rj.get("id")}
+
+
+@api_router.post("/admin/bookings/{booking_id}/force-sync-payment")
+async def admin_force_sync_payment(
+    booking_id: str, request: Request, _: dict = Depends(require_admin)
+):
+    """Emergency reconciliation: pull the booking's Stripe session via direct REST,
+    and if Stripe says it's paid, force the booking + transaction into the paid
+    state and fire the confirmation email + admin SMS. Bypasses the SDK entirely.
+    """
+    booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    sid = booking.get("payment_session_id")
+    if not sid:
+        raise HTTPException(status_code=400, detail="No Stripe session on this booking")
+
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+
+    async with httpx.AsyncClient(timeout=15.0) as cli:
+        r = await cli.get(
+            f"https://api.stripe.com/v1/checkout/sessions/{sid}",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+    if r.status_code != 200:
+        raise HTTPException(
+            status_code=502, detail=f"Stripe lookup failed: HTTP {r.status_code} {r.text[:200]}"
+        )
+    sess = r.json()
+    stripe_payment_status = sess.get("payment_status")
+    amount_total = sess.get("amount_total") or 0
+    amount = float(amount_total) / 100.0
+    currency = sess.get("currency", "usd")
+
+    if stripe_payment_status != "paid":
+        return {
+            "reconciled": False,
+            "stripe_payment_status": stripe_payment_status,
+            "stripe_session_status": sess.get("status"),
+            "message": f"Stripe says payment_status='{stripe_payment_status}'. Nothing to reconcile.",
+        }
+
+    # Stripe says paid — drive the booking + txn into the paid state idempotently.
+    await db.payment_transactions.update_one(
+        {"session_id": sid},
+        {
+            "$set": {
+                "status": "paid",
+                "paid_at": datetime.now(timezone.utc).isoformat(),
+                "amount": amount,
+                "currency": currency,
+            }
+        },
+        upsert=True,
+    )
+
+    if booking.get("payment_status") != "paid":
+        token = booking.get("manage_token") or _generate_manage_token()
+        cn = booking.get("confirmation_number") or await _next_unique_confirmation_number()
+        await db.bookings.update_one(
+            {"id": booking_id},
+            {
+                "$set": {
+                    "payment_status": "paid",
+                    "paid_amount": amount,
+                    "paid_currency": currency,
+                    "manage_token": token,
+                    "confirmation_number": cn,
+                    "quote_amount": booking.get("quote_amount") or amount,
+                }
+            },
+        )
+        updated = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+        if updated and not updated.get("paid_email_sent"):
+            client_origin = _frontend_origin_from_request(request)
+            manage_url = f"{client_origin}/manage/{updated.get('manage_token','')}"
+            try:
+                await send_email(
+                    to=updated["email"],
+                    subject=f"Payment received — confirming your chauffeur · {cn}",
+                    html=render_payment_received_pending_email(updated, amount, manage_url=manage_url),
+                    bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+                )
+                await db.bookings.update_one(
+                    {"id": booking_id}, {"$set": {"paid_email_sent": True}}
+                )
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"force-sync email failed: {e}")
+            try:
+                admin_to = sms_service.admin_phone()
+                if admin_to:
+                    await sms_service.send_sms(
+                        admin_to, sms_service.render_new_paid_booking_sms(updated)
+                    )
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"force-sync admin SMS failed: {e}")
+
+    return {
+        "reconciled": True,
+        "stripe_payment_status": "paid",
+        "amount": amount,
+        "currency": currency,
+        "confirmation_number": (await db.bookings.find_one({"id": booking_id}, {"_id": 0})).get(
+            "confirmation_number"
+        ),
+    }
 
 
 # ---------- Admin protected: bookings ----------

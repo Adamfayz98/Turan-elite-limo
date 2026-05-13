@@ -48,13 +48,11 @@ export default function PayBooking() {
   // so this works even if /payments/status hangs/fails.
   const pollStatus = useCallback(
     async (sid, attempts = 0) => {
-      const max = 30; // ~60 seconds
+      const max = 15; // ~30 seconds — shorter so customer isn't stuck staring at spinner
       if (attempts >= max) {
-        // Final fallback: reload the booking once more, then ask user to refresh
+        // Final fallback: reload the booking once more, then show a calm receipt-style page
         try { await load(); } catch {}
-        setPollMsg(
-          "Payment is still being confirmed. Refresh this page in a few seconds to see your receipt.",
-        );
+        setPollMsg("timeout");
         return;
       }
       // 1) Refresh the booking — webhook may have already marked it paid
@@ -181,7 +179,7 @@ export default function PayBooking() {
                 <span className="text-[#D4AF37] font-mono">{booking.confirmation_number}</span>
               </div>
             </>
-          ) : pollMsg === "processing" || (returnedFromStripe && !isPaid) ? (
+          ) : pollMsg === "processing" || (returnedFromStripe && !isPaid && pollMsg !== "timeout") ? (
             <>
               <Loader2 className="w-12 h-12 animate-spin text-[#D4AF37] mx-auto mb-5" />
               <h1 className="font-serif text-3xl">Processing your payment…</h1>
@@ -189,6 +187,29 @@ export default function PayBooking() {
                 Stripe is confirming your payment with us. This usually takes a few seconds.
                 Please don't close this window.
               </p>
+            </>
+          ) : pollMsg === "timeout" && returnedFromStripe ? (
+            <>
+              <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mx-auto mb-5">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+              </div>
+              <span className="text-xs tracking-[0.3em] uppercase text-emerald-400">
+                Payment received
+              </span>
+              <h1 className="font-serif text-4xl md:text-5xl mt-4">
+                Thank you, {booking.full_name?.split(" ")[0] || "friend"}.
+              </h1>
+              <p className="text-white/60 mt-3 leading-relaxed max-w-xl mx-auto">
+                Your card was charged successfully. Our system is still syncing the receipt —
+                you'll receive a <span className="text-[#D4AF37]">final confirmation email with driver details within an hour</span>.
+                If you don't hear back, just reply to that email or call us.
+              </p>
+              {booking.confirmation_number && (
+                <div className="mt-5 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-xs text-white/65">
+                  Confirmation
+                  <span className="text-[#D4AF37] font-mono">{booking.confirmation_number}</span>
+                </div>
+              )}
             </>
           ) : (
             <>
