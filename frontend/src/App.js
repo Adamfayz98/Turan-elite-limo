@@ -9,6 +9,7 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import PayBooking from "@/pages/PayBooking";
 import ManageBooking from "@/pages/ManageBooking";
 import DriverPortal from "@/pages/DriverPortal";
+import PostTrip from "@/pages/PostTrip";
 
 function App() {
   useEffect(() => {
@@ -24,6 +25,7 @@ function App() {
           <Route path="/pay/:bookingId" element={<PayBooking />} />
           <Route path="/manage/:token" element={<ManageBooking />} />
           <Route path="/driver/:token" element={<DriverPortal />} />
+          <Route path="/post-trip/:token" element={<PostTrip />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>

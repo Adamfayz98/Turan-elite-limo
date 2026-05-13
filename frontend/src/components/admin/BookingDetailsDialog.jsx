@@ -205,7 +205,29 @@ export default function BookingDetailsDialog({ booking, open, onClose }) {
           {b.quote_amount != null && (
             <Row icon={DollarSign} label="Quote" value={`$${Number(b.quote_amount).toFixed(2)}`} />
           )}
+          {b.tip_amount != null && (
+            <Row icon={DollarSign} label="Chauffeur tip" value={`$${Number(b.tip_amount).toFixed(2)}`} highlight />
+          )}
         </div>
+
+        {/* Rating (if customer rated) */}
+        {b.rating != null && (
+          <div className="mt-4">
+            <div className="text-[10px] uppercase tracking-[0.25em] text-[#D4AF37] mb-1.5">
+              Customer rating
+            </div>
+            <div className="rounded-lg border border-[#1F1F1F] bg-[#0E0E0E] p-3">
+              <div className="text-2xl">
+                {"★".repeat(b.rating)}<span className="text-white/15">{"★".repeat(5 - b.rating)}</span>
+              </div>
+              {b.rating_feedback && (
+                <div className="text-sm text-white/75 mt-2 italic leading-relaxed">
+                  "{b.rating_feedback}"
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {b.cancellation_reason && (
           <div className="mt-4">

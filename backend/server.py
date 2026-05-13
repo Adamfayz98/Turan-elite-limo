@@ -198,6 +198,13 @@ class Booking(BaseModel):
     driver_token: Optional[str] = None  # tokenized URL for the driver dispatch portal
     trip_status: Optional[str] = None   # assigned | en_route | on_location | passenger_onboard | completed
     trip_status_updated_at: Optional[str] = None
+    # Post-trip tipping + rating (Phase 2)
+    tip_amount: Optional[float] = None
+    tip_session_id: Optional[str] = None
+    tip_paid_at: Optional[str] = None
+    rating: Optional[int] = None          # 1..5
+    rating_feedback: Optional[str] = None
+    rated_at: Optional[str] = None
     created_at: str
 
 
@@ -1036,7 +1043,7 @@ async def driver_view_booking(driver_token: str):
 
 
 @api_router.post("/driver/{driver_token}/status")
-async def driver_update_status(driver_token: str, payload: DriverStatusUpdate):
+async def driver_update_status(driver_token: str, payload: DriverStatusUpdate, request: Request):
     """Driver advances trip status. Triggers SMS to the customer (and admin) for
     notable transitions."""
     b = await db.bookings.find_one({"driver_token": driver_token}, {"_id": 0})
@@ -1064,9 +1071,15 @@ async def driver_update_status(driver_token: str, payload: DriverStatusUpdate):
             set_doc["status"] = "completed"
     await db.bookings.update_one({"id": b["id"]}, {"$set": set_doc})
 
+    # Build post-trip page URL (tipping + rating) — included in the customer SMS
+    post_trip_url = None
+    if new_status == "completed" and b.get("manage_token"):
+        origin = _frontend_origin_from_request(request)
+        post_trip_url = f"{origin}/post-trip/{b['manage_token']}"
+
     # SMS the customer (env-gated; skipped if Twilio not configured)
     merged = {**b, **set_doc}
-    customer_sms = sms_service.render_customer_status_sms(merged, new_status)
+    customer_sms = sms_service.render_customer_status_sms(merged, new_status, post_trip_url=post_trip_url)
     if customer_sms and b.get("phone"):
         try:
             await sms_service.send_sms(b["phone"], customer_sms)
@@ -1084,6 +1097,176 @@ async def driver_update_status(driver_token: str, payload: DriverStatusUpdate):
             logger.warning(f"Admin status SMS failed: {e}")
 
     return {"ok": True, "trip_status": new_status, "trip_status_updated_at": now_iso}
+
+
+# ---------- Post-trip: tipping + rating (Phase 2) ----------
+class TipCheckoutRequest(BaseModel):
+    amount: float = Field(..., gt=0, le=2000)
+    origin_url: str
+
+
+class TripRatingRequest(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    feedback: Optional[str] = Field(None, max_length=2000)
+
+
+@api_router.get("/post-trip/{token}")
+async def post_trip_view(token: str):
+    """Public-facing summary for the post-trip tip + rate page.
+    Auth = the manage_token issued at booking creation.
+    """
+    b = await db.bookings.find_one({"manage_token": token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    # Determine which review site to recommend (Yelp always; Google only if env-configured)
+    links = reviews_service.review_links()
+    yelp_url = links.get("yelp")
+    google_url = links.get("google") if os.environ.get("GOOGLE_PLACE_ID", "").strip() else None
+    return {
+        "id": b["id"],
+        "confirmation_number": b.get("confirmation_number"),
+        "full_name": b.get("full_name"),
+        "pickup_date": b.get("pickup_date"),
+        "pickup_time": b.get("pickup_time"),
+        "pickup_location": b.get("pickup_location"),
+        "dropoff_location": b.get("dropoff_location"),
+        "vehicle_type": b.get("vehicle_type"),
+        "driver_name": b.get("driver_name"),
+        "paid_amount": b.get("paid_amount"),
+        "trip_status": b.get("trip_status"),
+        "tip_amount": b.get("tip_amount"),
+        "tip_paid_at": b.get("tip_paid_at"),
+        "rating": b.get("rating"),
+        "rated_at": b.get("rated_at"),
+        "yelp_url": yelp_url,
+        "google_url": google_url,
+    }
+
+
+@api_router.post("/post-trip/{token}/tip-checkout")
+async def post_trip_tip_checkout(token: str, payload: TipCheckoutRequest, request: Request):
+    """Create a Stripe Checkout session for the chauffeur tip.
+    Idempotency: if a tip has already been paid, reject.
+    """
+    b = await db.bookings.find_one({"manage_token": token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if b.get("tip_paid_at"):
+        raise HTTPException(status_code=400, detail="A tip has already been paid for this trip.")
+
+    amount = round(float(payload.amount), 2)
+    if amount < 0.5:
+        raise HTTPException(status_code=400, detail="Tip too small.")
+
+    origin = payload.origin_url.rstrip("/")
+    success_url = f"{origin}/post-trip/{token}?tip_session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/post-trip/{token}"
+
+    checkout = _get_stripe_checkout(request)
+    session = await checkout.create_checkout_session(
+        CheckoutSessionRequest(
+            amount=amount,
+            currency="usd",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "booking_id": b["id"],
+                "confirmation_number": b.get("confirmation_number") or "",
+                "customer_email": b.get("email") or "",
+                "kind": "chauffeur_tip",
+            },
+        )
+    )
+    # Persist the session id on the booking so we can confirm on return
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {"$set": {"tip_session_id": session.session_id, "tip_amount_pending": amount}},
+    )
+    return {"url": session.url, "session_id": session.session_id, "amount": amount}
+
+
+@api_router.get("/post-trip/{token}/confirm-tip")
+async def post_trip_confirm_tip(token: str, session_id: str, request: Request):
+    """Customer returned from Stripe — confirm the tip via direct REST + mark booking."""
+    b = await db.bookings.find_one({"manage_token": token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if b.get("tip_session_id") != session_id:
+        raise HTTPException(status_code=400, detail="Session does not match this trip.")
+    if b.get("tip_paid_at"):
+        return {"paid": True, "tip_amount": b.get("tip_amount")}
+
+    # Direct REST lookup (most reliable)
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+    async with httpx.AsyncClient(timeout=10.0) as cli:
+        r = await cli.get(
+            f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail="Stripe lookup failed")
+    sess = r.json()
+    if sess.get("payment_status") != "paid":
+        return {"paid": False, "stripe_payment_status": sess.get("payment_status")}
+
+    amount = (sess.get("amount_total") or 0) / 100.0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {"$set": {"tip_amount": amount, "tip_paid_at": now_iso}},
+    )
+    # Notify admin via SMS so the chauffeur can be paid out
+    admin_to = sms_service.admin_phone()
+    if admin_to:
+        try:
+            cn = b.get("confirmation_number") or b["id"][:8]
+            name = b.get("full_name") or "Customer"
+            driver = b.get("driver_name") or "—"
+            await sms_service.send_sms(
+                admin_to,
+                f"TuranEliteLimo · TIP RECEIVED\n#{cn}\n{name} tipped ${amount:.2f} for chauffeur {driver}",
+            )
+        except Exception as e:
+            logger.warning(f"Tip admin SMS failed: {e}")
+    return {"paid": True, "tip_amount": amount}
+
+
+@api_router.post("/post-trip/{token}/rate")
+async def post_trip_rate(token: str, payload: TripRatingRequest):
+    """Customer submits a star rating + optional feedback. One submission per trip."""
+    b = await db.bookings.find_one({"manage_token": token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if b.get("rating") is not None:
+        raise HTTPException(status_code=400, detail="This trip has already been rated.")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {
+            "$set": {
+                "rating": int(payload.rating),
+                "rating_feedback": (payload.feedback or "").strip() or None,
+                "rated_at": now_iso,
+            }
+        },
+    )
+    # SMS admin if rating is low (<= 3) so they can follow up personally
+    if payload.rating <= 3:
+        admin_to = sms_service.admin_phone()
+        if admin_to:
+            try:
+                cn = b.get("confirmation_number") or b["id"][:8]
+                name = b.get("full_name") or "Customer"
+                fb = (payload.feedback or "").strip()[:200]
+                await sms_service.send_sms(
+                    admin_to,
+                    f"TuranEliteLimo · LOW RATING ({payload.rating}★)\n#{cn} · {name}\n{fb}",
+                )
+            except Exception as e:
+                logger.warning(f"Low-rating admin SMS failed: {e}")
+    return {"ok": True, "rating": int(payload.rating)}
 
 
 # ---------- Admin auth (2FA via email) ----------

@@ -147,7 +147,7 @@ def render_driver_dispatch_sms(booking: dict, driver_url: str) -> str:
     )
 
 
-def render_customer_status_sms(booking: dict, status: str) -> str:
+def render_customer_status_sms(booking: dict, status: str, post_trip_url: Optional[str] = None) -> str:
     """SMS sent to customer when driver updates trip status. Returns None if status
     should not trigger a customer notification."""
     driver_name = (booking.get("driver_name") or "Your chauffeur").split(" ")[0]
@@ -167,9 +167,10 @@ def render_customer_status_sms(booking: dict, status: str) -> str:
             f"Driver: {driver_phone}"
         )
     if status == "completed":
+        link = f"\nTip & rate your trip: {post_trip_url}" if post_trip_url else ""
         return (
-            f"TuranEliteLimo: Trip complete. Thanks for riding with us! "
-            f"We'll email your receipt + a quick rate/tip link shortly."
+            f"TuranEliteLimo: Trip complete. Thanks for riding with us!"
+            f"{link}"
         )
     return None  # passenger_onboard etc. — no customer notification
 
