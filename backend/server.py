@@ -1730,6 +1730,26 @@ async def admin_refund(booking_id: str, payload: RefundRequest, _: dict = Depend
 # ---------- Admin protected: bookings ----------
 @api_router.get("/admin/bookings", response_model=List[Booking])
 async def list_bookings(_: dict = Depends(require_admin)):
+    # Auto-cancel abandoned Stripe checkouts so the dashboard stays clean.
+    # A booking is "abandoned" when: customer started Stripe checkout but never
+    # completed it (payment_status="pending"), booking is still "pending", and it
+    # was created more than 2 hours ago. Admin-created cash bookings (payment_status
+    # stays "unpaid") are intentionally untouched.
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    await db.bookings.update_many(
+        {
+            "status": "pending",
+            "payment_status": "pending",
+            "created_at": {"$lt": cutoff},
+        },
+        {
+            "$set": {
+                "status": "cancelled",
+                "cancellation_reason": "Checkout abandoned (auto-cleaned)",
+            }
+        },
+    )
+
     cursor = db.bookings.find({}, {"_id": 0}).sort("created_at", -1)
     items = await cursor.to_list(1000)
     return [Booking(**i) for i in items]
@@ -1776,17 +1796,11 @@ async def update_booking_status(
     # Send confirmation email when transitioning to "confirmed"
     if payload.status == "confirmed":
         client_origin = _frontend_origin_from_request(request)
-        # Only include pay link if booking is NOT already paid
         already_paid = result.get("payment_status") == "paid"
-        pay_url = (
-            f"{client_origin}/pay/{booking_id}"
-            if (not already_paid and result.get("quote_amount"))
-            else None
-        )
         manage_url = (
             f"{client_origin}/manage/{result.get('manage_token')}" if result.get("manage_token") else None
         )
-        html = render_confirmation_email(result, pay_url, manage_url=manage_url)
+        html = render_confirmation_email(result, manage_url=manage_url)
         subject = (
             f"Your chauffeur is confirmed — {result.get('confirmation_number','')}"
             if already_paid

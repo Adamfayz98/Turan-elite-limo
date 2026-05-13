@@ -198,6 +198,10 @@
 - `GET /api/bookings/manage/{token}` — sanitized booking view
 - `POST /api/bookings/manage/{token}/cancel` — customer cancel/cancellation-request
 
+### v1.5 — Email Cleanup & Abandoned-Checkout Sweep (Feb 13, 2026)
+- **Removed legacy "Pay & Secure Your Reservation" button** from `render_confirmation_email` in `/app/backend/email_service.py`. All web bookings go through Stripe upfront — the button is no longer relevant and was a leftover from a previous 2-stage flow. The `payment_url` param is preserved on the signature for compat but ignored.
+- **Auto-cancel abandoned Stripe checkouts**: `GET /api/admin/bookings` now sweeps `status="pending"` + `payment_status="pending"` rows older than 2 hours, marking them `status="cancelled"` with `cancellation_reason="Checkout abandoned (auto-cleaned)"`. Admin-created cash bookings (`payment_status="unpaid"`) are untouched. Verified end-to-end via the live admin API.
+
 ### v1.4 — Hourly Chauffeur Input + SEO Foundation (Feb 2026)
 - **"How many hours do you need?"** input now appears on the booking form whenever `Service Type = Hourly Chauffeur`. Backend validates 1–24 hours; the field is required and saved on the booking, shown in the admin dashboard table and confirmation emails.
 - **SEO foundation** (`/app/frontend/public/index.html`): proper title tag, ~280-char meta description, keyword list, geo meta tags pointing at Millbrae HQ, canonical URL, Open Graph tags, Twitter Card tags, full LocalBusiness/LimousineService JSON-LD schema for Google's rich-results.

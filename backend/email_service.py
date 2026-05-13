@@ -207,23 +207,15 @@ def render_request_received_email(booking: dict, manage_url: Optional[str] = Non
 """
 
 
-def render_confirmation_email(booking: dict, payment_url: Optional[str], manage_url: Optional[str] = None) -> str:
-    """HTML email with branding + ride summary + optional Pay Now button + optional Manage link."""
+def render_confirmation_email(booking: dict, payment_url: Optional[str] = None, manage_url: Optional[str] = None) -> str:
+    """HTML email with branding + ride summary + optional Manage link.
+
+    Note: `payment_url` is intentionally ignored. All web bookings are paid upfront via
+    Stripe before this confirmation email is ever sent, so there is no longer a
+    "Pay & Secure" button. The parameter is kept for backward compatibility.
+    """
     cn = booking.get("confirmation_number", "")
     pay_btn = ""
-    if payment_url:
-        pay_btn = f"""
-            <tr><td style="padding: 24px 32px 8px 32px;">
-              <a href="{payment_url}" style="display:inline-block;background:#D4AF37;color:#0a0a0a;
-                 text-decoration:none;padding:14px 28px;border-radius:999px;font-weight:600;
-                 font-family:Arial,sans-serif;font-size:14px;letter-spacing:0.5px;">
-                 Pay & Secure Your Reservation
-              </a>
-            </td></tr>
-            <tr><td style="padding:0 32px 16px 32px;color:#777;font-size:12px;font-family:Arial,sans-serif;">
-              Click the button above to complete payment securely via Stripe.
-            </td></tr>
-        """
     manage_btn = render_manage_link_html(manage_url) if manage_url else ""
     extras = []
     if booking.get("hours"):
