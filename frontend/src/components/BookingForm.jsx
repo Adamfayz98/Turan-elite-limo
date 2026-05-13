@@ -363,7 +363,12 @@ export default function BookingForm() {
                   >
                     <SelectValue placeholder="Time" />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#111111] border-[#27272A] text-white max-h-64">
+                  <SelectContent
+                  side="bottom"
+                  sideOffset={6}
+                  avoidCollisions={false}
+                  className="bg-[#111111] border-[#27272A] text-white max-h-64"
+                >
                     {TIME_SLOTS_12H.map((t) => (
                       <SelectItem key={t} value={t}>
                         {t}
@@ -401,7 +406,12 @@ export default function BookingForm() {
                 >
                   <SelectValue placeholder="Select service" />
                 </SelectTrigger>
-                <SelectContent className="bg-[#111111] border-[#27272A] text-white">
+                <SelectContent
+                  side="bottom"
+                  sideOffset={6}
+                  avoidCollisions={false}
+                  className="bg-[#111111] border-[#27272A] text-white"
+                >
                   {options.service_types?.map((s) => (
                     <SelectItem key={s} value={s} data-testid={`service-option-${s}`}>
                       {s}
