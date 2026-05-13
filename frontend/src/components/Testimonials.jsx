@@ -106,6 +106,37 @@ export default function Testimonials() {
             );
           })}
         </div>
+
+        {/* Yelp CTA — public page link, no API needed */}
+        <div className="mt-12 flex justify-center">
+          <a
+            href="https://www.yelp.com/biz/turanelitelimo-millbrae"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="yelp-cta-link"
+            className="group inline-flex items-center gap-4 px-6 py-4 rounded-2xl border border-[#1F1F1F] bg-[#0A0A0A] hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/[0.04] transition-all"
+          >
+            <div className="w-10 h-10 rounded-lg bg-[#D32323] flex items-center justify-center font-bold text-white text-lg shrink-0">
+              y
+            </div>
+            <div className="text-left">
+              <div className="flex items-center gap-2">
+                <div className="flex">
+                  {Array.from({ length: 5 }).map((_, s) => (
+                    <Star key={s} className="w-3.5 h-3.5 fill-[#D32323] text-[#D32323]" />
+                  ))}
+                </div>
+                <span className="text-white/85 text-sm font-medium">on Yelp</span>
+              </div>
+              <div className="text-white/55 text-xs mt-0.5">
+                Read full reviews from our riders →
+              </div>
+            </div>
+            <span className="text-[#D4AF37] text-sm opacity-0 group-hover:opacity-100 transition-opacity">
+              ↗
+            </span>
+          </a>
+        </div>
       </div>
     </section>
   );
