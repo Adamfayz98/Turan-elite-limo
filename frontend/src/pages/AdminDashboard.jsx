@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import Logo from "@/components/Logo";
 import AssignDriverDialog, { DriverStatusPill } from "@/components/admin/AssignDriverDialog";
+import BookingDetailsDialog from "@/components/admin/BookingDetailsDialog";
 import { formatTime12h } from "@/lib/utils";
 import {
   AlertDialog,
@@ -168,6 +169,7 @@ export default function AdminDashboard() {
   const [cancelTarget, setCancelTarget] = useState(null); // booking object
   const [cancelReason, setCancelReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [detailBooking, setDetailBooking] = useState(null);
 
   const submitCancel = async () => {
     if (!cancelTarget) return;
@@ -408,7 +410,15 @@ export default function AdminDashboard() {
                     <TableRow
                       key={b.id}
                       data-testid={`booking-row-${b.id}`}
-                      className="border-white/5 hover:bg-white/5"
+                      onClick={(e) => {
+                        // Only open detail when clicking the row body, not nested buttons/menus
+                        const tag = e.target.tagName;
+                        const interactive = e.target.closest("button, a, [role=menuitem], [role=combobox], input, textarea");
+                        if (interactive) return;
+                        if (tag === "BUTTON" || tag === "A") return;
+                        setDetailBooking(b);
+                      }}
+                      className="border-white/5 hover:bg-white/5 cursor-pointer"
                     >
                       <TableCell>
                         <div className="text-white font-medium">{b.full_name}</div>
@@ -734,6 +744,13 @@ export default function AdminDashboard() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Booking details modal — opens when admin clicks a row */}
+      <BookingDetailsDialog
+        booking={detailBooking}
+        open={!!detailBooking}
+        onClose={() => setDetailBooking(null)}
+      />
 
       {/* Admin Cancel-with-reason Dialog */}
       <Dialog open={!!cancelTarget} onOpenChange={(open) => !open && setCancelTarget(null)}>

@@ -43,16 +43,32 @@ export default function PayBooking() {
     load();
   }, [load]);
 
-  // Poll status if returning from Stripe
+  // Poll BOTH /payments/status and /bookings/{id}/public — whichever reports
+  // paid first wins. The booking endpoint is also updated by the Stripe webhook,
+  // so this works even if /payments/status hangs/fails.
   const pollStatus = useCallback(
     async (sid, attempts = 0) => {
-      const max = 20;  // ~40 seconds total
+      const max = 30; // ~60 seconds
       if (attempts >= max) {
-        // Don't give up loudly — try one more booking refresh
+        // Final fallback: reload the booking once more, then ask user to refresh
         try { await load(); } catch {}
-        setPollMsg("Still processing — your payment will reflect shortly. Refresh in a moment.");
+        setPollMsg(
+          "Payment is still being confirmed. Refresh this page in a few seconds to see your receipt.",
+        );
         return;
       }
+      // 1) Refresh the booking — webhook may have already marked it paid
+      try {
+        const { data: fresh } = await api.get(`/bookings/${id}/public`);
+        if (fresh?.payment_status === "paid") {
+          setBooking(fresh);
+          setPollMsg("paid");
+          return;
+        }
+      } catch {
+        /* ignore — try /payments/status next */
+      }
+      // 2) Probe Stripe directly via /payments/status (force-updates DB if needed)
       try {
         const { data } = await api.get(`/payments/status/${sid}`);
         if (data.payment_status === "paid") {
@@ -64,15 +80,13 @@ export default function PayBooking() {
           setPollMsg("expired");
           return;
         }
-        setPollMsg("processing");
-        setTimeout(() => pollStatus(sid, attempts + 1), 2000);
       } catch {
-        // Transient error — keep trying. Don't break the UI.
-        setPollMsg("processing");
-        setTimeout(() => pollStatus(sid, attempts + 1), 2500);
+        /* transient error — keep trying */
       }
+      setPollMsg("processing");
+      setTimeout(() => pollStatus(sid, attempts + 1), 2000);
     },
-    [load],
+    [id, load],
   );
 
   useEffect(() => {
