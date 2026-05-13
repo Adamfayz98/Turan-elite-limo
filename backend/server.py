@@ -189,6 +189,14 @@ class Booking(BaseModel):
     paid_currency: Optional[str] = None
     quote_amount: Optional[float] = None  # snapshot of quoted price at booking time
     refund_amount: Optional[float] = None
+    # Driver dispatch (Phase 1)
+    driver_name: Optional[str] = None
+    driver_phone: Optional[str] = None
+    driver_email: Optional[str] = None
+    driver_plate: Optional[str] = None
+    driver_token: Optional[str] = None  # tokenized URL for the driver dispatch portal
+    trip_status: Optional[str] = None   # assigned | en_route | on_location | passenger_onboard | completed
+    trip_status_updated_at: Optional[str] = None
     created_at: str
 
 
@@ -915,6 +923,165 @@ async def manage_cancel_booking(token: str, payload: ManageCancelRequest):
         "status": "cancelled",
         "message": "Your reservation has been cancelled. We hope to chauffeur you another time.",
     }
+
+
+# ---------- Driver dispatch portal ----------
+
+# Allowed trip statuses + their order. Drivers can only advance forward.
+TRIP_STATUS_ORDER = ["assigned", "en_route", "on_location", "passenger_onboard", "completed"]
+
+
+class DriverAssignRequest(BaseModel):
+    """Admin assigns a driver to a booking."""
+    driver_name: str = Field(..., min_length=1, max_length=80)
+    driver_phone: str = Field(..., min_length=7, max_length=30)
+    driver_email: Optional[str] = ""
+    driver_plate: Optional[str] = ""
+
+
+class DriverStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(en_route|on_location|passenger_onboard|completed)$")
+
+
+def _generate_driver_token() -> str:
+    return secrets.token_urlsafe(16)
+
+
+@api_router.post("/admin/bookings/{booking_id}/assign-driver")
+async def assign_driver(booking_id: str, payload: DriverAssignRequest, request: Request, _: dict = Depends(require_admin)):
+    """Assign a driver to a booking. Generates a driver_token (one-time) and SMSes
+    the driver the dispatch URL. Idempotent — re-assigning regenerates the token
+    and sends a fresh SMS."""
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    token = b.get("driver_token") or _generate_driver_token()
+    update_doc = {
+        "driver_name": payload.driver_name.strip(),
+        "driver_phone": payload.driver_phone.strip(),
+        "driver_email": (payload.driver_email or "").strip(),
+        "driver_plate": (payload.driver_plate or "").strip().upper(),
+        "driver_token": token,
+        "trip_status": b.get("trip_status") or "assigned",
+        "trip_status_updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.bookings.update_one({"id": booking_id}, {"$set": update_doc})
+
+    # SMS the driver with the dispatch link
+    client_origin = _frontend_origin_from_request(request)
+    driver_url = f"{client_origin}/driver/{token}"
+    try:
+        merged = {**b, **update_doc}
+        await sms_service.send_sms(
+            payload.driver_phone.strip(),
+            sms_service.render_driver_dispatch_sms(merged, driver_url),
+        )
+    except Exception as e:
+        logger.warning(f"Driver dispatch SMS failed: {e}")
+
+    return {"ok": True, "driver_token": token, "driver_url": driver_url}
+
+
+@api_router.delete("/admin/bookings/{booking_id}/driver")
+async def unassign_driver(booking_id: str, _: dict = Depends(require_admin)):
+    """Remove the driver from a booking (e.g., if reassigning). Invalidates the
+    driver_token so the old link stops working."""
+    await db.bookings.update_one(
+        {"id": booking_id},
+        {"$unset": {
+            "driver_name": "", "driver_phone": "", "driver_email": "",
+            "driver_plate": "", "driver_token": "", "trip_status": "",
+            "trip_status_updated_at": "",
+        }},
+    )
+    return {"ok": True}
+
+
+@api_router.get("/driver/{driver_token}")
+async def driver_view_booking(driver_token: str):
+    """Driver opens the dispatch link → returns just enough info to do the trip.
+    No admin auth required (the token IS the auth)."""
+    b = await db.bookings.find_one({"driver_token": driver_token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return {
+        "id": b["id"],
+        "confirmation_number": b.get("confirmation_number"),
+        "trip_status": b.get("trip_status") or "assigned",
+        "trip_status_updated_at": b.get("trip_status_updated_at"),
+        "customer_name": b.get("full_name"),
+        "customer_phone": b.get("phone"),
+        "pickup_date": b.get("pickup_date"),
+        "pickup_time": b.get("pickup_time"),
+        "pickup_location": b.get("pickup_location"),
+        "dropoff_location": b.get("dropoff_location"),
+        "additional_stops": b.get("additional_stops") or [],
+        "passengers": b.get("passengers"),
+        "luggage_count": b.get("luggage_count"),
+        "child_seat": b.get("child_seat", False),
+        "vehicle_type": b.get("vehicle_type"),
+        "service_type": b.get("service_type"),
+        "hours": b.get("hours"),
+        "flight_number": b.get("flight_number"),
+        "meet_and_greet": b.get("meet_and_greet", False),
+        "return_trip": b.get("return_trip", False),
+        "return_location": b.get("return_location"),
+        "notes": b.get("notes"),
+        "driver_name": b.get("driver_name"),
+        "driver_plate": b.get("driver_plate"),
+    }
+
+
+@api_router.post("/driver/{driver_token}/status")
+async def driver_update_status(driver_token: str, payload: DriverStatusUpdate):
+    """Driver advances trip status. Triggers SMS to the customer (and admin) for
+    notable transitions."""
+    b = await db.bookings.find_one({"driver_token": driver_token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    current = b.get("trip_status") or "assigned"
+    new_status = payload.status
+    try:
+        if TRIP_STATUS_ORDER.index(new_status) <= TRIP_STATUS_ORDER.index(current):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot move from '{current}' to '{new_status}' — status only moves forward.",
+            )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    set_doc = {"trip_status": new_status, "trip_status_updated_at": now_iso}
+    # When driver marks trip completed, also stamp booking-level fields
+    if new_status == "completed":
+        set_doc["completed_at"] = now_iso
+        # Only flip booking status to 'completed' if it was 'confirmed' or 'pending'
+        if b.get("status") in ("confirmed", "pending"):
+            set_doc["status"] = "completed"
+    await db.bookings.update_one({"id": b["id"]}, {"$set": set_doc})
+
+    # SMS the customer (env-gated; skipped if Twilio not configured)
+    merged = {**b, **set_doc}
+    customer_sms = sms_service.render_customer_status_sms(merged, new_status)
+    if customer_sms and b.get("phone"):
+        try:
+            await sms_service.send_sms(b["phone"], customer_sms)
+        except Exception as e:
+            logger.warning(f"Customer status SMS failed: {e}")
+
+    # SMS the admin as well (so you know dispatch is rolling)
+    admin_to = sms_service.admin_phone()
+    if admin_to:
+        try:
+            await sms_service.send_sms(
+                admin_to, sms_service.render_admin_status_sms(merged, new_status)
+            )
+        except Exception as e:
+            logger.warning(f"Admin status SMS failed: {e}")
+
+    return {"ok": True, "trip_status": new_status, "trip_status_updated_at": now_iso}
 
 
 # ---------- Admin auth (2FA via email) ----------
@@ -1918,6 +2085,7 @@ async def startup_seed():
         await db.bookings.create_index("id", unique=True)
         await db.bookings.create_index("confirmation_number", sparse=True)
         await db.bookings.create_index("manage_token", sparse=True)
+        await db.bookings.create_index("driver_token", sparse=True)
         await db.contacts.create_index("id", unique=True)
         await db.pricing_config.create_index("vehicle_type", unique=True)
         await db.payment_transactions.create_index("session_id", unique=True)

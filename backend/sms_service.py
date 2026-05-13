@@ -104,3 +104,58 @@ def render_cancellation_sms(booking: dict, requested: bool = False) -> str:
         f"{name}\n"
         f"{when}"
     )
+
+
+def render_driver_dispatch_sms(booking: dict, driver_url: str) -> str:
+    """SMS sent to driver when admin assigns them to a booking."""
+    cn = booking.get("confirmation_number") or booking.get("id", "")[:8]
+    name = booking.get("full_name") or "Customer"
+    when = f"{booking.get('pickup_date','')} {_fmt_12h(booking.get('pickup_time',''))}".strip()
+    pickup = (booking.get("pickup_location") or "")[:60]
+    return (
+        f"TuranEliteLimo dispatch · #{cn}\n"
+        f"{when}\n"
+        f"{name}\n"
+        f"Pickup: {pickup}\n"
+        f"Open trip: {driver_url}"
+    )
+
+
+def render_customer_status_sms(booking: dict, status: str) -> str:
+    """SMS sent to customer when driver updates trip status. Returns None if status
+    should not trigger a customer notification."""
+    driver_name = (booking.get("driver_name") or "Your chauffeur").split(" ")[0]
+    driver_phone = booking.get("driver_phone") or ""
+    plate = booking.get("driver_plate") or ""
+    vehicle = booking.get("vehicle_type") or "vehicle"
+    if status == "en_route":
+        eta = "shortly"
+        return (
+            f"TuranEliteLimo: {driver_name} is on the way to your pickup. "
+            f"Arriving {eta}. Call/text {driver_phone} if needed."
+        )
+    if status == "on_location":
+        plate_str = f" (plate {plate})" if plate else ""
+        return (
+            f"TuranEliteLimo: {driver_name} has arrived. Look for the {vehicle}{plate_str}. "
+            f"Driver: {driver_phone}"
+        )
+    if status == "completed":
+        return (
+            f"TuranEliteLimo: Trip complete. Thanks for riding with us! "
+            f"We'll email your receipt + a quick rate/tip link shortly."
+        )
+    return None  # passenger_onboard etc. — no customer notification
+
+
+def render_admin_status_sms(booking: dict, status: str) -> str:
+    """SMS sent to admin when driver updates trip status."""
+    cn = booking.get("confirmation_number") or booking.get("id", "")[:8]
+    name = booking.get("full_name") or "Customer"
+    label = {
+        "en_route": "EN ROUTE",
+        "on_location": "ON LOCATION",
+        "passenger_onboard": "PASSENGER ONBOARD",
+        "completed": "TRIP COMPLETED",
+    }.get(status, status.upper())
+    return f"TuranEliteLimo · #{cn} · {label}\n{name}"

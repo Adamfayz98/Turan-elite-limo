@@ -38,6 +38,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import Logo from "@/components/Logo";
+import AssignDriverDialog, { DriverStatusPill } from "@/components/admin/AssignDriverDialog";
 import { formatTime12h } from "@/lib/utils";
 import {
   AlertDialog,
@@ -441,7 +442,11 @@ export default function AdminDashboard() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-2 flex-wrap">
+                          {b.trip_status && <DriverStatusPill status={b.trip_status} />}
+                          {(b.status === "confirmed" || b.status === "pending") && b.payment_status === "paid" && (
+                            <AssignDriverDialog booking={b} onAssigned={fetchAll} />
+                          )}
                           {b.status === "pending" && (
                             <Button
                               size="sm"

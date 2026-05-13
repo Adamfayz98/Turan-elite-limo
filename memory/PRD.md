@@ -40,6 +40,36 @@
 
 ## Recent Fixes (Feb 2026)
 
+### v2.4 — Driver Dispatch System Phase 1 (Feb 2026)
+**New feature**: end-to-end driver dispatch with auto SMS notifications to customer.
+
+**Backend (server.py + sms_service.py):**
+- New `Booking` fields: `driver_name, driver_phone, driver_email, driver_plate, driver_token, trip_status, trip_status_updated_at`.
+- Status enum: `assigned → en_route → on_location → passenger_onboard → completed` (forward-only, enforced server-side).
+- New endpoints:
+  - `POST /api/admin/bookings/{id}/assign-driver` — admin assigns driver info, generates `driver_token`, SMSes driver
+  - `DELETE /api/admin/bookings/{id}/driver` — unassign + invalidate link
+  - `GET /api/driver/{token}` — driver's view (no auth, token IS auth)
+  - `POST /api/driver/{token}/status` — driver advances status; auto SMSes customer + admin
+- Status `completed` also flips booking.status to "completed" and stamps completed_at.
+- Sparse index on `driver_token` for fast lookups.
+
+**Frontend:**
+- New `/driver/:token` route (`DriverPortal.jsx`) — mobile-optimized, single-tap status advance, visual progress timeline, all trip details (customer phone tap-to-call, flight #, meet & greet highlighted).
+- New `AssignDriverDialog.jsx` component in admin Bookings table — modal with name/phone/email/plate inputs, dispatches SMS, shows copyable driver URL, supports re-assign + unassign.
+- New `DriverStatusPill` component shows live trip status in admin bookings table.
+
+**SMS templates** (in `sms_service.py`):
+- Driver dispatch: includes confirmation #, customer name, pickup address, dispatch URL
+- Customer (en_route): "Driver X is on the way…"
+- Customer (on_location): "Driver X has arrived. Look for [vehicle] plate [X]"
+- Customer (completed): "Trip complete. Receipt + rate/tip link coming"
+- Admin status mirror: brief status alerts for live awareness
+
+**Pricing**: Twilio SMS ~$0.01 each = ~$0.03 per completed trip (3 customer SMS) + driver dispatch + admin mirrors. Negligible at limo-business volume.
+
+
+
 ### v2.3 — Stripe-First Flow + 1-Tap Admin Confirm (Feb 2026)
 **Reverted iter-15's email-only payment flow per user feedback** (looked suspicious / un-premium). Final flow:
 
