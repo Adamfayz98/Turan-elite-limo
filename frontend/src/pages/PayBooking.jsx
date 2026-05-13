@@ -59,7 +59,7 @@ export default function PayBooking() {
       }
       // 1) Refresh the booking — webhook may have already marked it paid
       try {
-        const { data: fresh } = await api.get(`/bookings/${id}/public`);
+        const { data: fresh } = await api.get(`/bookings/${bookingId}/public`);
         if (fresh?.payment_status === "paid") {
           setBooking(fresh);
           setPollMsg("paid");
@@ -86,7 +86,7 @@ export default function PayBooking() {
       setPollMsg("processing");
       setTimeout(() => pollStatus(sid, attempts + 1), 2000);
     },
-    [id, load],
+    [bookingId, load],
   );
 
   useEffect(() => {

@@ -169,23 +169,40 @@ export default function AdminDashboard() {
   const [cancelTarget, setCancelTarget] = useState(null); // booking object
   const [cancelReason, setCancelReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [autoRefund, setAutoRefund] = useState(true);
   const [detailBooking, setDetailBooking] = useState(null);
 
   const submitCancel = async () => {
     if (!cancelTarget) return;
     setCancelling(true);
+    const isPaid = cancelTarget.payment_status === "paid";
     try {
       await api.patch(`/admin/bookings/${cancelTarget.id}`, {
         status: "cancelled",
         reason: cancelReason.trim() || null,
       });
-      toast.success(
-        cancelTarget.payment_status === "paid"
-          ? "Cancelled — customer emailed with refund details"
-          : "Cancelled — customer emailed",
-      );
+      // If paid + admin opted in, also refund via Stripe immediately
+      if (isPaid && autoRefund) {
+        try {
+          const res = await api.post(`/admin/payments/${cancelTarget.id}/refund`, {});
+          toast.success(
+            `Cancelled & refunded $${res.data.amount?.toFixed(2)} to customer`,
+          );
+        } catch (refundErr) {
+          toast.error(
+            `Cancelled, but refund failed: ${formatApiErrorDetail(refundErr.response?.data?.detail) || "check Stripe dashboard"}`,
+          );
+        }
+      } else {
+        toast.success(
+          isPaid
+            ? "Cancelled — customer emailed (no refund issued)"
+            : "Cancelled — customer emailed",
+        );
+      }
       setCancelTarget(null);
       setCancelReason("");
+      setAutoRefund(true);
       fetchAll();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to cancel");
@@ -211,6 +228,24 @@ export default function AdminDashboard() {
       fetchAll();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    }
+  };
+
+  const syncPaymentFromStripe = async (b) => {
+    if (!b.payment_session_id) {
+      toast.error("No Stripe session on this booking — customer hasn't started checkout.");
+      return;
+    }
+    try {
+      const { data } = await api.get(`/payments/status/${b.payment_session_id}`);
+      if (data.payment_status === "paid") {
+        toast.success("Payment confirmed — booking marked paid");
+      } else {
+        toast.info(`Stripe says: ${data.payment_status}`);
+      }
+      fetchAll();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Sync failed");
     }
   };
 
@@ -554,6 +589,15 @@ export default function AdminDashboard() {
                             <DropdownMenuItem onClick={() => updateStatus(b.id, "pending")}>
                               <Clock className="w-4 h-4 mr-2 text-yellow-400" /> Mark Pending
                             </DropdownMenuItem>
+                            {b.payment_status === "pending" && b.payment_session_id && (
+                              <DropdownMenuItem
+                                data-testid={`sync-payment-${b.id}`}
+                                onClick={() => syncPaymentFromStripe(b)}
+                                className="text-emerald-300 focus:text-emerald-300 focus:bg-emerald-500/10"
+                              >
+                                <CreditCard className="w-4 h-4 mr-2" /> Sync payment from Stripe
+                              </DropdownMenuItem>
+                            )}
                             {b.payment_status === "paid" && (
                               <>
                                 <DropdownMenuSeparator className="bg-white/10" />
@@ -759,11 +803,6 @@ export default function AdminDashboard() {
             <DialogTitle className="font-serif text-2xl">Cancel reservation</DialogTitle>
             <p className="text-xs text-white/55 mt-1">
               Customer <strong className="text-white">{cancelTarget?.full_name}</strong> ({cancelTarget?.confirmation_number}) will receive a cancellation email immediately.
-              {cancelTarget?.payment_status === "paid" && (
-                <span className="block mt-1 text-[#D4AF37]">
-                  ⚠️ This booking is paid. The email will tell them their refund is being processed. Don't forget to refund them in your Stripe dashboard!
-                </span>
-              )}
             </p>
           </DialogHeader>
           <div className="space-y-3">
@@ -784,10 +823,33 @@ export default function AdminDashboard() {
                 {cancelReason.length}/500 — optional but recommended
               </div>
             </div>
+
+            {cancelTarget?.payment_status === "paid" && (
+              <label
+                data-testid="admin-cancel-auto-refund-toggle"
+                className="flex items-start gap-3 p-3 rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/[0.06] cursor-pointer hover:bg-[#D4AF37]/[0.1] transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={autoRefund}
+                  onChange={(e) => setAutoRefund(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-[#D4AF37] cursor-pointer"
+                />
+                <div className="flex-1 text-xs">
+                  <div className="text-[#D4AF37] font-medium">
+                    Also refund ${cancelTarget?.paid_amount?.toFixed(2)} to customer's card via Stripe
+                  </div>
+                  <div className="text-white/55 mt-1 leading-relaxed">
+                    One click — no need to find them in the Stripe dashboard. Uncheck only if you'll handle the refund manually.
+                  </div>
+                </div>
+              </label>
+            )}
+
             <div className="flex justify-end gap-2 pt-3 border-t border-[#1F1F1F]">
               <Button
                 variant="outline"
-                onClick={() => { setCancelTarget(null); setCancelReason(""); }}
+                onClick={() => { setCancelTarget(null); setCancelReason(""); setAutoRefund(true); }}
                 className="bg-transparent border-white/20 hover:bg-white/10 rounded-full h-9 px-4"
               >
                 Keep reservation
@@ -798,7 +860,13 @@ export default function AdminDashboard() {
                 disabled={cancelling}
                 className="bg-red-500 hover:bg-red-600 rounded-full h-9 px-5 font-medium"
               >
-                {cancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : "Cancel & notify customer"}
+                {cancelling ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : cancelTarget?.payment_status === "paid" && autoRefund ? (
+                  "Cancel & Refund"
+                ) : (
+                  "Cancel & notify customer"
+                )}
               </Button>
             </div>
           </div>
