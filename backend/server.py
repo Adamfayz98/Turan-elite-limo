@@ -29,6 +29,7 @@ from email_service import (
     render_cancellation_email,
     render_2fa_code_email,
     render_review_request_email,
+    render_admin_new_request_email,
     SUPPORT_EMAIL,
 )
 import sms_service
@@ -360,7 +361,22 @@ async def create_booking(payload: BookingCreate, request: Request):
     insert_doc = doc.copy()
     await db.bookings.insert_one(insert_doc)
 
-    # NOTE: No email is sent here. The customer will be redirected to Stripe immediately
+    # ----- Admin notification email (fire-and-forget; never blocks the booking) -----
+    if SUPPORT_EMAIL:
+        try:
+            origin = _frontend_origin_from_request(request)
+            admin_url = f"{origin}/admin"
+            html = render_admin_new_request_email(doc, admin_dashboard_url=admin_url)
+            cn_short = doc.get("confirmation_number") or doc["id"][:8]
+            subject = (
+                f"🚗 New request · {doc.get('full_name','Customer')} · "
+                f"{doc.get('pickup_date','')} {doc.get('pickup_time','')} · #{cn_short}"
+            )
+            await send_email(to=SUPPORT_EMAIL, subject=subject, html=html)
+        except Exception as e:
+            logger.warning(f"Admin new-request email failed: {e}")
+
+    # NOTE: No customer email is sent here. The customer will be redirected to Stripe immediately
     # after this booking is created. The "Payment received, confirming chauffeur" email
     # is sent only AFTER successful payment (see /api/payments/status webhook handler).
 

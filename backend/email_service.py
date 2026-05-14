@@ -627,3 +627,100 @@ def render_manage_link_html(manage_url: str) -> str:
       </a>
     </td></tr>
     """
+
+
+
+def render_admin_new_request_email(booking: dict, admin_dashboard_url: str = "") -> str:
+    """Internal admin notification when a new booking request is created.
+    Sent to SUPPORT_EMAIL before Stripe payment. Visually compact + scannable."""
+    cn = booking.get("confirmation_number") or "—"
+    stops = booking.get("additional_stops") or []
+    stops_html = ""
+    if stops:
+        items = "".join(f"<li style='margin:2px 0;'>{s}</li>" for s in stops)
+        stops_html = f"<tr><td style='padding:4px 0;color:#888;'>Stops:</td><td style='padding:4px 0;'><ul style='margin:0;padding-left:18px;'>{items}</ul></td></tr>"
+
+    return_html = ""
+    if booking.get("return_trip") and booking.get("return_location"):
+        return_html = f"<tr><td style='padding:4px 0;color:#888;'>Return:</td><td style='padding:4px 0;'>{booking['return_location']}</td></tr>"
+
+    flight_html = ""
+    if booking.get("flight_number"):
+        flight_html = f"<tr><td style='padding:4px 0;color:#888;'>Flight #:</td><td style='padding:4px 0;'><strong>{booking['flight_number']}</strong></td></tr>"
+
+    hours_html = ""
+    if booking.get("hours"):
+        hours_html = f"<tr><td style='padding:4px 0;color:#888;'>Hours:</td><td style='padding:4px 0;'>{booking['hours']}</td></tr>"
+
+    mg_html = ""
+    if booking.get("meet_and_greet"):
+        mg_html = "<tr><td style='padding:4px 0;color:#888;'>Add-on:</td><td style='padding:4px 0;'>✨ Meet &amp; Greet at baggage claim</td></tr>"
+
+    notes_html = ""
+    if (booking.get("notes") or "").strip():
+        notes_html = f"<tr><td style='padding:4px 0;color:#888;vertical-align:top;'>Notes:</td><td style='padding:4px 0;font-style:italic;color:#444;'>{booking['notes']}</td></tr>"
+
+    cta_btn = ""
+    if admin_dashboard_url:
+        cta_btn = f"""
+        <tr><td style="padding:24px 32px 8px 32px;">
+          <a href="{admin_dashboard_url}" style="display:inline-block;background:#D4AF37;color:#0a0a0a;
+             text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;
+             font-family:Arial,sans-serif;font-size:13px;letter-spacing:0.3px;">
+             Open admin dashboard →
+          </a>
+        </td></tr>
+        """
+
+    return f"""
+<!doctype html><html><body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0"
+             style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e5e5;">
+        <tr><td style="background:#0a0a0a;padding:20px 32px;color:#fff;">
+          <div style="font-size:11px;color:#D4AF37;letter-spacing:2px;text-transform:uppercase;">
+            TuranEliteLimo · New booking request
+          </div>
+          <div style="font-size:22px;font-family:Georgia,serif;margin-top:6px;">
+            {booking.get('full_name','Customer')}
+          </div>
+          <div style="font-size:13px;color:#aaa;margin-top:4px;">
+            {booking.get('service_type','—')} · {booking.get('vehicle_type','—')} · #{cn}
+          </div>
+        </td></tr>
+        <tr><td style="padding:22px 32px;color:#222;font-size:14px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="padding:4px 0;color:#888;width:90px;">Pickup:</td><td style="padding:4px 0;"><strong>{booking.get('pickup_date','')}</strong> at <strong>{booking.get('pickup_time','')}</strong></td></tr>
+            <tr><td style="padding:4px 0;color:#888;">From:</td><td style="padding:4px 0;">{booking.get('pickup_location','—')}</td></tr>
+            <tr><td style="padding:4px 0;color:#888;">To:</td><td style="padding:4px 0;">{booking.get('dropoff_location','—')}</td></tr>
+            {stops_html}
+            {return_html}
+            {flight_html}
+            {hours_html}
+            {mg_html}
+            <tr><td style="padding:4px 0;color:#888;">Passengers:</td><td style="padding:4px 0;">{booking.get('passengers','—')} pax · {booking.get('luggage_count',0)} bags</td></tr>
+            {notes_html}
+          </table>
+        </td></tr>
+        <tr><td style="padding:0 32px 4px 32px;border-top:1px solid #eee;">
+          <div style="font-size:11px;color:#D4AF37;letter-spacing:2px;text-transform:uppercase;margin-top:18px;">
+            Customer contact
+          </div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;">
+            <tr><td style="padding:4px 0;color:#888;width:90px;">Email:</td><td style="padding:4px 0;"><a href="mailto:{booking.get('email','')}" style="color:#0a0a0a;">{booking.get('email','—')}</a></td></tr>
+            <tr><td style="padding:4px 0;color:#888;">Phone:</td><td style="padding:4px 0;"><a href="tel:{booking.get('phone','')}" style="color:#0a0a0a;">{booking.get('phone','—')}</a></td></tr>
+          </table>
+        </td></tr>
+        {cta_btn}
+        <tr><td style="padding:18px 32px;border-top:1px solid #eee;color:#888;font-size:12px;">
+          Status: <span style="color:#b6862c;">awaiting Stripe payment</span> — you'll receive a follow-up email when the customer completes checkout.
+        </td></tr>
+      </table>
+      <div style="font-size:11px;color:#999;margin-top:14px;">
+        Internal notification · do not reply
+      </div>
+    </td></tr>
+  </table>
+</body></html>
+"""
