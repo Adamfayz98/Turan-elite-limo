@@ -11,10 +11,14 @@ import ThingsToDo from "@/components/ThingsToDo";
 import Testimonials from "@/components/Testimonials";
 import ContactForm from "@/components/ContactForm";
 import Footer from "@/components/Footer";
+import PromoBanner from "@/components/PromoBanner";
+import SeoStructuredData from "@/components/SeoStructuredData";
 
 export default function Home() {
   return (
     <main data-testid="home-page" className="bg-[#050505] text-white">
+      <SeoStructuredData />
+      <PromoBanner />
       <Navbar />
       <Hero />
       <HowItWorks />

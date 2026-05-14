@@ -1302,6 +1302,7 @@ class PromoBase(BaseModel):
     expires_at: Optional[str] = None  # ISO date YYYY-MM-DD
     first_ride_only: bool = False
     active: bool = True
+    show_on_banner: bool = False  # whether to advertise this code as a sitewide banner
 
 
 class PromoCreate(PromoBase):
@@ -1317,6 +1318,7 @@ class PromoUpdate(BaseModel):
     expires_at: Optional[str] = None
     first_ride_only: Optional[bool] = None
     active: Optional[bool] = None
+    show_on_banner: Optional[bool] = None
 
 
 class Promo(PromoBase):
@@ -1398,6 +1400,39 @@ async def public_validate_promo(payload: PromoValidateRequest):
     """Public endpoint — booking form uses this for live "Apply code" feedback."""
     result = await _validate_promo_for_booking(payload.code, payload.amount, payload.email)
     return result
+
+
+@api_router.get("/promos/banner")
+async def public_banner_promo():
+    """Returns the currently advertised promo (if any) for the sitewide banner.
+    Picks the most recently created promo that is active + has show_on_banner=True
+    + not expired + hasn't hit max_uses.
+    """
+    today = datetime.now(timezone.utc).date().isoformat()
+    cursor = db.promos.find(
+        {"active": True, "show_on_banner": True},
+        {"_id": 0},
+    ).sort("created_at", -1)
+    rows = await cursor.to_list(20)
+    for p in rows:
+        # Expiry guard
+        exp = p.get("expires_at")
+        if exp and exp < today:
+            continue
+        # Max uses guard
+        mu = p.get("max_uses")
+        if mu is not None and int(p.get("uses") or 0) >= int(mu):
+            continue
+        return {
+            "code": p["code"],
+            "description": p.get("description") or "",
+            "discount_type": p["discount_type"],
+            "value": float(p["value"]),
+            "min_ride_amount": float(p.get("min_ride_amount") or 0),
+            "first_ride_only": bool(p.get("first_ride_only")),
+            "expires_at": p.get("expires_at"),
+        }
+    return {"code": None}
 
 
 @api_router.get("/admin/promos", response_model=List[Promo])

@@ -806,6 +806,9 @@ export default function BookingForm() {
                 onChange={(e) => update("phone")(e.target.value)}
                 placeholder="(650) 410-0687"
               />
+              <p className="text-[10px] text-white/40 mt-1.5">
+                US numbers — we'll auto-add the +1 country code for SMS updates.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

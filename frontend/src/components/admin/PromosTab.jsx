@@ -46,6 +46,7 @@ const blank = () => ({
   expires_at: "",
   first_ride_only: false,
   active: true,
+  show_on_banner: false,
 });
 
 export default function PromosTab() {
@@ -80,6 +81,7 @@ export default function PromosTab() {
       expires_at: editing.expires_at || null,
       first_ride_only: !!editing.first_ride_only,
       active: !!editing.active,
+      show_on_banner: !!editing.show_on_banner,
     };
     if (!payload.code || payload.code.length < 2) {
       toast.error("Code must be at least 2 characters");
@@ -196,6 +198,11 @@ export default function PromosTab() {
                   {p.first_ride_only && (
                     <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 uppercase tracking-wider">
                       First ride
+                    </span>
+                  )}
+                  {p.show_on_banner && (
+                    <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-[#D4AF37]/15 text-[#D4AF37] uppercase tracking-wider">
+                      On banner
                     </span>
                   )}
                   {p.min_ride_amount > 0 && (
@@ -387,6 +394,19 @@ export default function PromosTab() {
                   checked={!!editing.first_ride_only}
                   onCheckedChange={(v) => setEditing({ ...editing, first_ride_only: v })}
                   data-testid="promo-form-first"
+                  className="data-[state=checked]:bg-[#D4AF37]"
+                />
+              </label>
+
+              <label className="flex items-center justify-between gap-3 cursor-pointer py-2">
+                <div>
+                  <div className="text-sm text-white">Show on homepage banner</div>
+                  <div className="text-xs text-white/45">Sitewide gold banner advertising this code · also adds an Offer to Google search results</div>
+                </div>
+                <Switch
+                  checked={!!editing.show_on_banner}
+                  onCheckedChange={(v) => setEditing({ ...editing, show_on_banner: v })}
+                  data-testid="promo-form-banner"
                   className="data-[state=checked]:bg-[#D4AF37]"
                 />
               </label>
