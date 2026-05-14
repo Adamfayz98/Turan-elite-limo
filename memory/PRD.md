@@ -244,3 +244,29 @@
 
 ## Test Credentials
 See `/app/memory/test_credentials.md` (includes 2FA programmatic bypass recipe for testing).
+
+
+## Session Update — Feb 2026
+### P0 Hotfix — Stripe checkout 500 ("Something went wrong")
+- **Root cause**: `httpx==0.28.1` raises `RuntimeError: Attempted to send an sync request with an AsyncClient instance.` when `data=` (form-encoded tuples) is passed to `AsyncClient.post()`. The `request.stream` resolves to a non-`AsyncByteStream` and the assertion in `_send_single_request` blows up.
+- **Fix**: switched all Stripe outbound calls in `server.py` from `data=form` to `content=urlencode(form).encode("utf-8")` (with the same `application/x-www-form-urlencoded` content-type header). Applied to checkout session create, wait-time PaymentIntent charge, and refunds.
+- **Second issue uncovered**: Stripe API now rejects `ui_mode=hosted` ("use `hosted_page` instead"). Since `hosted` (default) is the desired behavior anyway, simply removed the explicit `ui_mode` param.
+- Verified end-to-end via curl — `POST /api/payments/checkout` now returns a valid Stripe Checkout URL.
+
+### P1 — Booking form polish
+- `SERVICE_TYPES` already trimmed to the requested 3: Airport Transfer, A to B Transfer, Hourly Chauffeur. Verified via `/api/options`.
+- Wait Time Consent block:
+  - Now renders as soon as `waitPolicy` is loaded (no longer gated by `vehicle_type`).
+  - Per-minute rate is shown dynamically: when a vehicle is selected → "Beyond the grace period, a per-minute wait fee of $X.XX/min applies for the [Vehicle]". Otherwise a generic fallback line is shown.
+  - Layout stays always-on-display (no tap-to-expand).
+
+### Verification
+- Backend: curl POST /api/bookings → 200, then curl POST /api/payments/checkout → 200 with live Stripe URL.
+- Frontend: smoke screenshot confirms service-type dropdown shows only the 3 expected options and the Wait Time Policy block renders without requiring a vehicle pick.
+
+## Pending / Backlog
+- P2 — Pre-saved driver roster (replace manual driver input in admin)
+- P2 — Refactor `server.py` (>3300 lines) into modular routers (`/api/bookings`, `/api/admin`, `/api/payments`, `/api/driver`)
+- P2 — Google Ads Conversion Tracking on `PayBooking.jsx`
+- Twilio toll-free SMS verification (blocked on user action — switch number or finish verification)
+- Refund fee policy + wait-time grace period UX still pending from earlier discussion

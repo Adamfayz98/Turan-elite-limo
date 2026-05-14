@@ -986,7 +986,7 @@ export default function BookingForm() {
           </div>
 
           {/* Wait time policy + consent (REQUIRED for all bookings) */}
-          {waitPolicy && form.vehicle_type && (
+          {waitPolicy && (
             <div data-testid="wait-time-consent-block" className="mt-3 rounded-xl border border-[#1F1F1F] bg-[#0A0A0A] p-5">
               <div className="text-xs uppercase tracking-[0.25em] text-[#D4AF37] mb-3">
                 Wait time policy
@@ -1000,9 +1000,23 @@ export default function BookingForm() {
                   <strong className="text-white">All other trips</strong> include a
                   <strong className="text-white"> 15-minute</strong> grace period after your scheduled pickup.
                 </p>
-                <p>
-                  Beyond the grace period, a per-minute wait fee applies (rate depends on your vehicle class — shown on your receipt).
-                </p>
+                {(() => {
+                  const rate = form.vehicle_type ? Number(waitPolicy?.rates?.[form.vehicle_type] || 0) : 0;
+                  if (form.vehicle_type && rate > 0) {
+                    return (
+                      <p data-testid="wait-rate-dynamic">
+                        Beyond the grace period, a per-minute wait fee of{" "}
+                        <strong className="text-[#D4AF37]">${rate.toFixed(2)}/min</strong>{" "}
+                        applies for the <strong className="text-white">{form.vehicle_type}</strong>.
+                      </p>
+                    );
+                  }
+                  return (
+                    <p data-testid="wait-rate-generic">
+                      Beyond the grace period, a per-minute wait fee applies based on your selected vehicle class (rate is shown above on the vehicle card and on your receipt).
+                    </p>
+                  );
+                })()}
                 <p>
                   If we wait <strong className="text-white">45 minutes beyond the grace period</strong> without contact, the reservation is treated as a no-show — no refund.
                 </p>

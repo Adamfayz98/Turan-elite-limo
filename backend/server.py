@@ -12,6 +12,7 @@ import string
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
+from urllib.parse import urlencode
 
 import httpx
 import jwt
@@ -1268,7 +1269,7 @@ async def driver_charge_wait_time(driver_token: str, payload: WaitTimeChargePayl
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/x-www-form-urlencoded",
             },
-            data=form,
+            content=urlencode(form).encode("utf-8"),
         )
     if r.status_code != 200:
         err_text = r.text[:500]
@@ -2173,7 +2174,6 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
     product_name = f"TuranEliteLimo chauffeur — {booking.get('vehicle_type','Reservation')}{(' · ' + cn_for_desc) if cn_for_desc else ''}"
     form = [
         ("mode", "payment"),
-        ("ui_mode", "hosted"),
         ("success_url", success_url),
         ("cancel_url", cancel_url),
         ("payment_method_types[]", "card"),
@@ -2199,7 +2199,7 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/x-www-form-urlencoded",
             },
-            data=form,
+            content=urlencode(form).encode("utf-8"),
         )
     if r.status_code != 200:
         logger.error(f"Stripe checkout create failed: {r.status_code} {r.text[:500]}")
@@ -2494,7 +2494,11 @@ async def admin_refund(booking_id: str, payload: RefundRequest, _: dict = Depend
         form = {"payment_intent": pi}
         if payload.amount is not None and payload.amount > 0:
             form["amount"] = str(int(round(payload.amount * 100)))
-        r = await cli.post("https://api.stripe.com/v1/refunds", headers=headers, data=form)
+        r = await cli.post(
+            "https://api.stripe.com/v1/refunds",
+            headers={**headers, "Content-Type": "application/x-www-form-urlencoded"},
+            content=urlencode(form).encode("utf-8"),
+        )
         if r.status_code not in (200, 201):
             raise HTTPException(status_code=502, detail=f"Refund failed: {r.text}")
         rj = r.json()
