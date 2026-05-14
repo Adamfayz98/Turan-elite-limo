@@ -387,6 +387,16 @@ def render_payment_received_pending_email(booking: dict, amount: float, manage_u
 
         {manage_btn}
 
+        <tr><td style="padding:18px 32px;border-top:1px solid #1f1f1f;color:#aaa;font-size:11px;line-height:1.6;">
+          <div style="color:#D4AF37;letter-spacing:1.5px;text-transform:uppercase;font-size:10px;margin-bottom:6px;">
+            Wait time policy
+          </div>
+          Airport pickups include <strong style="color:#fff;">45 min free</strong> after your flight lands.
+          All other trips include <strong style="color:#fff;">15 min free</strong> after the scheduled pickup time.
+          Beyond that, your saved card may be charged the per-minute wait rate for your vehicle class.
+          After 45 min of paid wait time without contact, the reservation is treated as a no-show.
+        </td></tr>
+
         <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
           Need to change something? Reply to this email or call
           <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>.
@@ -724,3 +734,69 @@ def render_admin_new_request_email(booking: dict, admin_dashboard_url: str = "")
   </table>
 </body></html>
 """
+
+
+def render_wait_time_charge_email(
+    booking: dict,
+    chargeable_minutes: int,
+    rate: float,
+    amount: float,
+    grace_minutes: int,
+) -> str:
+    """Receipt email sent immediately after an off-session wait-time charge succeeds."""
+    cn = booking.get("confirmation_number") or "—"
+    grace_msg = (
+        "45 minutes after your flight landed"
+        if booking.get("service_type") == "Airport Transfer"
+        else "15 minutes after your scheduled pickup"
+    )
+    driver = booking.get("driver_name") or "Your chauffeur"
+    return f"""
+<!doctype html><html><body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0"
+             style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e5e5;">
+        <tr><td style="background:#0a0a0a;padding:24px 32px;color:#fff;text-align:center;">
+          <div style="font-size:11px;color:#D4AF37;letter-spacing:2px;text-transform:uppercase;">
+            TuranEliteLimo · Wait Time Charge
+          </div>
+          <div style="font-size:32px;font-family:Georgia,serif;margin-top:10px;color:#D4AF37;">
+            ${amount:.2f}
+          </div>
+          <div style="font-size:12px;color:#aaa;margin-top:4px;">
+            Reservation #{cn}
+          </div>
+        </td></tr>
+        <tr><td style="padding:24px 32px;color:#222;font-size:14px;line-height:1.7;">
+          <p style="margin:0 0 14px 0;">Hi {booking.get('full_name','').split(' ')[0] or 'there'},</p>
+          <p style="margin:0 0 14px 0;">
+            We've just charged your card on file <strong>${amount:.2f}</strong> for wait time
+            on your recent trip.
+          </p>
+          <div style="background:#fafafa;border:1px solid #eee;border-radius:8px;padding:16px;margin:16px 0;font-size:13px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr><td style="padding:3px 0;color:#888;">Grace period:</td><td style="padding:3px 0;text-align:right;">{grace_minutes} min ({grace_msg})</td></tr>
+              <tr><td style="padding:3px 0;color:#888;">Time charged for:</td><td style="padding:3px 0;text-align:right;">{chargeable_minutes} min</td></tr>
+              <tr><td style="padding:3px 0;color:#888;">Rate:</td><td style="padding:3px 0;text-align:right;">${rate:.2f}/min</td></tr>
+              <tr><td style="padding:8px 0 3px 0;border-top:1px solid #eee;font-weight:bold;">Total charged:</td><td style="padding:8px 0 3px 0;text-align:right;font-weight:bold;border-top:1px solid #eee;">${amount:.2f}</td></tr>
+            </table>
+          </div>
+          <p style="margin:0 0 14px 0;color:#555;font-size:13px;">
+            This was authorized at booking under our Wait Time Policy ({driver} waited
+            {chargeable_minutes + grace_minutes} minutes total). Charges only apply beyond the
+            grace window; on-time pickups never trigger this.
+          </p>
+          <p style="margin:0;font-size:13px;color:#888;">
+            Questions? Reply to this email or call <a href="tel:+16504100687" style="color:#0a0a0a;">(650) 410-0687</a>.
+          </p>
+        </td></tr>
+        <tr><td style="padding:18px 32px;border-top:1px solid #eee;color:#888;font-size:11px;text-align:center;">
+          TuranEliteLimo · Millbrae, CA · turanelitelimo.com
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+

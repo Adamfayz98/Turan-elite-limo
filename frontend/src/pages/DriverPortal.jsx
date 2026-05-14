@@ -79,6 +79,63 @@ export default function DriverPortal() {
     }
   };
 
+  const markFlightLanded = async () => {
+    setUpdating(true);
+    try {
+      await api.post(`/driver/${token}/flight-landed`, {});
+      toast.success("Flight landed — wait clock started");
+      await load();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const chargeWaitTime = async () => {
+    const minutes = window.prompt(
+      "Total minutes waited (including grace period):\n\n• Airport: 45 min free, then charged per min\n• Other trips: 15 min free, then charged per min",
+      "",
+    );
+    if (!minutes) return;
+    const n = parseInt(minutes, 10);
+    if (!n || n < 1) {
+      toast.error("Enter a valid number");
+      return;
+    }
+    setUpdating(true);
+    try {
+      const { data } = await api.post(`/driver/${token}/charge-wait-time`, { minutes_waited: n });
+      if (data.already_charged) {
+        toast.info(`Already charged $${data.amount?.toFixed(2)} for ${data.minutes} min`);
+      } else {
+        toast.success(`Charged $${data.amount?.toFixed(2)} (${data.chargeable_minutes} min × $${data.rate.toFixed(2)})`);
+      }
+      await load();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Charge failed");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const markNoShow = async () => {
+    if (!window.confirm("Mark this trip as a no-show? Customer forfeits the fare (no refund). This cannot be undone from the driver portal.")) {
+      return;
+    }
+    const reason = window.prompt("Brief note for the record (optional):", "") || "";
+    setUpdating(true);
+    try {
+      await api.post(`/driver/${token}/no-show`, { reason });
+      toast.success("Trip marked as no-show");
+      await load();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   if (loading) {
     return (
       <main className="min-h-screen bg-[#080808] text-white flex items-center justify-center">
@@ -196,6 +253,52 @@ export default function DriverPortal() {
                 Customer notified. Receipt + rating email is on its way.
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Wait-time + No-show actions */}
+        {!isCompleted && trip.trip_status !== "completed" && !trip.no_show && (
+          <div data-testid="wait-actions" className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {trip.service_type === "Airport Transfer" && !trip.flight_landed_at && (
+              <Button
+                onClick={markFlightLanded}
+                disabled={updating}
+                data-testid="driver-flight-landed"
+                className="bg-white/5 hover:bg-white/10 border border-amber-400/30 text-amber-300 rounded-xl h-11 text-sm font-medium"
+              >
+                <Plane className="w-4 h-4 mr-2" /> Mark flight landed
+              </Button>
+            )}
+            {trip.service_type === "Airport Transfer" && trip.flight_landed_at && (
+              <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-xs text-amber-300 flex items-center gap-2">
+                <Plane className="w-4 h-4" />
+                <span>Landed at {new Date(trip.flight_landed_at).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}</span>
+              </div>
+            )}
+            {trip.has_saved_card && !trip.wait_time_charged_at && trip.wait_time_consent && (
+              <Button
+                onClick={chargeWaitTime}
+                disabled={updating}
+                data-testid="driver-charge-wait"
+                className="bg-white/5 hover:bg-white/10 border border-[#D4AF37]/40 text-[#D4AF37] rounded-xl h-11 text-sm font-medium"
+              >
+                ⏱️ Charge wait time
+              </Button>
+            )}
+            {trip.wait_time_charged_at && (
+              <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-300 flex items-center gap-2">
+                <Check className="w-4 h-4" />
+                <span>Charged ${trip.wait_time_fee_amount?.toFixed(2)} for {trip.wait_time_minutes} min</span>
+              </div>
+            )}
+            <Button
+              onClick={markNoShow}
+              disabled={updating}
+              data-testid="driver-no-show"
+              className="bg-white/5 hover:bg-red-500/10 border border-red-500/30 text-red-400 hover:text-red-300 rounded-xl h-11 text-sm font-medium sm:col-span-1"
+            >
+              Mark as no-show
+            </Button>
           </div>
         )}
 

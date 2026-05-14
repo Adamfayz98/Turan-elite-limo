@@ -44,6 +44,7 @@ export default function PricingTab() {
         per_mile: Number(row.per_mile) || 0,
         minimum: Number(row.minimum) || 0,
         hourly_rate: Number(row.hourly_rate) || 0,
+        wait_minute_rate: Number(row.wait_minute_rate) || 0,
         call_only: !!row.call_only,
       };
       await api.patch(`/admin/pricing/${encodeURIComponent(row.vehicle_type)}`, payload);
@@ -77,6 +78,7 @@ export default function PricingTab() {
           <div className="text-xs text-white/40 leading-relaxed text-right">
             <div>Distance trip = max(base + per_mile × distance, minimum)</div>
             <div>Hourly Chauffeur = hourly_rate × hours · 20 mi included per hour</div>
+            <div>Wait fee = wait_minute_rate × minutes beyond grace period</div>
           </div>
         </div>
 
@@ -194,6 +196,28 @@ export default function PricingTab() {
                       </>
                     )}
                   </Button>
+                </div>
+
+                {/* Wait-time rate row (always-on; applies even for call-only vehicles) */}
+                <div className="col-span-2 md:col-span-12 flex flex-wrap items-end gap-3 pt-3 mt-1 border-t border-white/5">
+                  <div className="flex-1 min-w-[200px]">
+                    <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                      Wait-time rate ($/min after grace period)
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.05"
+                      min="0"
+                      value={r.wait_minute_rate ?? 0}
+                      onChange={(e) => updateLocal(r.vehicle_type, "wait_minute_rate", e.target.value)}
+                      data-testid={`pricing-wait-${r.vehicle_type}`}
+                      className={cn(inputCls, "mt-1 max-w-[140px]")}
+                    />
+                  </div>
+                  <div className="flex-1 text-[11px] text-white/45 leading-relaxed self-center">
+                    Charged automatically when driver hits "Charge wait time" in the Driver Portal.<br />
+                    Grace period: <strong>45 min</strong> (airport, after flight lands) · <strong>15 min</strong> (other trips, after pickup).
+                  </div>
                 </div>
               </div>
             );

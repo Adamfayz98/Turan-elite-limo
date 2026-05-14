@@ -30,6 +30,7 @@ from email_service import (
     render_2fa_code_email,
     render_review_request_email,
     render_admin_new_request_email,
+    render_wait_time_charge_email,
     SUPPORT_EMAIL,
 )
 import sms_service
@@ -104,12 +105,12 @@ VEHICLE_TYPES = [
 
 # Default pricing seeded into MongoDB on first startup (admins can edit live).
 DEFAULT_VEHICLE_PRICING = {
-    "Executive Sedan": {"base": 75.0, "per_mile": 3.50, "minimum": 85.0, "hourly_rate": 95.0, "call_only": False},
-    "S-Class": {"base": 95.0, "per_mile": 4.50, "minimum": 115.0, "hourly_rate": 125.0, "call_only": False},
-    "Luxury SUV": {"base": 115.0, "per_mile": 4.75, "minimum": 135.0, "hourly_rate": 145.0, "call_only": False},
-    "Stretch Limousine": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "hourly_rate": 0.0, "call_only": True},
-    "Sprinter Van": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "hourly_rate": 0.0, "call_only": True},
-    "Party Bus": {"base": 0.0, "per_mile": 0.0, "minimum": 0.0, "hourly_rate": 0.0, "call_only": True},
+    "Executive Sedan":    {"base": 75.0,  "per_mile": 3.50, "minimum": 85.0,  "hourly_rate": 95.0,  "wait_minute_rate": 1.00, "call_only": False},
+    "S-Class":            {"base": 95.0,  "per_mile": 4.50, "minimum": 115.0, "hourly_rate": 125.0, "wait_minute_rate": 1.25, "call_only": False},
+    "Luxury SUV":         {"base": 115.0, "per_mile": 4.75, "minimum": 135.0, "hourly_rate": 145.0, "wait_minute_rate": 1.50, "call_only": False},
+    "Stretch Limousine":  {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.00, "call_only": True},
+    "Sprinter Van":       {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.00, "call_only": True},
+    "Party Bus":          {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.50, "call_only": True},
 }
 
 # Hourly bookings include this many miles per hour at no extra charge
@@ -153,6 +154,7 @@ class BookingCreate(BaseModel):
     meet_and_greet: bool = False  # Airport Transfer only — chauffeur meets at baggage claim
     flight_number: Optional[str] = Field(None, max_length=20)  # required for Airport Transfer
     promo_code: Optional[str] = Field(None, max_length=40)
+    wait_time_consent: bool = False  # MUST be true — frontend enforces, backend re-validates
 
 
 class Booking(BaseModel):
@@ -211,6 +213,16 @@ class Booking(BaseModel):
     promo_code: Optional[str] = None
     discount_amount: Optional[float] = None
     original_quote_amount: Optional[float] = None
+    # Wait time / no-show (Phase 2b)
+    wait_time_consent: bool = False
+    stripe_customer_id: Optional[str] = None
+    stripe_payment_method_id: Optional[str] = None
+    stripe_payment_intent_id: Optional[str] = None
+    flight_landed_at: Optional[str] = None  # ISO timestamp — driver records this for airport trips
+    wait_time_minutes: Optional[int] = None
+    wait_time_fee_amount: Optional[float] = None
+    wait_time_charged_at: Optional[str] = None
+    no_show: bool = False
     created_at: str
 
 
@@ -346,6 +358,11 @@ async def create_booking(payload: BookingCreate, request: Request):
         raise HTTPException(
             status_code=400,
             detail="Flight number is required for airport transfers so your chauffeur can track your arrival.",
+        )
+    if not payload.wait_time_consent:
+        raise HTTPException(
+            status_code=400,
+            detail="Please accept the wait time policy to continue.",
         )
 
     doc = payload.model_dump()
@@ -1087,6 +1104,14 @@ async def driver_view_booking(driver_token: str):
         "notes": b.get("notes"),
         "driver_name": b.get("driver_name"),
         "driver_plate": b.get("driver_plate"),
+        # Phase 2b — wait time state
+        "wait_time_consent": b.get("wait_time_consent", False),
+        "flight_landed_at": b.get("flight_landed_at"),
+        "wait_time_minutes": b.get("wait_time_minutes"),
+        "wait_time_fee_amount": b.get("wait_time_fee_amount"),
+        "wait_time_charged_at": b.get("wait_time_charged_at"),
+        "no_show": b.get("no_show", False),
+        "has_saved_card": bool(b.get("stripe_payment_method_id")),
     }
 
 
@@ -1145,6 +1170,188 @@ async def driver_update_status(driver_token: str, payload: DriverStatusUpdate, r
             logger.warning(f"Admin status SMS failed: {e}")
 
     return {"ok": True, "trip_status": new_status, "trip_status_updated_at": now_iso}
+
+
+# ---------- Driver: flight landed + wait-time charge (Phase 2b) ----------
+class FlightLandedPayload(BaseModel):
+    landed_at: Optional[str] = None  # ISO timestamp; if omitted server uses "now"
+
+
+@api_router.post("/driver/{driver_token}/flight-landed")
+async def driver_mark_flight_landed(driver_token: str, payload: FlightLandedPayload):
+    """Driver records the customer's flight-landed time. Grace clock starts from here."""
+    b = await db.bookings.find_one({"driver_token": driver_token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if b.get("service_type") != "Airport Transfer":
+        raise HTTPException(status_code=400, detail="Only applies to airport transfers.")
+
+    if payload.landed_at:
+        landed_iso = payload.landed_at
+    else:
+        landed_iso = datetime.now(timezone.utc).isoformat()
+    await db.bookings.update_one(
+        {"id": b["id"]}, {"$set": {"flight_landed_at": landed_iso}}
+    )
+    return {"ok": True, "flight_landed_at": landed_iso}
+
+
+class WaitTimeChargePayload(BaseModel):
+    minutes_waited: int = Field(..., ge=1, le=240)  # total minutes waited (including grace)
+
+
+@api_router.post("/driver/{driver_token}/charge-wait-time")
+async def driver_charge_wait_time(driver_token: str, payload: WaitTimeChargePayload, request: Request):
+    """Off-session charge to customer's saved card for wait time exceeding grace period.
+    Idempotent — returns existing charge if already done."""
+    b = await db.bookings.find_one({"driver_token": driver_token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    if b.get("wait_time_charged_at"):
+        return {
+            "already_charged": True,
+            "amount": b.get("wait_time_fee_amount"),
+            "minutes": b.get("wait_time_minutes"),
+        }
+
+    if not b.get("wait_time_consent"):
+        raise HTTPException(
+            status_code=400,
+            detail="Customer did not consent to wait time charges. Charge manually.",
+        )
+    pm_id = b.get("stripe_payment_method_id")
+    customer_id = b.get("stripe_customer_id")
+    if not pm_id or not customer_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No saved card on this booking. Customer paid before card-save was enabled.",
+        )
+
+    # Grace + rate lookup
+    grace = 45 if b.get("service_type") == "Airport Transfer" else 15
+    if payload.minutes_waited <= grace:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Wait time is within the {grace}-minute grace period — no charge needed.",
+        )
+    chargeable = payload.minutes_waited - grace
+    pricing = await db.pricing_config.find_one({"vehicle_type": b["vehicle_type"]}, {"_id": 0})
+    rate = float((pricing or {}).get("wait_minute_rate") or 0)
+    if rate <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No wait-time rate set for this vehicle. Configure in Admin → Pricing.",
+        )
+    amount = round(chargeable * rate, 2)
+    if amount < 0.50:
+        raise HTTPException(status_code=400, detail="Charge too small (under $0.50 minimum).")
+    amount_cents = int(round(amount * 100))
+
+    # Create off-session PaymentIntent via Stripe REST
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+    form = [
+        ("amount", str(amount_cents)),
+        ("currency", "usd"),
+        ("customer", customer_id),
+        ("payment_method", pm_id),
+        ("off_session", "true"),
+        ("confirm", "true"),
+        ("description", f"Wait-time charge ({chargeable} min × ${rate:.2f}) · #{b.get('confirmation_number','')}"),
+        ("metadata[booking_id]", b["id"]),
+        ("metadata[kind]", "wait_time"),
+        ("metadata[minutes_waited]", str(payload.minutes_waited)),
+        ("metadata[chargeable_minutes]", str(chargeable)),
+    ]
+    async with httpx.AsyncClient(timeout=15.0) as cli:
+        r = await cli.post(
+            "https://api.stripe.com/v1/payment_intents",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data=form,
+        )
+    if r.status_code != 200:
+        err_text = r.text[:500]
+        logger.error(f"Wait-time charge failed: {r.status_code} {err_text}")
+        # Try to extract a friendly message
+        try:
+            err = r.json().get("error", {})
+            detail = err.get("message") or err.get("code") or "Charge failed"
+        except Exception:
+            detail = "Charge failed"
+        raise HTTPException(status_code=402, detail=f"Card declined: {detail}")
+
+    pi = r.json()
+    if pi.get("status") not in ("succeeded", "processing"):
+        raise HTTPException(
+            status_code=402,
+            detail=f"Charge not completed — Stripe status: {pi.get('status')}",
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {
+            "$set": {
+                "wait_time_minutes": payload.minutes_waited,
+                "wait_time_fee_amount": amount,
+                "wait_time_charged_at": now_iso,
+            }
+        },
+    )
+
+    # Email the customer explaining the charge
+    try:
+        receipt_html = render_wait_time_charge_email(
+            b, chargeable_minutes=chargeable, rate=rate, amount=amount,
+            grace_minutes=grace,
+        )
+        await send_email(
+            to=b["email"],
+            subject=f"Wait time charge · ${amount:.2f} · #{b.get('confirmation_number','')}",
+            html=receipt_html,
+            bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+        )
+    except Exception as e:
+        logger.warning(f"Wait-time email failed: {e}")
+
+    return {
+        "charged": True,
+        "amount": amount,
+        "minutes_waited": payload.minutes_waited,
+        "chargeable_minutes": chargeable,
+        "rate": rate,
+    }
+
+
+class NoShowPayload(BaseModel):
+    reason: Optional[str] = Field(None, max_length=500)
+
+
+@api_router.post("/driver/{driver_token}/no-show")
+async def driver_mark_no_show(driver_token: str, payload: NoShowPayload):
+    """Driver marks the trip as customer no-show. Forfeits the fare (no refund)."""
+    b = await db.bookings.find_one({"driver_token": driver_token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {
+            "$set": {
+                "no_show": True,
+                "status": "no_show",
+                "trip_status": "completed",
+                "completed_at": now_iso,
+                "cancellation_reason": (payload.reason or "").strip() or "Customer no-show",
+            }
+        },
+    )
+    return {"ok": True}
 
 
 # ---------- Post-trip: tipping + rating (Phase 2) ----------
@@ -1957,26 +2164,62 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
     success_url = f"{origin}/pay/{payload.booking_id}?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{origin}/pay/{payload.booking_id}"
 
-    checkout = _get_stripe_checkout(request)
-    session = await checkout.create_checkout_session(
-        CheckoutSessionRequest(
-            amount=float(amount),
-            currency=settings.currency,
-            success_url=success_url,
-            cancel_url=cancel_url,
-            metadata={
-                "booking_id": payload.booking_id,
-                "confirmation_number": booking.get("confirmation_number") or "",
-                "customer_email": booking.get("email") or "",
+    # IMPORTANT: We create the Stripe Checkout session via direct REST so we can pass
+    # `payment_intent_data[setup_future_usage]=off_session`. This saves the customer's
+    # card for Phase 2 wait-time charges (consented at booking) without needing them
+    # to re-enter card details.
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+    amount_cents = int(round(float(amount) * 100))
+    customer_email = booking.get("email") or ""
+    cn_for_desc = booking.get("confirmation_number") or ""
+    product_name = f"TuranEliteLimo chauffeur — {booking.get('vehicle_type','Reservation')}{(' · ' + cn_for_desc) if cn_for_desc else ''}"
+    form = [
+        ("mode", "payment"),
+        ("ui_mode", "hosted"),
+        ("success_url", success_url),
+        ("cancel_url", cancel_url),
+        ("payment_method_types[]", "card"),
+        ("customer_creation", "always"),
+        ("line_items[0][quantity]", "1"),
+        ("line_items[0][price_data][currency]", settings.currency),
+        ("line_items[0][price_data][unit_amount]", str(amount_cents)),
+        ("line_items[0][price_data][product_data][name]", product_name),
+        ("payment_intent_data[setup_future_usage]", "off_session"),
+        ("payment_intent_data[metadata][booking_id]", payload.booking_id),
+        ("payment_intent_data[metadata][confirmation_number]", cn_for_desc),
+        ("metadata[booking_id]", payload.booking_id),
+        ("metadata[confirmation_number]", cn_for_desc),
+        ("metadata[customer_email]", customer_email),
+    ]
+    if customer_email:
+        form.append(("customer_email", customer_email))
+
+    async with httpx.AsyncClient(timeout=15.0) as cli:
+        r = await cli.post(
+            "https://api.stripe.com/v1/checkout/sessions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/x-www-form-urlencoded",
             },
+            data=form,
         )
-    )
+    if r.status_code != 200:
+        logger.error(f"Stripe checkout create failed: {r.status_code} {r.text[:500]}")
+        raise HTTPException(status_code=502, detail="Could not start Stripe checkout")
+    sess_json = r.json()
+    session_url = sess_json.get("url")
+    session_id = sess_json.get("id")
+    payment_intent_id = sess_json.get("payment_intent")
+    if not session_url or not session_id:
+        raise HTTPException(status_code=502, detail="Stripe returned an invalid session")
 
     await db.payment_transactions.insert_one(
         {
             "id": str(uuid.uuid4()),
             "booking_id": payload.booking_id,
-            "session_id": session.session_id,
+            "session_id": session_id,
             "amount": float(amount),
             "currency": settings.currency,
             "status": "initiated",
@@ -1987,18 +2230,19 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
     )
+    booking_set = {
+        **booking_updates,
+        "payment_status": "pending",
+        "payment_session_id": session_id,
+    }
+    if payment_intent_id:
+        booking_set["stripe_payment_intent_id"] = payment_intent_id
     await db.bookings.update_one(
         {"id": payload.booking_id},
-        {
-            "$set": {
-                **booking_updates,
-                "payment_status": "pending",
-                "payment_session_id": session.session_id,
-            }
-        },
+        {"$set": booking_set},
     )
 
-    return CheckoutCreateResponse(url=session.url, session_id=session.session_id, amount=float(amount))
+    return CheckoutCreateResponse(url=session_url, session_id=session_id, amount=float(amount))
 
 
 @api_router.get("/payments/status/{session_id}", response_model=PaymentStatus)
@@ -2069,6 +2313,29 @@ async def get_payment_status(session_id: str, request: Request):
                 {"session_id": session_id},
                 {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
             )
+            # Fetch the Stripe session in detail (with payment_intent.payment_method expanded)
+            # so we can save customer + payment_method on the booking for off-session wait-time charges.
+            stripe_customer_id = None
+            stripe_payment_method_id = None
+            try:
+                api_key2 = os.environ.get("STRIPE_API_KEY", "")
+                if api_key2:
+                    async with httpx.AsyncClient(timeout=10.0) as cli2:
+                        r2 = await cli2.get(
+                            f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
+                            params={"expand[]": "payment_intent"},
+                            headers={"Authorization": f"Bearer {api_key2}"},
+                        )
+                        if r2.status_code == 200:
+                            sj2 = r2.json()
+                            stripe_customer_id = sj2.get("customer")
+                            pi = sj2.get("payment_intent") or {}
+                            if isinstance(pi, dict):
+                                stripe_payment_method_id = pi.get("payment_method")
+            except Exception as e:
+                logging.getLogger(__name__).warning(
+                    f"Could not capture stripe customer/payment_method for {session_id}: {e}"
+                )
             if booking and booking.get("payment_status") != "paid":
                 # Generate manage token if not yet issued (legacy bookings)
                 token = booking.get("manage_token") or _generate_manage_token()
@@ -2076,18 +2343,21 @@ async def get_payment_status(session_id: str, request: Request):
                 cn = booking.get("confirmation_number") or await _next_unique_confirmation_number()
                 # IMPORTANT: do NOT auto-confirm — admin reviews chauffeur availability first.
                 # Status stays "pending" until admin explicitly confirms in the dashboard.
+                update_set = {
+                    "payment_status": "paid",
+                    "paid_amount": amount,
+                    "paid_currency": currency,
+                    "manage_token": token,
+                    "confirmation_number": cn,
+                    "quote_amount": booking.get("quote_amount") or amount,
+                }
+                if stripe_customer_id:
+                    update_set["stripe_customer_id"] = stripe_customer_id
+                if stripe_payment_method_id:
+                    update_set["stripe_payment_method_id"] = stripe_payment_method_id
                 await db.bookings.update_one(
                     {"id": txn["booking_id"]},
-                    {
-                        "$set": {
-                            "payment_status": "paid",
-                            "paid_amount": amount,
-                            "paid_currency": currency,
-                            "manage_token": token,
-                            "confirmation_number": cn,
-                            "quote_amount": booking.get("quote_amount") or amount,
-                        }
-                    },
+                    {"$set": update_set},
                 )
                 updated = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
                 if updated and not updated.get("paid_email_sent"):
@@ -2488,6 +2758,7 @@ class PricingRow(BaseModel):
     per_mile: float = 0.0
     minimum: float = 0.0
     hourly_rate: float = 0.0
+    wait_minute_rate: float = 0.0  # $/min after grace period
     call_only: bool = False
     updated_at: Optional[str] = None
 
@@ -2497,6 +2768,7 @@ class PricingUpdate(BaseModel):
     per_mile: Optional[float] = Field(None, ge=0)
     minimum: Optional[float] = Field(None, ge=0)
     hourly_rate: Optional[float] = Field(None, ge=0)
+    wait_minute_rate: Optional[float] = Field(None, ge=0)
     call_only: Optional[bool] = None
 
 
@@ -2508,6 +2780,20 @@ async def list_pricing(_: dict = Depends(require_admin)):
     # Maintain canonical order matching VEHICLE_TYPES
     ordered = [by_vt[v] for v in VEHICLE_TYPES if v in by_vt]
     return [PricingRow(**r) for r in ordered]
+
+
+@api_router.get("/pricing/wait-rates")
+async def public_wait_rates():
+    """Public read of wait-time policy for booking form + email rendering."""
+    rows = await db.pricing_config.find({}, {"_id": 0}).to_list(50)
+    by_vt = {r["vehicle_type"]: float(r.get("wait_minute_rate") or 0) for r in rows}
+    ordered = {v: by_vt.get(v, 0.0) for v in VEHICLE_TYPES}
+    return {
+        "rates": ordered,
+        "airport_grace_minutes": 45,
+        "default_grace_minutes": 15,
+        "no_show_after_minutes_of_wait": 45,
+    }
 
 
 @api_router.patch("/admin/pricing/{vehicle_type}", response_model=PricingRow)
@@ -2896,6 +3182,16 @@ async def startup_seed():
             )
     except Exception as e:
         logger.warning(f"hourly_rate backfill skipped: {e}")
+
+    # Migration: backfill wait_minute_rate for existing pricing rows that pre-date Phase 2.
+    try:
+        for vt, defaults in DEFAULT_VEHICLE_PRICING.items():
+            await db.pricing_config.update_one(
+                {"vehicle_type": vt, "wait_minute_rate": {"$exists": False}},
+                {"$set": {"wait_minute_rate": defaults.get("wait_minute_rate", 1.0)}},
+            )
+    except Exception as e:
+        logger.warning(f"wait_minute_rate backfill skipped: {e}")
 
     # Seed admin (idempotent + migration-safe + self-healing).
     # Goal: end every startup with EXACTLY ONE admin account whose email matches

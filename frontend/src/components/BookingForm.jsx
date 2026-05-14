@@ -101,6 +101,8 @@ export default function BookingForm() {
   const [quoting, setQuoting] = useState(false);
   const quoteTimer = useRef(null);
   const [form, setForm] = useState(initialForm);
+  const [waitConsent, setWaitConsent] = useState(false);
+  const [waitPolicy, setWaitPolicy] = useState(null);
   // Promo code state
   const [promoCode, setPromoCode] = useState("");
   const [promoApplied, setPromoApplied] = useState(null); // {code, discount, final_amount, description}
@@ -108,6 +110,7 @@ export default function BookingForm() {
 
   useEffect(() => {
     api.get("/options").then((r) => setOptions(r.data)).catch(() => {});
+    api.get("/pricing/wait-rates").then((r) => setWaitPolicy(r.data)).catch(() => {});
   }, []);
 
   const update = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
@@ -261,6 +264,7 @@ export default function BookingForm() {
             ? Number(form.hours)
             : null,
         promo_code: promoApplied ? promoApplied.code : null,
+        wait_time_consent: waitConsent,
       };
       const { data: booking } = await api.post("/bookings", payload);
 
@@ -981,6 +985,55 @@ export default function BookingForm() {
             />
           </div>
 
+          {/* Wait time policy + consent (REQUIRED for all bookings) */}
+          {waitPolicy && form.vehicle_type && (
+            <div data-testid="wait-time-consent-block" className="mt-3 rounded-xl border border-[#1F1F1F] bg-[#0A0A0A] p-4">
+              <details className="group">
+                <summary className="cursor-pointer flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-[#D4AF37]">
+                  <span>Wait time policy</span>
+                  <span className="text-white/40 normal-case tracking-normal text-[10px]">(tap to expand)</span>
+                </summary>
+                <div className="mt-3 text-xs text-white/65 leading-relaxed space-y-1.5">
+                  {form.service_type === "Airport Transfer" ? (
+                    <p>
+                      <strong className="text-white/85">Airport pickups</strong> include
+                      <strong className="text-white/85"> 45 minutes free</strong> after your flight lands.
+                      After that, ${(waitPolicy.rates[form.vehicle_type] || 1).toFixed(2)}/min
+                      is added for {form.vehicle_type}.
+                    </p>
+                  ) : (
+                    <p>
+                      All non-airport trips include
+                      <strong className="text-white/85"> 15 minutes free</strong> after your scheduled pickup time.
+                      After that, ${(waitPolicy.rates[form.vehicle_type] || 1).toFixed(2)}/min
+                      is added for {form.vehicle_type}.
+                    </p>
+                  )}
+                  <p>
+                    If we wait <strong className="text-white/85">45 minutes beyond the grace period</strong>
+                    {" "}without contact, the reservation is treated as a no-show — no refund.
+                  </p>
+                </div>
+              </details>
+              <label
+                data-testid="wait-consent-label"
+                className="flex items-start gap-3 mt-3 pt-3 border-t border-white/5 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  data-testid="wait-consent-checkbox"
+                  checked={waitConsent}
+                  onChange={(e) => setWaitConsent(e.target.checked)}
+                  required
+                  className="mt-0.5 h-4 w-4 accent-[#D4AF37] cursor-pointer flex-shrink-0"
+                />
+                <span className="text-xs text-white/75 leading-relaxed">
+                  I authorize TuranEliteLimo to charge my card for wait time fees beyond the grace period, per the policy above.
+                </span>
+              </label>
+            </div>
+          )}
+
           {/* Submit */}
           <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
             <div className="text-xs text-white/55">
@@ -998,8 +1051,8 @@ export default function BookingForm() {
             <Button
               type="submit"
               data-testid="booking-submit"
-              disabled={submitting}
-              className="bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full px-8 h-12 font-medium"
+              disabled={submitting || (form.vehicle_type && waitPolicy && !waitConsent)}
+              className="bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full px-8 h-12 font-medium disabled:opacity-50"
             >
               {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {submitting
