@@ -15,4 +15,4 @@ Disallow: /
 User-agent: CCBot
 Disallow: /
 
-Sitemap: https://www.turanelitelimo.com/sitemap.xml
+Sitemap: https://turanelitelimo.com/sitemap.xml
