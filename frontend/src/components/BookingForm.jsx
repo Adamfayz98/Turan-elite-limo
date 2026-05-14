@@ -101,6 +101,10 @@ export default function BookingForm() {
   const [quoting, setQuoting] = useState(false);
   const quoteTimer = useRef(null);
   const [form, setForm] = useState(initialForm);
+  // Promo code state
+  const [promoCode, setPromoCode] = useState("");
+  const [promoApplied, setPromoApplied] = useState(null); // {code, discount, final_amount, description}
+  const [promoStatus, setPromoStatus] = useState({ checking: false, error: null });
 
   useEffect(() => {
     api.get("/options").then((r) => setOptions(r.data)).catch(() => {});
@@ -157,6 +161,70 @@ export default function BookingForm() {
   const updateStop = (idx, v) =>
     setStops((s) => s.map((x, i) => (i === idx ? v : x)));
 
+  const currentVehiclePrice = () => {
+    const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
+    return vq && vq.price != null ? vq.price : null;
+  };
+
+  const applyPromo = async () => {
+    const code = promoCode.trim().toUpperCase();
+    if (!code) return;
+    const price = currentVehiclePrice();
+    if (!price) {
+      setPromoStatus({ checking: false, error: "Select a vehicle with an instant price first" });
+      return;
+    }
+    setPromoStatus({ checking: true, error: null });
+    try {
+      const { data } = await api.post("/promos/validate", {
+        code,
+        amount: price,
+        email: form.email || null,
+      });
+      if (data.ok) {
+        setPromoApplied(data);
+        setPromoStatus({ checking: false, error: null });
+        toast.success(`Code ${data.code} applied — you save $${data.discount.toFixed(2)}!`);
+      } else {
+        setPromoApplied(null);
+        setPromoStatus({ checking: false, error: data.reason || "Invalid code" });
+      }
+    } catch {
+      setPromoApplied(null);
+      setPromoStatus({ checking: false, error: "Could not validate code, try again" });
+    }
+  };
+
+  const clearPromo = () => {
+    setPromoApplied(null);
+    setPromoCode("");
+    setPromoStatus({ checking: false, error: null });
+  };
+
+  // If the vehicle changes after applying, re-validate against new amount
+  useEffect(() => {
+    if (promoApplied && currentVehiclePrice() !== null) {
+      // re-validate silently
+      (async () => {
+        try {
+          const { data } = await api.post("/promos/validate", {
+            code: promoApplied.code,
+            amount: currentVehiclePrice(),
+            email: form.email || null,
+          });
+          if (data.ok) {
+            setPromoApplied(data);
+          } else {
+            clearPromo();
+          }
+        } catch {
+          /* ignore */
+        }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.vehicle_type, quote]);
+
   const onSubmit = async (e) => {
     e.preventDefault();
     if (!date) return toast.error("Please pick a date.");
@@ -192,6 +260,7 @@ export default function BookingForm() {
           form.service_type === "Hourly Chauffeur" && form.hours
             ? Number(form.hours)
             : null,
+        promo_code: promoApplied ? promoApplied.code : null,
       };
       const { data: booking } = await api.post("/bookings", payload);
 
@@ -822,6 +891,71 @@ export default function BookingForm() {
             </div>
           </div>
 
+          {/* Promo Code (only visible once a real price is shown) */}
+          {currentVehiclePrice() !== null && (
+            <div data-testid="promo-section" className="mt-4 rounded-xl border border-[#1F1F1F] bg-[#0A0A0A] p-4">
+              {promoApplied ? (
+                <div className="flex flex-wrap items-center gap-3 justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-mono tracking-wider">
+                      {promoApplied.code}
+                    </div>
+                    <div className="text-sm">
+                      <div className="text-emerald-300">
+                        Saved ${promoApplied.discount.toFixed(2)} ·{" "}
+                        <span className="text-white/65">
+                          New total ${promoApplied.final_amount.toFixed(2)}
+                        </span>
+                      </div>
+                      {promoApplied.description && (
+                        <div className="text-white/45 text-xs mt-0.5">{promoApplied.description}</div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearPromo}
+                    data-testid="promo-remove"
+                    className="text-xs text-white/55 hover:text-white underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="text-[10px] uppercase tracking-[0.25em] text-[#D4AF37] mb-2">
+                    Have a promo code?
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={promoCode}
+                      onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. WELCOME20"
+                      data-testid="promo-input"
+                      className="flex-1 h-10 px-3 rounded-lg bg-[#0E0E0E] border border-[#27272A] text-white placeholder:text-white/35 text-sm font-mono tracking-wider focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]"
+                      maxLength={40}
+                    />
+                    <Button
+                      type="button"
+                      onClick={applyPromo}
+                      disabled={promoStatus.checking || !promoCode.trim()}
+                      data-testid="promo-apply"
+                      className="bg-white/10 hover:bg-white/15 text-white rounded-lg h-10 px-4 text-sm font-medium border border-white/15"
+                    >
+                      {promoStatus.checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Apply"}
+                    </Button>
+                  </div>
+                  {promoStatus.error && (
+                    <div data-testid="promo-error" className="mt-2 text-xs text-red-400">
+                      {promoStatus.error}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* Cancellation policy chip — collapsed by default, expandable */}
           <div className="mt-4">
             <CancellationPolicy
@@ -856,7 +990,8 @@ export default function BookingForm() {
                 : (() => {
                     const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
                     if (vq && vq.price != null) {
-                      return `Proceed to Payment · ${vq.formatted_price}`;
+                      const finalPrice = promoApplied ? promoApplied.final_amount : vq.price;
+                      return `Proceed to Payment · $${finalPrice.toFixed(2)}`;
                     }
                     if (vq && vq.price == null) {
                       return "Request Reservation";

@@ -208,6 +208,13 @@ export default function BookingDetailsDialog({ booking, open, onClose }) {
           {b.tip_amount != null && (
             <Row icon={DollarSign} label="Chauffeur tip" value={`$${Number(b.tip_amount).toFixed(2)}`} highlight />
           )}
+          {b.promo_code && (
+            <Row
+              icon={DollarSign}
+              label="Promo applied"
+              value={`${b.promo_code} (-$${Number(b.discount_amount || 0).toFixed(2)})`}
+            />
+          )}
         </div>
 
         {/* Rating (if customer rated) */}

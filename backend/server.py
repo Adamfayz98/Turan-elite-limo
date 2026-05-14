@@ -151,6 +151,7 @@ class BookingCreate(BaseModel):
     hours: Optional[int] = Field(None, ge=2, le=24)  # required only for Hourly Chauffeur, min 2 hours
     meet_and_greet: bool = False  # Airport Transfer only — chauffeur meets at baggage claim
     flight_number: Optional[str] = Field(None, max_length=20)  # required for Airport Transfer
+    promo_code: Optional[str] = Field(None, max_length=40)
 
 
 class Booking(BaseModel):
@@ -205,6 +206,10 @@ class Booking(BaseModel):
     rating: Optional[int] = None          # 1..5
     rating_feedback: Optional[str] = None
     rated_at: Optional[str] = None
+    # Promo / discount (Phase 3)
+    promo_code: Optional[str] = None
+    discount_amount: Optional[float] = None
+    original_quote_amount: Optional[float] = None
     created_at: str
 
 
@@ -1286,6 +1291,169 @@ def _generate_2fa_code() -> str:
     return "".join(secrets.choice("0123456789") for _ in range(6))
 
 
+# ---------- Promo Codes (Phase 3) ----------
+class PromoBase(BaseModel):
+    code: str = Field(..., min_length=2, max_length=40)
+    description: Optional[str] = Field(None, max_length=200)
+    discount_type: str = Field(..., pattern="^(percent|fixed)$")
+    value: float = Field(..., gt=0)
+    min_ride_amount: float = Field(0.0, ge=0)
+    max_uses: Optional[int] = Field(None, ge=1)
+    expires_at: Optional[str] = None  # ISO date YYYY-MM-DD
+    first_ride_only: bool = False
+    active: bool = True
+
+
+class PromoCreate(PromoBase):
+    pass
+
+
+class PromoUpdate(BaseModel):
+    description: Optional[str] = Field(None, max_length=200)
+    discount_type: Optional[str] = Field(None, pattern="^(percent|fixed)$")
+    value: Optional[float] = Field(None, gt=0)
+    min_ride_amount: Optional[float] = Field(None, ge=0)
+    max_uses: Optional[int] = Field(None, ge=1)
+    expires_at: Optional[str] = None
+    first_ride_only: Optional[bool] = None
+    active: Optional[bool] = None
+
+
+class Promo(PromoBase):
+    id: str
+    uses: int = 0
+    total_discount_given: float = 0.0
+    created_at: str
+
+
+class PromoValidateRequest(BaseModel):
+    code: str = Field(..., min_length=1, max_length=40)
+    amount: float = Field(..., gt=0)
+    email: Optional[EmailStr] = None
+
+
+def _normalize_promo_code(raw: str) -> str:
+    return (raw or "").strip().upper()
+
+
+async def _validate_promo_for_booking(
+    code: str, amount: float, email: Optional[str]
+) -> dict:
+    """Server-side promo validation used at quote-validate AND checkout time.
+    Returns {ok: bool, code, discount, reason, type, value, final_amount}."""
+    normalized = _normalize_promo_code(code)
+    if not normalized:
+        return {"ok": False, "reason": "Empty code"}
+    promo = await db.promos.find_one({"code": normalized}, {"_id": 0})
+    if not promo:
+        return {"ok": False, "reason": "Code not found"}
+    if not promo.get("active", True):
+        return {"ok": False, "reason": "This code is no longer active"}
+    expires = promo.get("expires_at")
+    if expires:
+        try:
+            exp_date = datetime.fromisoformat(expires).date()
+            if datetime.now(timezone.utc).date() > exp_date:
+                return {"ok": False, "reason": "This code has expired"}
+        except (ValueError, TypeError):
+            pass
+    max_uses = promo.get("max_uses")
+    uses = int(promo.get("uses") or 0)
+    if max_uses is not None and uses >= int(max_uses):
+        return {"ok": False, "reason": "This code has reached its usage limit"}
+    min_ride = float(promo.get("min_ride_amount") or 0)
+    if amount < min_ride:
+        return {
+            "ok": False,
+            "reason": f"Minimum ride amount for this code is ${min_ride:.2f}",
+        }
+    if promo.get("first_ride_only") and email:
+        prior = await db.bookings.count_documents(
+            {"email": email.lower(), "payment_status": "paid"}
+        )
+        if prior > 0:
+            return {"ok": False, "reason": "This code is for first-time customers only"}
+
+    # Compute discount
+    if promo["discount_type"] == "percent":
+        discount = round(amount * float(promo["value"]) / 100.0, 2)
+    else:  # fixed
+        discount = round(min(float(promo["value"]), amount), 2)
+    if discount <= 0:
+        return {"ok": False, "reason": "Discount would not apply to this ride"}
+
+    return {
+        "ok": True,
+        "code": normalized,
+        "description": promo.get("description") or "",
+        "discount_type": promo["discount_type"],
+        "value": float(promo["value"]),
+        "discount": discount,
+        "final_amount": round(amount - discount, 2),
+    }
+
+
+@api_router.post("/promos/validate")
+async def public_validate_promo(payload: PromoValidateRequest):
+    """Public endpoint — booking form uses this for live "Apply code" feedback."""
+    result = await _validate_promo_for_booking(payload.code, payload.amount, payload.email)
+    return result
+
+
+@api_router.get("/admin/promos", response_model=List[Promo])
+async def admin_list_promos(_: dict = Depends(require_admin)):
+    rows = await db.promos.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    out = []
+    for r in rows:
+        r.setdefault("uses", 0)
+        r.setdefault("total_discount_given", 0.0)
+        out.append(Promo(**r))
+    return out
+
+
+@api_router.post("/admin/promos", response_model=Promo)
+async def admin_create_promo(payload: PromoCreate, _: dict = Depends(require_admin)):
+    normalized = _normalize_promo_code(payload.code)
+    existing = await db.promos.find_one({"code": normalized})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Code {normalized} already exists")
+    doc = payload.model_dump()
+    doc["code"] = normalized
+    doc["id"] = str(uuid.uuid4())
+    doc["uses"] = 0
+    doc["total_discount_given"] = 0.0
+    doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    insert_doc = doc.copy()
+    await db.promos.insert_one(insert_doc)
+    return Promo(**doc)
+
+
+@api_router.patch("/admin/promos/{promo_id}", response_model=Promo)
+async def admin_update_promo(
+    promo_id: str, payload: PromoUpdate, _: dict = Depends(require_admin)
+):
+    updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None or k in ("active", "expires_at", "max_uses")}
+    result = await db.promos.find_one_and_update(
+        {"id": promo_id},
+        {"$set": updates},
+        return_document=True,
+        projection={"_id": 0},
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Promo not found")
+    result.setdefault("uses", 0)
+    result.setdefault("total_discount_given", 0.0)
+    return Promo(**result)
+
+
+@api_router.delete("/admin/promos/{promo_id}")
+async def admin_delete_promo(promo_id: str, _: dict = Depends(require_admin)):
+    r = await db.promos.delete_one({"id": promo_id})
+    if r.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Promo not found")
+    return {"deleted": True}
+
+
 @api_router.post("/admin/login", response_model=LoginChallengeResponse)
 async def admin_login(payload: LoginRequest, request: Request):
     """Step 1 of admin login: verify email + password, then email a 6-digit code."""
@@ -1656,8 +1824,35 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
     if amount < 0.5:
         raise HTTPException(status_code=400, detail="Amount too small to charge")
 
+    # ----- Apply promo code (Phase 3) -----
+    # The promo_code, if any, was captured at booking-creation time. We re-validate at
+    # checkout to ensure it's still active and hasn't hit max uses.
+    original_amount = amount
+    discount_amount = 0.0
+    applied_promo = None
+    code_raw = (booking.get("promo_code") or "").strip()
+    if code_raw:
+        promo = await _validate_promo_for_booking(code_raw, original_amount, booking.get("email"))
+        if promo.get("ok"):
+            discount_amount = round(promo["discount"], 2)
+            amount = round(original_amount - discount_amount, 2)
+            applied_promo = promo["code"]
+            if amount < 0.5:
+                amount = 0.5
+                discount_amount = round(original_amount - amount, 2)
+        else:
+            # Soft-fail: log and continue at full price. The customer already saw a
+            # success badge at booking time; we don't want to surprise-fail on Stripe redirect.
+            logger.warning(
+                f"Promo '{code_raw}' rejected at checkout for {payload.booking_id}: {promo.get('reason')}"
+            )
+
     # Generate confirmation # on first checkout (so it's locked in even before payment)
     booking_updates = {"quote_amount": quote_amount}
+    if applied_promo:
+        booking_updates["promo_code"] = applied_promo
+        booking_updates["discount_amount"] = discount_amount
+        booking_updates["original_quote_amount"] = original_amount
     if not booking.get("confirmation_number"):
         booking_updates["confirmation_number"] = await _next_unique_confirmation_number()
         booking["confirmation_number"] = booking_updates["confirmation_number"]
@@ -1820,6 +2015,17 @@ async def get_payment_status(session_id: str, request: Request):
                         await sms_service.send_sms(
                             admin_to, sms_service.render_new_paid_booking_sms(updated)
                         )
+                    # Bump promo usage (Phase 3) — idempotent: only increments if the
+                    # booking has a promo_code stamped on it from checkout.
+                    promo_used = updated.get("promo_code")
+                    if promo_used:
+                        try:
+                            await db.promos.update_one(
+                                {"code": promo_used.upper()},
+                                {"$inc": {"uses": 1, "total_discount_given": float(updated.get("discount_amount") or 0)}},
+                            )
+                        except Exception as e:
+                            logger.warning(f"Promo usage bump failed for {promo_used}: {e}")
                     booking = updated
         elif getattr(status, "status", None) == "expired":
             new_status = "expired"

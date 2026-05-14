@@ -64,6 +64,7 @@ import SettingsTab from "@/components/admin/SettingsTab";
 import AccountTab from "@/components/admin/AccountTab";
 import ZonesTab from "@/components/admin/ZonesTab";
 import SurgeCalendarTab from "@/components/admin/SurgeCalendarTab";
+import PromosTab from "@/components/admin/PromosTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
 const STATUS_COLOR = {
@@ -387,6 +388,9 @@ export default function AdminDashboard() {
             </TabsTrigger>
             <TabsTrigger value="surge" data-testid="tab-surge" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Surge Calendar
+            </TabsTrigger>
+            <TabsTrigger value="promos" data-testid="tab-promos" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Promos
             </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Settings
@@ -787,6 +791,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="surge" className="mt-6">
             <SurgeCalendarTab />
+          </TabsContent>
+
+          <TabsContent value="promos" className="mt-6">
+            <PromosTab />
           </TabsContent>
 
           <TabsContent value="settings" className="mt-6">
