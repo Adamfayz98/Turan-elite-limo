@@ -843,25 +843,45 @@ export default function AdminDashboard() {
             </div>
 
             {cancelTarget?.payment_status === "paid" && (
-              <label
-                data-testid="admin-cancel-auto-refund-toggle"
-                className="flex items-start gap-3 p-3 rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/[0.06] cursor-pointer hover:bg-[#D4AF37]/[0.1] transition-colors"
-              >
-                <input
-                  type="checkbox"
-                  checked={autoRefund}
-                  onChange={(e) => setAutoRefund(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 accent-[#D4AF37] cursor-pointer"
-                />
-                <div className="flex-1 text-xs">
-                  <div className="text-[#D4AF37] font-medium">
-                    Also refund ${cancelTarget?.paid_amount?.toFixed(2)} to customer's card via Stripe
+              <>
+                <label
+                  data-testid="admin-cancel-auto-refund-toggle"
+                  className="flex items-start gap-3 p-3 rounded-lg border border-[#D4AF37]/40 bg-[#D4AF37]/[0.06] cursor-pointer hover:bg-[#D4AF37]/[0.1] transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={autoRefund}
+                    onChange={(e) => setAutoRefund(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-[#D4AF37] cursor-pointer"
+                  />
+                  <div className="flex-1 text-xs">
+                    <div className="text-[#D4AF37] font-medium">
+                      Also refund ${cancelTarget?.paid_amount?.toFixed(2)} to customer's card via Stripe
+                    </div>
+                    <div className="text-white/55 mt-1 leading-relaxed">
+                      One click — no need to find them in the Stripe dashboard. Uncheck only if you'll handle the refund manually.
+                    </div>
                   </div>
-                  <div className="text-white/55 mt-1 leading-relaxed">
-                    One click — no need to find them in the Stripe dashboard. Uncheck only if you'll handle the refund manually.
-                  </div>
-                </div>
-              </label>
+                </label>
+                {autoRefund && cancelTarget?.paid_amount > 0 && (() => {
+                  const fee = Math.round(
+                    (cancelTarget.paid_amount * 0.029 + 0.3) * 100,
+                  ) / 100;
+                  return (
+                    <div
+                      data-testid="admin-cancel-stripe-fee-warning"
+                      className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3 text-xs"
+                    >
+                      <div className="text-amber-300 font-medium">
+                        Heads-up: ~${fee.toFixed(2)} Stripe fee is not returned
+                      </div>
+                      <div className="text-white/60 mt-1 leading-relaxed">
+                        Stripe refunds the customer in full (${cancelTarget?.paid_amount?.toFixed(2)}), but their original processing fee (2.9% + $0.30) stays with Stripe. To cover this proactively, enable "Service Fee" in Settings → quotes will include a small fee that offsets Stripe costs.
+                      </div>
+                    </div>
+                  );
+                })()}
+              </>
             )}
 
             <div className="flex justify-end gap-2 pt-3 border-t border-[#1F1F1F]">

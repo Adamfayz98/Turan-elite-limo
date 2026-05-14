@@ -742,6 +742,20 @@ export default function BookingForm() {
             </div>
           )}
 
+          {quote?.service_fee_percent ? (
+            <div
+              data-testid="service-fee-banner"
+              className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-5 py-3 flex items-start gap-3"
+            >
+              <div className="w-6 h-6 rounded-full bg-white/5 border border-white/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-white/65 text-xs">i</span>
+              </div>
+              <div className="flex-1 text-xs text-white/65 leading-relaxed">
+                <strong className="text-white/85">Quoted prices include a {Number(quote.service_fee_percent).toFixed(quote.service_fee_percent % 1 ? 1 : 0)}% service fee</strong> that covers secure card processing. No hidden surprises.
+              </div>
+            </div>
+          ) : null}
+
           {/* Divider */}
           <div className="my-12 gold-divider" />
 

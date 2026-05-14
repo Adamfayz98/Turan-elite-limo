@@ -430,6 +430,8 @@ class QuoteResponse(BaseModel):
     surcharge_applied: Optional[SurchargeInfo] = None
     surge_applied: Optional[SurgeInfo] = None
     meet_and_greet_fee: Optional[float] = None  # flat fee added when meet_and_greet=True and Airport Transfer
+    service_fee_percent: Optional[float] = None  # current %; included in each quote's price already
+    service_fee_amount_sample: Optional[float] = None  # the $ fee applied to the cheapest priced vehicle (for display)
 
 
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -744,14 +746,39 @@ async def _load_pricing_map() -> dict:
     return {r["vehicle_type"]: r for r in rows}
 
 
+def _apply_service_fee_to_quote_response(qr: "QuoteResponse", fee_percent: float) -> "QuoteResponse":
+    """Adds the service fee (covers Stripe processing) to every priced vehicle in a quote.
+    Mutates the response in place + stamps the percent + a sample $ amount for display.
+    No-op if fee_percent <= 0.
+    """
+    if not fee_percent or fee_percent <= 0:
+        return qr
+    pct = float(fee_percent) / 100.0
+    sample = None
+    for q in qr.quotes:
+        if q.price is not None and q.price > 0:
+            fee = round(q.price * pct, 2)
+            q.price = round(q.price + fee, 2)
+            # Update display label so the customer sees the new total
+            currency_sym = "$"
+            q.formatted_price = f"{currency_sym}{q.price:.2f}"
+            if sample is None or fee < sample:
+                sample = fee
+    qr.service_fee_percent = float(fee_percent)
+    qr.service_fee_amount_sample = sample
+    return qr
+
+
 @api_router.post("/quote", response_model=QuoteResponse)
 async def quote_ride(payload: QuoteRequest):
     pricing_map = await _load_pricing_map()
 
+    # Load settings once — needed for meet & greet AND for the service fee
+    settings = await _load_settings()
+
     # Meet & Greet flat fee (only for Airport Transfer)
     mg_fee = 0.0
     if payload.meet_and_greet and payload.service_type == "Airport Transfer":
-        settings = await _load_settings()
         mg_fee = float(settings.meet_greet_fee or 0.0)
 
     # Surge events (date-based) — apply on top of all base/hourly pricing
@@ -775,7 +802,7 @@ async def quote_ride(payload: QuoteRequest):
     if payload.service_type == "Hourly Chauffeur":
         if not payload.hours or payload.hours < 2:
             # Don't return distance-based prices — explicitly tell the customer.
-            return QuoteResponse(
+            return _apply_service_fee_to_quote_response(QuoteResponse(
                 quotes=[
                     VehicleQuote(vehicle_type=vt, message="Minimum 2 hours required")
                     for vt in VEHICLE_TYPES
@@ -784,23 +811,23 @@ async def quote_ride(payload: QuoteRequest):
                 hours=payload.hours,
                 included_miles=None,
                 fallback=True,
-            )
-        return QuoteResponse(
+            ), settings.service_fee_percent)
+        return _apply_service_fee_to_quote_response(QuoteResponse(
             quotes=_build_hourly_quotes(payload.hours, pricing_map, surge_mult=surge_mult, surge_flat=surge_flat),
             pricing_mode="hourly",
             hours=payload.hours,
             included_miles=payload.hours * HOURLY_MILES_INCLUDED_PER_HOUR,
             surge_applied=surge_info,
-        )
+        ), settings.service_fee_percent)
 
     pickup = await _geocode(payload.pickup_location)
     dropoff = await _geocode(payload.dropoff_location)
     if not pickup or not dropoff:
-        return QuoteResponse(
+        return _apply_service_fee_to_quote_response(QuoteResponse(
             quotes=_build_quotes(None, pricing_map, addon_flat=mg_fee),
             fallback=True,
             meet_and_greet_fee=mg_fee if mg_fee > 0 else None,
-        )
+        ), settings.service_fee_percent)
 
     miles = _haversine_miles(pickup["lat"], pickup["lon"], dropoff["lat"], dropoff["lon"])
     miles = round(miles, 1)
@@ -823,7 +850,7 @@ async def quote_ride(payload: QuoteRequest):
         if matched_zone else None
     )
 
-    return QuoteResponse(
+    return _apply_service_fee_to_quote_response(QuoteResponse(
         distance_miles=miles,
         duration_minutes=duration_minutes,
         pickup_resolved=pickup.get("display"),
@@ -839,7 +866,7 @@ async def quote_ride(payload: QuoteRequest):
         surcharge_applied=surcharge_info,
         surge_applied=surge_info,
         meet_and_greet_fee=mg_fee if mg_fee > 0 else None,
-    )
+    ), settings.service_fee_percent)
 
 
 @api_router.post("/contact", response_model=ContactInquiry)
@@ -1699,6 +1726,7 @@ class Settings(BaseModel):
     deposit_percent: int = Field(100, ge=0, le=100)
     currency: str = "usd"
     meet_greet_fee: float = Field(25.0, ge=0)
+    service_fee_percent: float = Field(0.0, ge=0, le=20)  # 0 = OFF; covers Stripe processing
 
 
 async def _load_settings() -> Settings:
@@ -1713,10 +1741,21 @@ async def get_settings(_: dict = Depends(require_admin)):
     return await _load_settings()
 
 
+@api_router.get("/settings/public")
+async def get_public_settings():
+    """Public read of safe settings for the booking form (service fee, currency)."""
+    s = await _load_settings()
+    return {
+        "service_fee_percent": s.service_fee_percent,
+        "currency": s.currency,
+    }
+
+
 class SettingsUpdate(BaseModel):
     deposit_percent: Optional[int] = Field(None, ge=0, le=100)
     currency: Optional[str] = None
     meet_greet_fee: Optional[float] = Field(None, ge=0)
+    service_fee_percent: Optional[float] = Field(None, ge=0, le=20)
 
 
 @api_router.patch("/admin/settings", response_model=Settings)
@@ -1748,6 +1787,7 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
     surge_events = await _load_surge_events()
     matched_event = _select_surge_event(booking.get("pickup_date"), surge_events)
     surge_mult, surge_flat = _surge_factors(matched_event)
+    settings = await _load_settings()
 
     # Hourly bookings: hourly_rate × hours
     if booking.get("service_type") == "Hourly Chauffeur" and booking.get("hours"):
@@ -1756,6 +1796,9 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
             return None
         price = rate * int(booking["hours"])
         price = _apply_surge(price, surge_mult, surge_flat)
+        # Apply service fee transparently
+        if settings.service_fee_percent and settings.service_fee_percent > 0:
+            price += price * (settings.service_fee_percent / 100.0)
         return round(price, 2)
 
     pickup = await _geocode(booking["pickup_location"])
@@ -1773,10 +1816,12 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
     if matched_zone:
         price += float(matched_zone["surcharge_amount"])
     price = _apply_surge(price, surge_mult, surge_flat)
-    # Meet & Greet flat fee (Airport Transfer only) — added AFTER surge
+    # Meet & Greet flat fee (Airport Transfer only) — added AFTER surge, BEFORE service fee
     if booking.get("meet_and_greet") and booking.get("service_type") == "Airport Transfer":
-        settings = await _load_settings()
         price += float(settings.meet_greet_fee or 0.0)
+    # Service fee (transparent percentage on top)
+    if settings.service_fee_percent and settings.service_fee_percent > 0:
+        price += price * (settings.service_fee_percent / 100.0)
     return round(price, 2)
 
 
