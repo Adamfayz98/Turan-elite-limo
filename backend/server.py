@@ -122,12 +122,8 @@ HQ_LON = -122.3873
 
 SERVICE_TYPES = [
     "Airport Transfer",
-    "Wedding",
-    "Corporate / Executive",
+    "A to B Transfer",
     "Hourly Chauffeur",
-    "Prom & Nightlife",
-    "Wine Tour",
-    "Special Event",
 ]
 
 BOOKING_STATUSES = ["pending", "confirmed", "completed", "cancelled"]

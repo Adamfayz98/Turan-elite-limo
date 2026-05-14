@@ -987,37 +987,29 @@ export default function BookingForm() {
 
           {/* Wait time policy + consent (REQUIRED for all bookings) */}
           {waitPolicy && form.vehicle_type && (
-            <div data-testid="wait-time-consent-block" className="mt-3 rounded-xl border border-[#1F1F1F] bg-[#0A0A0A] p-4">
-              <details className="group">
-                <summary className="cursor-pointer flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-[#D4AF37]">
-                  <span>Wait time policy</span>
-                  <span className="text-white/40 normal-case tracking-normal text-[10px]">(tap to expand)</span>
-                </summary>
-                <div className="mt-3 text-xs text-white/65 leading-relaxed space-y-1.5">
-                  {form.service_type === "Airport Transfer" ? (
-                    <p>
-                      <strong className="text-white/85">Airport pickups</strong> include
-                      <strong className="text-white/85"> 45 minutes free</strong> after your flight lands.
-                      After that, ${(waitPolicy.rates[form.vehicle_type] || 1).toFixed(2)}/min
-                      is added for {form.vehicle_type}.
-                    </p>
-                  ) : (
-                    <p>
-                      All non-airport trips include
-                      <strong className="text-white/85"> 15 minutes free</strong> after your scheduled pickup time.
-                      After that, ${(waitPolicy.rates[form.vehicle_type] || 1).toFixed(2)}/min
-                      is added for {form.vehicle_type}.
-                    </p>
-                  )}
-                  <p>
-                    If we wait <strong className="text-white/85">45 minutes beyond the grace period</strong>
-                    {" "}without contact, the reservation is treated as a no-show — no refund.
-                  </p>
-                </div>
-              </details>
+            <div data-testid="wait-time-consent-block" className="mt-3 rounded-xl border border-[#1F1F1F] bg-[#0A0A0A] p-5">
+              <div className="text-xs uppercase tracking-[0.25em] text-[#D4AF37] mb-3">
+                Wait time policy
+              </div>
+              <div className="text-sm text-white/75 leading-relaxed space-y-2">
+                <p>
+                  <strong className="text-white">Airport pickups</strong> include a
+                  <strong className="text-white"> 45-minute</strong> grace period after your flight lands.
+                </p>
+                <p>
+                  <strong className="text-white">All other trips</strong> include a
+                  <strong className="text-white"> 15-minute</strong> grace period after your scheduled pickup.
+                </p>
+                <p>
+                  Beyond the grace period, a per-minute wait fee applies (rate depends on your vehicle class — shown on your receipt).
+                </p>
+                <p>
+                  If we wait <strong className="text-white">45 minutes beyond the grace period</strong> without contact, the reservation is treated as a no-show — no refund.
+                </p>
+              </div>
               <label
                 data-testid="wait-consent-label"
-                className="flex items-start gap-3 mt-3 pt-3 border-t border-white/5 cursor-pointer"
+                className="flex items-start gap-3 mt-4 pt-4 border-t border-white/10 cursor-pointer"
               >
                 <input
                   type="checkbox"
@@ -1025,9 +1017,9 @@ export default function BookingForm() {
                   checked={waitConsent}
                   onChange={(e) => setWaitConsent(e.target.checked)}
                   required
-                  className="mt-0.5 h-4 w-4 accent-[#D4AF37] cursor-pointer flex-shrink-0"
+                  className="mt-1 h-5 w-5 accent-[#D4AF37] cursor-pointer flex-shrink-0"
                 />
-                <span className="text-xs text-white/75 leading-relaxed">
+                <span className="text-sm text-white/85 leading-relaxed">
                   I authorize TuranEliteLimo to charge my card for wait time fees beyond the grace period, per the policy above.
                 </span>
               </label>
