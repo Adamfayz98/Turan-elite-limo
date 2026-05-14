@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Gift, X } from "lucide-react";
 
 import { api } from "@/lib/api";
@@ -7,12 +7,16 @@ import { api } from "@/lib/api";
  * Sitewide promo banner — appears at the very top of the page when there's
  * an active promo flagged `show_on_banner` from the admin Promos tab.
  *
+ * Publishes its own rendered height as a CSS variable `--promo-banner-h` on
+ * the document root so the fixed Navbar can offset itself by that amount.
+ *
  * Dismissed state is remembered in sessionStorage so it doesn't bug the user
  * on every page navigation; it comes back next session.
  */
 export default function PromoBanner() {
   const [promo, setPromo] = useState(null);
   const [dismissed, setDismissed] = useState(false);
+  const ref = useRef(null);
 
   useEffect(() => {
     const sessionKey = "promo_banner_dismissed";
@@ -28,6 +32,28 @@ export default function PromoBanner() {
       }
     })();
   }, []);
+
+  // Publish the banner's rendered height as a CSS variable so the fixed
+  // Navbar can sit just under it. Re-measures on resize.
+  useEffect(() => {
+    if (!promo || dismissed) {
+      document.documentElement.style.setProperty("--promo-banner-h", "0px");
+      return;
+    }
+    const update = () => {
+      const h = ref.current?.offsetHeight ?? 0;
+      document.documentElement.style.setProperty("--promo-banner-h", `${h}px`);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    if (ref.current) ro.observe(ref.current);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      ro.disconnect();
+      document.documentElement.style.setProperty("--promo-banner-h", "0px");
+    };
+  }, [promo, dismissed]);
 
   if (!promo || dismissed) return null;
 
@@ -50,10 +76,11 @@ export default function PromoBanner() {
 
   return (
     <div
+      ref={ref}
       data-testid="promo-banner"
       role="region"
       aria-label="Promotional offer"
-      className="relative bg-gradient-to-r from-[#D4AF37] via-[#E5C24A] to-[#D4AF37] text-black"
+      className="relative z-[60] bg-gradient-to-r from-[#D4AF37] via-[#E5C24A] to-[#D4AF37] text-black"
     >
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-2.5 flex items-center justify-center gap-3 text-sm md:text-[15px] font-medium">
         <Gift className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
