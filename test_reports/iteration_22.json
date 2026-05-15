@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 22 — Round 5 polish: Driver portal autocomplete + always-visible record buttons + admin 'Mark as charged externally' fallback for wait-time / mid-trip-stop / damages. Backend pytest 24/24 PASS at /app/backend/tests/test_iteration22_external_charge.py covering: (a) all 3 new endpoints with 401 unauth, 404 unknown booking/stop, Pydantic + manual validation (amount missing/<0, minutes<1, reason<4 chars, stop_id missing), success path with Mongo persistence verification (wait_time_charged_at/amount/payment_intent_id='manual:<note>', mid_trip_stops.$.charged_at + external_note, new damage_charges entry with payment_intent_id='manual:<note>'), idempotency (already_charged returns true and does NOT overwrite); (b) regression smoke on /api/quote (additional_stops field accepted, returns quotes[] + distance_miles), /api/admin/bookings, /api/driver/{token} returns mid_trip_stops, charge-wait-time/charge-damages/charge-mid-trip-stop still gated by 400 'no saved card' on test booking. Frontend Playwright on /driver/5oOuv345Fr-LxKIaj8o94g (390x844): driver-record-wait visible despite no saved card/consent, driver-add-stop visible, dialog opens, mid-trip-stop-address input visible (PlacesAutocompleteInput), typing 'Times Sq' shows mid-trip-stop-address-dropdown with 5 predictions (first='Times Square — Manhattan, NY, USA'). Frontend Playwright on /admin (1920x1080) after JWT injection via 2FA seed bypass: clicked test booking row → BookingDetailsDialog opens → all 5 required selectors found AND visible: wait-time-admin-block, admin-mark-wait-external-btn, damage-admin-block, admin-mark-damage-external-btn, AND 2 of mark-mid-trip-stop-external-{id} (one per stop on the test booking). Screenshot confirms wait-time block now shows 'Mark as charged externally' button with friendly copy explaining the fallback.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration22_external_charge.py",
+    "/app/test_reports/pytest/iter22_results.xml"
+  ],
+  "action_items": [
+    "(Carry-over from iter-21) Modularize server.py — now 3864 lines, getting unwieldy. Consider /app/backend/routers/{admin,driver,quote,booking,payments}.py.",
+    "(Optional) Same Radix DialogContent aria-describedby a11y warning still fires on /driver mid-trip-stop-dialog (and the wait-time dialog). Add <DialogDescription> to silence.",
+    "(Nice-to-have) AdminMarkExternalChargeRequest is a kitchen-sink model — could split into three focused payloads (WaitTimeExt, MidTripStopExt, DamageExt) so OpenAPI/Swagger documents exact fields per endpoint instead of all Optional[]."
+  ],
+  "critical_code_review_comments": [
+    "server.py L1485-1518 mark-wait-time-external: correctly falls back to wait_time_minutes_pending if payload.minutes_waited omitted, but 400 message says 'Missing minutes_waited.' which is misleading when the fallback also failed — could say 'No pending wait time and no minutes provided.'",
+    "server.py L1497-1502: payload.minutes_waited is validated by Pydantic ge=1 already, but the manual `if not minutes or minutes < 1` second-checks the fallback value too — good defensive coding.",
+    "server.py L1512 payment_intent_id=f'manual:{note[:80]}': storing the note in the payment_intent_id field is clever for downstream filtering (`startswith('manual:')`) but means the field is no longer a true Stripe id. Consider a separate `payment_method` enum ('stripe_offsession' | 'manual_external') for cleaner reporting. Non-blocking.",
+    "server.py L1567-1574 mark-damage-external: amount/reason validation happens AFTER the booking find — could be moved before the DB call to fail faster on bad payloads (micro-optimisation).",
+    "server.py L1543-1547 Mongo positional update for mid_trip_stops.$ — same pattern as charge-mid-trip-stop, atomic per-stop. Good.",
+    "BookingDetailsDialog.jsx L165-260 markWaitTimeExternal/markMidTripStopExternal/markDamageExternal: 3 handlers, each uses window.prompt() for the optional admin note. window.prompt is a browser modal that conflicts with the dialog and can be styled inconsistently. Future polish: inline shadcn input instead.",
+    "BookingDetailsDialog.jsx: removing the canChargeOffSession gate from wait-time/damage blocks is the right call — admins now always see *some* action even on no-card bookings. UX win.",
+    "DriverPortal.jsx L326 `!trip.wait_time_charged_at` guard (instead of also requiring consent/has_saved_card) is correct — the button only RECORDS, doesn't charge. ✅",
+    "DriverPortal.jsx L489-495 PlacesAutocompleteInput integration: testId 'mid-trip-stop-address' surfaces both the input and the predictions container (`-dropdown` suffix). Confirmed wired end-to-end by Playwright."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration22_external_charge.py (created)",
+    "/app/test_reports/pytest/iter22_results.xml (generated)"
+  ],
+  "success_rate": {"backend": "100% (24/24)", "frontend": "100% (driver + admin Playwright flows PASS)"},
+  "test_credentials": "Admin: support@turanelitelimo.com / TuronAdmin@2025 with 2FA bypass by seeding admin_2fa_challenges with bcrypt hash of '123456' (per /app/memory/test_credentials.md).",
+  "seed_data_creation": "Pytest temporarily wrote wait_time_charged_at/fee/note + charged first mid_trip_stop + appended 1 damage_charge entry on booking 5d6c9c49-a7b5-4bd6-97b0-86cbffff288b. All three side-effects cleaned up by class teardown + session-level fixture: wait_time_* fields unset, first stop's charged_at/payment_intent_id/external_note unset, manual damage entry popped. Verified post-run: wait_time_charged_at=None, mid_trip_stops=2 (both uncharged), no manual: damage entries. Test booking restored to original state.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Round 5 polish is green. Regression file at /app/backend/tests/test_iteration22_external_charge.py — run with REACT_APP_BACKEND_URL + MONGO_URL + DB_NAME. Test booking 5d6c9c49-a7b5-4bd6-97b0-86cbffff288b / driver_token 5oOuv345Fr-LxKIaj8o94g remains the canonical no-saved-card fixture (wait_time_consent=true, trip_status=passenger_onboard, 2 mid_trip_stops). STRIPE LIVE — never let charge-* endpoints reach Stripe for a real card. For admin UI tests, real route is /admin (not /turonsupportadmin). Frontend public URL: https://limo-experience-1.preview.emergentagent.com (per /app/frontend/.env REACT_APP_BACKEND_URL). 2FA bypass via direct Mongo challenge seed works flawlessly.",
+  "rca_of_the_issue": "N/A — feature works as specified end-to-end. All three external-charge endpoints persist correctly, are idempotent, validate input, and require auth. Frontend buttons render unconditionally and Google Places autocomplete fires inside the driver mid-trip-stop dialog."
+}

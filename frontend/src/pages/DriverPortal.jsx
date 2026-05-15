@@ -29,6 +29,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import Logo from "@/components/Logo";
+import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
 import { cn } from "@/lib/utils";
 
 const STATUS_FLOW = [
@@ -322,7 +323,7 @@ export default function DriverPortal() {
                 <span>Landed at {new Date(trip.flight_landed_at).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}</span>
               </div>
             )}
-            {trip.has_saved_card && !trip.wait_time_charged_at && trip.wait_time_consent && (
+            {!trip.wait_time_charged_at && (
               <Button
                 onClick={recordWaitTime}
                 disabled={updating}
@@ -487,16 +488,16 @@ export default function DriverPortal() {
               <Label className="text-[10px] uppercase tracking-[0.2em] text-white/55">
                 Stop address
               </Label>
-              <Input
-                data-testid="mid-trip-stop-address"
-                value={stopAddress}
-                onChange={(e) => setStopAddress(e.target.value)}
-                placeholder="e.g., Walgreens, 4th & Market, SF"
-                className="bg-[#0E0E0E] border-[#27272A] text-white focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] mt-2 h-11"
-                maxLength={300}
-              />
+              <div className="mt-2">
+                <PlacesAutocompleteInput
+                  value={stopAddress}
+                  onChange={(v) => setStopAddress(v)}
+                  testId="mid-trip-stop-address"
+                  placeholder="e.g., Walgreens, 4th & Market, SF"
+                />
+              </div>
               <p className="text-[10px] text-white/40 mt-1.5">
-                Include the city or a nearby landmark for accurate distance math.
+                Pick a suggestion for accurate distance math.
               </p>
             </div>
             <div>

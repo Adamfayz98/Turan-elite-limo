@@ -1471,6 +1471,111 @@ class AdminChargeMidTripStopRequest(BaseModel):
     stop_id: str = Field(..., min_length=1, max_length=80)
 
 
+class AdminMarkExternalChargeRequest(BaseModel):
+    """Payload for recording a charge that was processed OUTSIDE our auto Stripe flow
+    (e.g., admin called the customer or used the Stripe dashboard manually).
+    No money is moved — we just record the metadata so the booking reflects reality."""
+    amount: Optional[float] = Field(None, ge=0, le=10000)  # required for wait-time/damage; ignored for mid-trip-stop (uses computed total)
+    minutes_waited: Optional[int] = Field(None, ge=1, le=240)  # wait-time only
+    stop_id: Optional[str] = Field(None, min_length=1, max_length=80)  # mid-trip-stop only
+    reason: Optional[str] = Field(None, max_length=500)  # damages only
+    note: Optional[str] = Field(None, max_length=300)  # free-form note ("charged via Stripe dashboard, ref XYZ")
+
+
+@api_router.post("/admin/bookings/{booking_id}/mark-wait-time-external")
+async def admin_mark_wait_time_external(
+    booking_id: str,
+    payload: AdminMarkExternalChargeRequest,
+    _: dict = Depends(require_admin),
+):
+    """Record a wait-time charge that admin handled externally (no Stripe call)."""
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if b.get("wait_time_charged_at"):
+        return {"already_charged": True}
+    minutes = payload.minutes_waited or b.get("wait_time_minutes_pending")
+    amount = payload.amount
+    if not minutes or minutes < 1:
+        raise HTTPException(status_code=400, detail="Missing minutes_waited.")
+    if amount is None or amount < 0:
+        raise HTTPException(status_code=400, detail="Missing amount.")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    note = (payload.note or "").strip() or "Recorded as manually charged by admin."
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {
+            "$set": {
+                "wait_time_minutes": int(minutes),
+                "wait_time_fee_amount": round(float(amount), 2),
+                "wait_time_charged_at": now_iso,
+                "wait_time_payment_intent_id": f"manual:{note[:80]}",
+                "wait_time_external_note": note,
+            },
+            "$unset": {"wait_time_minutes_pending": ""},
+        },
+    )
+    return {"recorded": True, "external": True, "amount": amount, "minutes_waited": int(minutes)}
+
+
+@api_router.post("/admin/bookings/{booking_id}/mark-mid-trip-stop-external")
+async def admin_mark_mid_trip_stop_external(
+    booking_id: str,
+    payload: AdminMarkExternalChargeRequest,
+    _: dict = Depends(require_admin),
+):
+    """Record a mid-trip stop as manually charged outside the Stripe auto flow."""
+    if not payload.stop_id:
+        raise HTTPException(status_code=400, detail="Missing stop_id.")
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    stops = b.get("mid_trip_stops") or []
+    stop = next((s for s in stops if s.get("id") == payload.stop_id), None)
+    if not stop:
+        raise HTTPException(status_code=404, detail="Mid-trip stop not found.")
+    if stop.get("charged_at"):
+        return {"already_charged": True, "stop": stop}
+    now_iso = datetime.now(timezone.utc).isoformat()
+    note = (payload.note or "").strip() or "Recorded as manually charged by admin."
+    await db.bookings.update_one(
+        {"id": b["id"], "mid_trip_stops.id": stop["id"]},
+        {"$set": {
+            "mid_trip_stops.$.charged_at": now_iso,
+            "mid_trip_stops.$.payment_intent_id": f"manual:{note[:80]}",
+            "mid_trip_stops.$.external_note": note,
+        }},
+    )
+    return {"recorded": True, "external": True, "stop_id": stop["id"], "amount": stop.get("total")}
+
+
+@api_router.post("/admin/bookings/{booking_id}/mark-damage-external")
+async def admin_mark_damage_external(
+    booking_id: str,
+    payload: AdminMarkExternalChargeRequest,
+    _: dict = Depends(require_admin),
+):
+    """Record a damage/incidental charge handled externally."""
+    if payload.amount is None or payload.amount < 0:
+        raise HTTPException(status_code=400, detail="Missing amount.")
+    if not (payload.reason and len(payload.reason.strip()) >= 4):
+        raise HTTPException(status_code=400, detail="Reason is required (min 4 chars).")
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    note = (payload.note or "").strip() or "Recorded as manually charged by admin."
+    entry = {
+        "amount": round(float(payload.amount), 2),
+        "reason": payload.reason.strip(),
+        "charged_at": now_iso,
+        "payment_intent_id": f"manual:{note[:80]}",
+        "external_note": note,
+    }
+    await db.bookings.update_one({"id": b["id"]}, {"$push": {"damage_charges": entry}})
+    return {"recorded": True, "external": True, "entry": entry}
+
+
 @api_router.post("/admin/bookings/{booking_id}/charge-mid-trip-stop")
 async def admin_charge_mid_trip_stop(
     booking_id: str,
