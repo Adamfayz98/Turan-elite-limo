@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 export default function SettingsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [settings, setSettings] = useState({ deposit_percent: 100, currency: "usd", meet_greet_fee: 25, service_fee_percent: 0 });
+  const [settings, setSettings] = useState({ deposit_percent: 100, currency: "usd", meet_greet_fee: 25, service_fee_percent: 0, per_stop_fee: 15 });
 
   const load = async () => {
     setLoading(true);
@@ -123,6 +123,34 @@ export default function SettingsTab() {
             <Percent className="w-4 h-4 text-[#D4AF37]" />
             <span className="text-xs text-white/55">
               Added transparently to every quote. <strong className="text-white/80">Recommended: 3.5%</strong> to fully cover Stripe's 2.9% + $0.30 cut on refunds. Set to 0 to disable.
+            </span>
+          </div>
+        </div>
+
+        <div className="md:col-span-2 pt-4 border-t border-[#1F1F1F]">
+          <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            Per-stop flat fee
+          </Label>
+          <div className="mt-2 flex items-center gap-3">
+            <div className="relative w-40">
+              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#D4AF37]" />
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                data-testid="settings-per-stop-fee"
+                value={settings.per_stop_fee ?? 0}
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, per_stop_fee: e.target.value }))
+                }
+                className={cn(
+                  "bg-[#0E0E0E] border-[#27272A] text-white focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] h-11 pl-9",
+                )}
+              />
+            </div>
+            <span className="text-xs text-white/55">
+              Flat fee charged for each <em>additional stop</em> the customer adds on a transfer trip.{" "}
+              <strong className="text-white/80">Industry standard: $15–25</strong>. Doesn't apply to Hourly Chauffeur bookings (stops are included in the hourly clock). Set to 0 to disable.
             </span>
           </div>
         </div>

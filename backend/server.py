@@ -409,6 +409,7 @@ class QuoteRequest(BaseModel):
     hours: Optional[int] = Field(None, ge=1, le=24)
     pickup_date: Optional[str] = None  # YYYY-MM-DD — for surge-event matching
     meet_and_greet: bool = False  # Airport Transfer only
+    additional_stops_count: int = Field(0, ge=0, le=10)  # # of extra stops; priced via Settings.per_stop_fee
 
 
 class VehicleQuote(BaseModel):
@@ -448,6 +449,9 @@ class QuoteResponse(BaseModel):
     surcharge_applied: Optional[SurchargeInfo] = None
     surge_applied: Optional[SurgeInfo] = None
     meet_and_greet_fee: Optional[float] = None  # flat fee added when meet_and_greet=True and Airport Transfer
+    per_stop_fee: Optional[float] = None  # current Settings.per_stop_fee (for display)
+    stop_fee_total: Optional[float] = None  # actual $ added to each priced quote for the # of stops
+    additional_stops_count: Optional[int] = None
     service_fee_percent: Optional[float] = None  # current %; included in each quote's price already
     service_fee_amount_sample: Optional[float] = None  # the $ fee applied to the cheapest priced vehicle (for display)
 
@@ -799,6 +803,15 @@ async def quote_ride(payload: QuoteRequest):
     if payload.meet_and_greet and payload.service_type == "Airport Transfer":
         mg_fee = float(settings.meet_greet_fee or 0.0)
 
+    # Per-stop flat fee — applies to every additional stop on transfer-type trips
+    # (skipped for hourly bookings, which already cover stops via the hourly clock).
+    per_stop_fee = float(settings.per_stop_fee or 0.0)
+    stops_count = int(payload.additional_stops_count or 0)
+    is_hourly_q = payload.service_type == "Hourly Chauffeur"
+    stop_fee_total = 0.0 if is_hourly_q else round(per_stop_fee * stops_count, 2)
+    # Combined flat add-on that gets bolted onto every priced vehicle quote
+    addon_flat_total = round(mg_fee + stop_fee_total, 2)
+
     # Surge events (date-based) — apply on top of all base/hourly pricing
     surge_events = await _load_surge_events()
     matched_event = _select_surge_event(payload.pickup_date, surge_events)
@@ -836,15 +849,20 @@ async def quote_ride(payload: QuoteRequest):
             hours=payload.hours,
             included_miles=payload.hours * HOURLY_MILES_INCLUDED_PER_HOUR,
             surge_applied=surge_info,
+            per_stop_fee=per_stop_fee if per_stop_fee > 0 else None,
+            additional_stops_count=stops_count or None,
         ), settings.service_fee_percent)
 
     pickup = await _geocode(payload.pickup_location)
     dropoff = await _geocode(payload.dropoff_location)
     if not pickup or not dropoff:
         return _apply_service_fee_to_quote_response(QuoteResponse(
-            quotes=_build_quotes(None, pricing_map, addon_flat=mg_fee),
+            quotes=_build_quotes(None, pricing_map, addon_flat=addon_flat_total),
             fallback=True,
             meet_and_greet_fee=mg_fee if mg_fee > 0 else None,
+            per_stop_fee=per_stop_fee if per_stop_fee > 0 else None,
+            stop_fee_total=stop_fee_total if stop_fee_total > 0 else None,
+            additional_stops_count=stops_count or None,
         ), settings.service_fee_percent)
 
     miles = _haversine_miles(pickup["lat"], pickup["lon"], dropoff["lat"], dropoff["lon"])
@@ -878,12 +896,15 @@ async def quote_ride(payload: QuoteRequest):
             surcharge=surcharge_amt,
             surge_mult=surge_mult,
             surge_flat=surge_flat,
-            addon_flat=mg_fee,
+            addon_flat=addon_flat_total,
         ),
         fallback=False,
         surcharge_applied=surcharge_info,
         surge_applied=surge_info,
         meet_and_greet_fee=mg_fee if mg_fee > 0 else None,
+        per_stop_fee=per_stop_fee if per_stop_fee > 0 else None,
+        stop_fee_total=stop_fee_total if stop_fee_total > 0 else None,
+        additional_stops_count=stops_count or None,
     ), settings.service_fee_percent)
 
 
@@ -1914,6 +1935,7 @@ class Settings(BaseModel):
     currency: str = "usd"
     meet_greet_fee: float = Field(25.0, ge=0)
     service_fee_percent: float = Field(3.5, ge=0, le=20)  # default 3.5% — covers Stripe processing on refunds
+    per_stop_fee: float = Field(15.0, ge=0)  # flat fee added per additional stop on a transfer
 
 
 async def _load_settings() -> Settings:
@@ -1934,6 +1956,7 @@ async def get_public_settings():
     s = await _load_settings()
     return {
         "service_fee_percent": s.service_fee_percent,
+        "per_stop_fee": s.per_stop_fee,
         "currency": s.currency,
     }
 
@@ -1943,6 +1966,7 @@ class SettingsUpdate(BaseModel):
     currency: Optional[str] = None
     meet_greet_fee: Optional[float] = Field(None, ge=0)
     service_fee_percent: Optional[float] = Field(None, ge=0, le=20)
+    per_stop_fee: Optional[float] = Field(None, ge=0)
 
 
 @api_router.patch("/admin/settings", response_model=Settings)
@@ -2006,6 +2030,10 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
     # Meet & Greet flat fee (Airport Transfer only) — added AFTER surge, BEFORE service fee
     if booking.get("meet_and_greet") and booking.get("service_type") == "Airport Transfer":
         price += float(settings.meet_greet_fee or 0.0)
+    # Per-stop flat fee (every additional stop on the trip)
+    stops_count = len(booking.get("additional_stops") or [])
+    if stops_count > 0 and settings.per_stop_fee and settings.per_stop_fee > 0:
+        price += stops_count * float(settings.per_stop_fee)
     # Service fee (transparent percentage on top)
     if settings.service_fee_percent and settings.service_fee_percent > 0:
         price += price * (settings.service_fee_percent / 100.0)
@@ -3306,6 +3334,19 @@ async def startup_seed():
         )
     except Exception as e:
         logger.warning(f"service_fee_percent backfill skipped: {e}")
+
+    # One-time migration: set default per_stop_fee to $15 on legacy docs without it.
+    try:
+        await db.settings.update_one(
+            {
+                "key": "global",
+                "per_stop_fee_migrated_v1": {"$ne": True},
+                "per_stop_fee": {"$exists": False},
+            },
+            {"$set": {"per_stop_fee": 15.0, "per_stop_fee_migrated_v1": True}},
+        )
+    except Exception as e:
+        logger.warning(f"per_stop_fee backfill skipped: {e}")
 
     # Migration: rename legacy "Luxury Sedan" → "S-Class" in existing bookings
     try:

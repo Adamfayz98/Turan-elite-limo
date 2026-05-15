@@ -141,6 +141,7 @@ export default function BookingForm() {
     quoteTimer.current = setTimeout(async () => {
       setQuoting(true);
       try {
+        const cleanStops = stops.map((s) => s.trim()).filter(Boolean);
         const { data } = await api.post("/quote", {
           pickup_location: pickup || "n/a",
           dropoff_location: dropoff || "n/a",
@@ -148,6 +149,7 @@ export default function BookingForm() {
           hours: hourlyReady ? hoursNum : null,
           pickup_date: date ? format(date, "yyyy-MM-dd") : null,
           meet_and_greet: !!form.meet_and_greet,
+          additional_stops_count: cleanStops.length,
         });
         setQuote(data);
       } catch {
@@ -157,7 +159,7 @@ export default function BookingForm() {
       }
     }, 1100);
     return () => quoteTimer.current && clearTimeout(quoteTimer.current);
-  }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours, form.meet_and_greet, date]);
+  }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours, form.meet_and_greet, date, stops]);
 
   const addStop = () => setStops((s) => [...s, ""]);
   const removeStop = (idx) => setStops((s) => s.filter((_, i) => i !== idx));
@@ -745,6 +747,23 @@ export default function BookingForm() {
               </div>
             </div>
           )}
+
+          {quote?.stop_fee_total ? (
+            <div
+              data-testid="stop-fee-banner"
+              className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-5 py-3 flex items-start gap-3"
+            >
+              <div className="w-6 h-6 rounded-full bg-white/5 border border-white/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-white/65 text-xs">+</span>
+              </div>
+              <div className="flex-1 text-xs text-white/65 leading-relaxed">
+                <strong className="text-white/85">
+                  {quote.additional_stops_count} additional stop{quote.additional_stops_count > 1 ? "s" : ""} · +${Number(quote.stop_fee_total).toFixed(0)} total
+                </strong>{" "}
+                — flat ${Number(quote.per_stop_fee).toFixed(0)}/stop. Mileage detour is already included in the trip distance above.
+              </div>
+            </div>
+          ) : null}
 
           {quote?.service_fee_percent ? (
             <div

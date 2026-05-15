@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 19 — Per-stop flat fee (default $15, admin-configurable, Hourly-exempt). Backend pytest 10/10 PASS (2.9s) in /app/backend/tests/test_iteration19_per_stop_fee.py covering: (a) GET /api/settings/public returns per_stop_fee numeric ≥0 (default 15.0 after the per_stop_fee_migrated_v1 backfill, line 3338-3349); (b) POST /api/quote w/ additional_stops_count=0 returns stop_fee_total=None (no banner); (c) POST /api/quote w/ additional_stops_count=2 + Airport Transfer returns per_stop_fee, stop_fee_total=2*per_stop_fee, additional_stops_count=2; (d) Executive Sedan price delta matches N*per_stop_fee*(1+service_fee_percent/100) within $0.10; (e) Hourly Chauffeur + additional_stops_count=4 returns stop_fee_total=None (exemption works — server.py line 811 `is_hourly_q ? 0.0 : ...`); (f) PATCH /api/admin/settings { per_stop_fee: 22.5 } persists and /settings/public + /quote reflect it (admin 2FA bypassed by seeding admin_2fa_challenges with bcrypt('123456') hash, restored to 15.0 in fixture teardown); (g) POST /api/bookings (additional_stops=[A,B], flight_number, wait_time_consent=true) + POST /api/payments/checkout returns Stripe URL + amount including 2*per_stop_fee*(1+svc%) above baseline (within $2.50 — NO live Stripe charge attempted, only the returned amount was asserted); (h) REGRESSION: /api/admin/bookings/{id}/charge-wait-time + /charge-damages still require auth (401/403 unauth, 404 with auth on unknown id). Frontend Playwright smoke PASS: BookingForm — clicked [data-testid='booking-add-stop'] twice → booking-stop-0 + booking-stop-1 inputs appeared, filled all 4 fields, waited 5.5s for debounced /quote, [data-testid='stop-fee-banner'] rendered with text '+2 additional stops · +$30 total — flat $15/stop. Mileage detour is already included in the trip distance above.' Service-fee-banner still visible below it. Executive Sedan price went from $120.01 (no stops, baseline JFK→Times Sq) to $156.85 (with 2 stops, slightly different geocoded pickup) — mileage drift between attempts so $delta not directly comparable in screenshot, but pytest delta assertion passed in test_executive_sedan_delta_matches_formula. Admin SettingsTab smoke: code review — input [data-testid='settings-per-stop-fee'] is rendered above Meet & Greet (lines 130-156), value bound to settings.per_stop_fee, onChange updates state. NOT Playwright-tested e2e because admin login requires 2FA (same constraint as iter-18).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "SettingsTab.jsx (admin)",
+        "issue": "CRITICAL — Admin cannot persist per_stop_fee from the UI. The input at line 137-149 binds to settings.per_stop_fee and updates local state, but the save() function (lines 32-49) builds the PATCH payload from ONLY {deposit_percent, currency, meet_greet_fee, service_fee_percent} and OMITS per_stop_fee. Backend PATCH /api/admin/settings supports per_stop_fee (verified by pytest), but the frontend Save button silently drops it. Admin will see the field, edit it, click Save, see 'Settings saved' toast, but the value reverts on reload.",
+        "selector": "[data-testid='settings-per-stop-fee'] save handler",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration19_per_stop_fee.py",
+    "/app/test_reports/pytest/iter19_results.xml"
+  ],
+  "action_items": [
+    "FIX SettingsTab.jsx save() at line 35-40: add `per_stop_fee: Number(settings.per_stop_fee) || 0,` to the PATCH payload. One-line fix — otherwise the admin-customization requirement is broken end-to-end (only re-set possible via direct curl/Mongo).",
+    "(Carry-over from iter-18) Add ADMIN_2FA_BYPASS env flag so Playwright can fully smoke-test admin UI flows including SettingsTab save → reload roundtrip.",
+    "(Carry-over) server.py is now ~3544 lines — modularize into routers (settings, bookings, admin, payments, driver, manage) is overdue."
+  ],
+  "critical_code_review_comments": [
+    "BUG (SettingsTab.jsx lines 32-40): save() PATCH payload omits per_stop_fee — the new field renders + accepts input but Save never sends it. Backend PATCH supports per_stop_fee (verified with pytest), so the fix is purely additive on the frontend.",
+    "server.py per-stop-fee plumbing is solid: QuoteRequest.additional_stops_count clamped 0..10 (line 412); quote_ride correctly skips hourly (line 810-811 `is_hourly_q ? 0.0 : per_stop_fee*stops_count`); _build_quotes adds addon_flat AFTER surge but BEFORE service-fee % (line 590), so the final delta is N*per_stop*(1+svc%) — matches industry convention. _compute_quote_amount mirrors this on the Stripe path (line 2033-2036).",
+    "Settings migration (line 3338-3349) correctly backfills per_stop_fee=15.0 only on docs without the field + flags per_stop_fee_migrated_v1 to prevent re-run. Idempotent. Verified by GET /settings/public returning 15.0 before any admin edit.",
+    "BookingForm.jsx (line 152): correctly sends additional_stops_count=cleanStops.length to /quote, so even pre-fill empty stop rows don't pollute the count. Banner gating `quote?.stop_fee_total ? (...)` correctly hides for hourly (stop_fee_total=None) and zero stops.",
+    "_build_quotes line 598-599: tag pushed to msg is hardcoded 'meet & greet' whenever addon_flat>0, even if the addon is purely the per-stop fee (no Meet&Greet selected). MINOR — the badge currently mislabels stop-only quotes as 'meet & greet'. Recommend differentiating: 'meet & greet' vs 'stops' tags."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration19_per_stop_fee.py"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10 pytest)",
+    "frontend": "Customer flow 100% (banner renders correctly with right text). Admin Settings save BLOCKED by the missing-field-in-payload bug above — not Playwright-tested, found via code review."
+  },
+  "test_credentials": "Admin: support@turanelitelimo.com / TuronAdmin@2025. 2FA bypass: insert admin_2fa_challenges doc with bcrypt('123456') hash (see /app/memory/test_credentials.md).",
+  "seed_data_creation": "1 booking prefixed TEST_iter19_* (Airport Transfer, 2 stops, flight_number=AA100, wait_time_consent=True), cleaned up in fixture teardown. PATCH /admin/settings briefly set per_stop_fee=22.5 then restored to 15.0 in the same test's finally block. NO live Stripe customers / charges touched.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-19 backend is fully green. The ONLY blocker is a one-line frontend bug in SettingsTab.jsx save() that omits per_stop_fee from the PATCH body — purely additive fix. Backend pytest at /app/backend/tests/test_iteration19_per_stop_fee.py is the regression for per-stop-fee. To re-run: `pytest /app/backend/tests/test_iteration19_per_stop_fee.py -v`. Pricing math confirmed: addon is added BEFORE the service-fee % (so customer pays slightly more than just N*per_stop — by design, since Stripe will cut the same 2.9% on this addon). Hourly exemption confirmed at /api/quote level AND in _compute_quote_amount (hourly branch at line 2003-2013 doesn't touch per_stop_fee). Migration backfill works on existing settings docs (was 15.0 before our test, still 15.0 after teardown).",
+  "rca_of_the_issue": "SettingsTab.jsx save handler (lines 32-49) was extended to render the new per_stop_fee Input (lines 130-156) but the PATCH payload object at lines 35-40 was NOT updated to include the new field. Symptom: admin types a new $/stop value → state updates → clicks Save → axios sends {deposit_percent, currency, meet_greet_fee, service_fee_percent} ONLY → backend leaves per_stop_fee untouched → reload shows old value. Fix: add one line `per_stop_fee: Number(settings.per_stop_fee) || 0,` to the payload object. No backend change needed — the SettingsUpdate model (line 1964-1969) already accepts it."
+}
