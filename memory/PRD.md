@@ -270,3 +270,40 @@ See `/app/memory/test_credentials.md` (includes 2FA programmatic bypass recipe f
 - P2 — Google Ads Conversion Tracking on `PayBooking.jsx`
 - Twilio toll-free SMS verification (blocked on user action — switch number or finish verification)
 - Refund fee policy + wait-time grace period UX still pending from earlier discussion
+
+## Session Update — Feb 2026 (Round 2)
+
+### Card-on-file: Wait time + Damages (admin-controlled flow)
+- **Consent extended**: `BookingForm.jsx` wait-time policy block now reads "Wait time & damages policy" and the checkbox text authorizes both wait-time AND incidental/damage charges. Added a "Damages & incidentals" paragraph explaining that actual cleaning/repair costs may be charged with itemized receipts.
+- **Driver workflow changed (no-charge by driver)**:
+  - Old `POST /api/driver/{token}/charge-wait-time` → **removed**.
+  - New `POST /api/driver/{token}/record-wait-time` → saves `wait_time_minutes_pending` + `wait_time_recorded_at` on the booking. NO Stripe call.
+  - Driver portal button now reads "Record wait time"; after logging, shows "X min logged · pending dispatch review".
+- **Admin manual charge UI**:
+  - New `POST /api/admin/bookings/{id}/charge-wait-time` (auth required). Reads `wait_time_minutes_pending` (or accepts an override). Charges off-session via shared `_stripe_off_session_charge()` helper. Idempotent.
+  - New `POST /api/admin/bookings/{id}/charge-damages` body `{amount, reason}`. Pushes onto `damage_charges[]` array. Each charge → off-session PaymentIntent + customer email receipt (new `render_damage_charge_email`).
+  - `BookingDetailsDialog.jsx`: wait-time section shows pending minutes + "Review & charge wait time" button. Damages section shows amount/reason inputs + "Charge damages" button. Existing damage charges listed with timestamps.
+
+### Service fee default → 3.5%
+- `Settings.service_fee_percent` default changed from 0.0 → **3.5**.
+- Startup migration `service_fee_migrated_v1` flips any legacy/existing `service_fee_percent=0` doc to 3.5 once, then sets the flag so admin overrides are never clobbered.
+- Booking form service-fee banner copy now explains it covers Stripe's processing cut so refunds come back at 100%.
+- Admin Settings tab recommendation copy updated from "3%" → "3.5%".
+
+### Data model additions to `bookings`
+- `wait_time_minutes_pending: int` — driver-recorded, awaiting admin charge
+- `wait_time_recorded_at: ISO timestamp`
+- `wait_time_payment_intent_id: str`
+- `damage_charges: [{amount, reason, charged_at, payment_intent_id}]`
+
+### Testing
+- Backend pytest: 19/19 passed (wait recording, admin charge endpoints, damage validation, 3.5% migration)
+- Frontend smoke: consent wording verified, public settings = 3.5%, DriverPortal renders cleanly, BookingDetailsDialog handlers wired correctly
+- Testing agent applied an in-flight fix: completed `chargeWaitTime` → `recordWaitTime` rename in DriverPortal.jsx
+
+### Pending / Backlog (unchanged)
+- P2 — Modularize `server.py` (>3500 lines now) into routers
+- P2 — Pre-saved driver roster dropdown
+- P2 — Dev-flag 2FA bypass for Playwright UI testing of admin charge buttons
+- P2 — Show damage-charge history more prominently
+- Twilio toll-free SMS verification (blocked on user action)
