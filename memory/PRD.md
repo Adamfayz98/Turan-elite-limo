@@ -327,3 +327,52 @@ See `/app/memory/test_credentials.md` (includes 2FA programmatic bypass recipe f
 
 ### Phase B (NOT YET BUILT — backlog)
 - **Mid-trip stop tracking**: driver records an unplanned stop {address, minutes_at_stop, miles_added}; admin reviews on Booking Details and triggers off-session charge using formula `base + miles × per_mile + wait_overage × wait_minute_rate`. Same off-session consent already covers it.
+
+## Session Update — Feb 2026 (Round 4) — Mid-trip Stops (Phase B)
+
+### Driver-records → Admin-charges flow (matching wait-time/damages pattern)
+
+**Driver Portal (`/driver/{token}`)** — new "Add unplanned stop" button + Dialog:
+- Address input (free-text, server geocodes via Google Maps)
+- Minutes-at-stop input (0–240)
+- Submits to `POST /api/driver/{token}/record-mid-trip-stop` body `{stop_address, minutes_at_stop}`
+- Response computes EVERYTHING: detour_miles (route delta), distance_charge (detour × vehicle.per_mile), wait_charge (max(0, minutes-10) × vehicle.wait_minute_rate), subtotal, service_fee, total
+- Already-recorded stops listed below the action row with detour/min/$ + "pending review" or "charged" tag
+
+**Admin Booking Details Dialog** — new "Mid-trip stops" section:
+- Lists every stop with full math breakdown: `$15 flat + 1.9 mi × $3.50/mi ($6.65) + 5 min × $1.00/min ($5.00) + $0.93 service fee`
+- Per-stop "Review & charge $X" button → `POST /api/admin/bookings/{id}/charge-mid-trip-stop` body `{stop_id}` → off-session Stripe charge via shared `_stripe_off_session_charge()` helper
+- Idempotent (charged stops show "charged at X" with no button)
+- Same gates as other off-session charges: requires `wait_time_consent=true` + `stripe_payment_method_id`
+
+**Distance math (matches existing booking quote logic)**
+- For each new mid-trip stop, detour = `route_miles(P → pre_booked_stops + existing_mid_trip_stops + NEW STOP → D)` − `route_miles(P → pre_booked_stops + existing_mid_trip_stops → D)`
+- Uses haversine sum-of-legs (same as the rest of the codebase) — short on-the-way stops produce tiny detours; real detours scale appropriately
+- Verified live: 135 Powell St (basically on-route from SFO → Four Seasons) = 0.19 mi detour = $16.22 total. 555 9th St (~1.9 mi off-route) = $27.58 total.
+
+**Per-stop wait policy**
+- 10-minute grace per stop (industry norm). Overage charged at the vehicle's `wait_minute_rate` (same rate as scheduled-pickup wait time).
+
+**Email receipt**
+- `render_mid_trip_stop_charge_email()` in `email_service.py` — itemized HTML receipt sent to customer + BCC support on each charge.
+
+### Data model addition
+- `Booking.mid_trip_stops: List[dict]` — each stop entry:
+  `{id, address, address_input, minutes_at_stop, wait_grace_minutes, wait_overage_minutes, detour_miles, flat_fee, per_mile_rate, wait_minute_rate, distance_charge, wait_charge, subtotal, service_fee, total, recorded_at, recorded_by, charged_at, payment_intent_id}`
+
+### Testing
+- Backend: end-to-end curl tests against a live booking with 2 stops recorded. Math verified, idempotency verified, no-saved-card guard verified, no-auth guard verified.
+- Frontend: smoke screenshot of /driver/{token} confirms "Add unplanned stop" button + Dialog + recorded stops list render correctly. Lint clean.
+- Testing agent: iteration 21 PASS (1 a11y nit — DialogDescription added).
+- Regressions: none. Iter-18/19/20 endpoints still pass.
+
+### Notes for production
+- After redeploy, drivers will see "Add unplanned stop" between "Mark as no-show" and the existing action row.
+- Admins will see the "Mid-trip stops" section at the bottom of the Booking Details dialog, between the Wait-time and Damages sections.
+- First real customer trip with off-session charges = first real billing test. Recommend a small dry run.
+
+## Backlog (unchanged)
+- (P2) Modularize server.py — now 3741 lines
+- (P2) Pre-saved driver roster
+- (P2) Refund-fee handling (last-minute cancel fee + Stripe cut decision)
+- (P2) Vehicle inspection photo uploads on driver portal (for damage disputes)

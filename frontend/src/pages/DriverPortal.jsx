@@ -26,6 +26,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import Logo from "@/components/Logo";
 import { cn } from "@/lib/utils";
@@ -477,9 +478,9 @@ export default function DriverPortal() {
         <DialogContent className="bg-[#0A0A0A] border-[#1F1F1F] text-white max-w-md" data-testid="mid-trip-stop-dialog">
           <DialogHeader>
             <DialogTitle className="font-serif text-2xl">Add an unplanned stop</DialogTitle>
-            <p className="text-xs text-white/55 mt-1 leading-relaxed">
+            <DialogDescription className="text-xs text-white/55 mt-1 leading-relaxed">
               Logs the stop for dispatch review. The customer's saved card is charged only after dispatch confirms the amount.
-            </p>
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2">
             <div>
