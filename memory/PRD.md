@@ -376,3 +376,44 @@ See `/app/memory/test_credentials.md` (includes 2FA programmatic bypass recipe f
 - (P2) Pre-saved driver roster
 - (P2) Refund-fee handling (last-minute cancel fee + Stripe cut decision)
 - (P2) Vehicle inspection photo uploads on driver portal (for damage disputes)
+
+## Session Update — Feb 2026 (Round 5) — Admin Manual-Charge Fallback + UX Polish
+
+### Why
+User reported on production that:
+1. Admin saw the mid-trip stop listed at the bottom of the booking dialog but no charge button. Root cause: the "Review & charge" button is gated on `has_saved_card && wait_time_consent`. Older bookings (paid before off-session save logic was in place, or paid without checking the consent box) have neither, so the only UI was a tiny gray "invoice manually" text — easy to miss.
+2. "No wait time input" on the driver portal — same gate kept the button hidden.
+3. The driver mid-trip stop dialog's address input had no Google Places autocomplete.
+
+### Fixes
+**Driver Portal** (`/app/frontend/src/pages/DriverPortal.jsx`):
+- Dropped `has_saved_card && wait_time_consent` gate on `Record wait time` and `Add unplanned stop` buttons. Both record-only — they don't move money, just store data for admin to review/charge.
+- Mid-trip stop dialog address input is now `PlacesAutocompleteInput` (same component as the booking form). Tested: typing "San Fran" produces the expected dropdown of predictions inside the dialog.
+
+**Backend** (`/app/backend/server.py`):
+- New `AdminMarkExternalChargeRequest` Pydantic model + 3 new admin endpoints (auth required):
+  - `POST /api/admin/bookings/{id}/mark-wait-time-external` — body `{minutes_waited, amount, note?}` → sets `wait_time_minutes`, `wait_time_fee_amount`, `wait_time_charged_at`, `wait_time_payment_intent_id="manual:<note>"`.
+  - `POST /api/admin/bookings/{id}/mark-mid-trip-stop-external` — body `{stop_id, note?}` → marks the stop charged via `mid_trip_stops.$.charged_at = now`, `payment_intent_id="manual:<note>"`.
+  - `POST /api/admin/bookings/{id}/mark-damage-external` — body `{amount, reason, note?}` → pushes onto `damage_charges[]` with `payment_intent_id="manual:<note>"`.
+- All three are idempotent and never call Stripe — they just record metadata so the booking reflects reality after admin handles the charge outside our auto flow.
+
+**Admin BookingDetailsDialog** (`/app/frontend/src/components/admin/BookingDetailsDialog.jsx`):
+- Wait-time and Damages blocks now render always (not gated on `canChargeOffSession`).
+- Each block exposes BOTH actions side by side when applicable:
+  - "Review & charge $X" — fires when there IS a saved card + consent (off-session Stripe).
+  - "Mark as charged externally" — always available. Opens prompts (minutes? amount? note?) → calls the new endpoints.
+- Charged-externally entries show a subtle "· recorded externally" label so admin can tell them apart from auto-Stripe charges.
+- Per-stop on the Mid-trip Stops block has the same dual buttons.
+
+### Testing
+- Backend: lint clean. Curl confirms all 3 new endpoints require auth (401 without) and validate payload shape (400 on bad input).
+- Frontend: smoke screenshot of /driver portal confirms "Record wait time" + "Add unplanned stop" render even on a test booking without saved card, and the autocomplete dropdown renders inside the dialog.
+- Testing agent iter-22: **PASS**. No regressions, no new bugs.
+
+### Carry-over backlog (unchanged)
+- (P2) Modularize server.py (3864 lines)
+- (P2) Pre-saved driver roster dropdown
+- (P2) Refund-fee policy decision
+- (P2) Vehicle inspection photo uploads on driver portal
+- (Nice-to-have) Split `AdminMarkExternalChargeRequest` into 3 focused payloads for cleaner OpenAPI docs
+- (Nice-to-have) Add DialogDescription to wait-time / mid-trip-stop dialogs for a11y
