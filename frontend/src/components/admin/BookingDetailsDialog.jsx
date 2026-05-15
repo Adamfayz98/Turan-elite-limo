@@ -261,6 +261,22 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
     }
   };
 
+  const backfillSavedCard = async () => {
+    if (!window.confirm("Re-fetch this booking's saved card from Stripe? Use this when the customer paid + consented but the auto-charge button isn't showing.")) return;
+    try {
+      const { data } = await api.post(`/admin/bookings/${b.id}/backfill-saved-card`);
+      if (data.stripe_payment_method_id) {
+        toast.success("Saved card recovered — refresh the dialog");
+        onChanged?.();
+        onClose?.();
+      } else {
+        toast.info("Stripe didn't return a payment method for this session.");
+      }
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Backfill failed");
+    }
+  };
+
   const chargeDamage = async () => {
     const amt = parseFloat(damageAmount);
     if (!amt || amt <= 0) {
@@ -520,9 +536,25 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
                   Mark as charged externally
                 </Button>
               </div>
-              {!canChargeOffSession && (
+              {!canChargeOffSession && b.payment_status === "paid" && (
+                <div className="mt-2 flex items-start gap-2 text-[10px] text-white/55 leading-relaxed">
+                  <span>
+                    No saved card on this booking. If the customer paid + consented, click
+                  </span>
+                  <button
+                    type="button"
+                    onClick={backfillSavedCard}
+                    data-testid="backfill-saved-card-btn"
+                    className="text-[#D4AF37] hover:underline underline-offset-2 font-medium"
+                  >
+                    "Recover saved card"
+                  </button>
+                  <span>to pull it from Stripe — otherwise charge externally and mark above.</span>
+                </div>
+              )}
+              {!canChargeOffSession && b.payment_status !== "paid" && (
                 <div className="text-[10px] text-white/45 mt-2 leading-relaxed">
-                  No saved card / consent on this booking — charge via Stripe dashboard or call the customer, then click "Mark as charged externally" to record it here.
+                  Booking isn't paid yet — once payment lands, auto-charge becomes available.
                 </div>
               )}
             </div>

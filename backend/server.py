@@ -2640,29 +2640,24 @@ async def get_payment_status(session_id: str, request: Request):
                 {"session_id": session_id},
                 {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
             )
-            # Fetch the Stripe session in detail (with payment_intent.payment_method expanded)
-            # so we can save customer + payment_method on the booking for off-session wait-time charges.
-            stripe_customer_id = None
-            stripe_payment_method_id = None
-            try:
-                api_key2 = os.environ.get("STRIPE_API_KEY", "")
-                if api_key2:
-                    async with httpx.AsyncClient(timeout=10.0) as cli2:
-                        r2 = await cli2.get(
-                            f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
-                            params={"expand[]": "payment_intent"},
-                            headers={"Authorization": f"Bearer {api_key2}"},
-                        )
-                        if r2.status_code == 200:
-                            sj2 = r2.json()
-                            stripe_customer_id = sj2.get("customer")
-                            pi = sj2.get("payment_intent") or {}
-                            if isinstance(pi, dict):
-                                stripe_payment_method_id = pi.get("payment_method")
-            except Exception as e:
-                logging.getLogger(__name__).warning(
-                    f"Could not capture stripe customer/payment_method for {session_id}: {e}"
+            # Look up the Stripe session to capture customer + payment_method IDs
+            # so admin can later trigger off-session wait-time / damage / mid-trip-stop charges.
+            ids = await _capture_off_session_ids(session_id)
+            # Backfill: if the webhook beat us to marking paid but didn't save the IDs,
+            # save them now even though payment_status is already "paid".
+            if booking and (
+                booking.get("payment_status") == "paid"
+                and not booking.get("stripe_payment_method_id")
+                and ids.get("stripe_payment_method_id")
+            ):
+                await db.bookings.update_one(
+                    {"id": txn["booking_id"]},
+                    {"$set": {
+                        **({"stripe_customer_id": ids["stripe_customer_id"]} if ids.get("stripe_customer_id") else {}),
+                        "stripe_payment_method_id": ids["stripe_payment_method_id"],
+                    }},
                 )
+                booking = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
             if booking and booking.get("payment_status") != "paid":
                 # Generate manage token if not yet issued (legacy bookings)
                 token = booking.get("manage_token") or _generate_manage_token()
@@ -2678,10 +2673,10 @@ async def get_payment_status(session_id: str, request: Request):
                     "confirmation_number": cn,
                     "quote_amount": booking.get("quote_amount") or amount,
                 }
-                if stripe_customer_id:
-                    update_set["stripe_customer_id"] = stripe_customer_id
-                if stripe_payment_method_id:
-                    update_set["stripe_payment_method_id"] = stripe_payment_method_id
+                if ids.get("stripe_customer_id"):
+                    update_set["stripe_customer_id"] = ids["stripe_customer_id"]
+                if ids.get("stripe_payment_method_id"):
+                    update_set["stripe_payment_method_id"] = ids["stripe_payment_method_id"]
                 await db.bookings.update_one(
                     {"id": txn["booking_id"]},
                     {"$set": update_set},
@@ -2735,6 +2730,101 @@ async def get_payment_status(session_id: str, request: Request):
     )
 
 
+async def _capture_off_session_ids(session_id: str) -> dict:
+    """Look up a Stripe Checkout Session and return its customer + payment_method IDs.
+    Returns {} if Stripe isn't configured or the call fails — caller handles missing keys.
+    Used by both the polling endpoint AND the webhook so we don't depend on a race."""
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        return {}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as cli:
+            r = await cli.get(
+                f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
+                params={"expand[]": "payment_intent"},
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            if r.status_code != 200:
+                return {}
+            sj = r.json()
+            out = {}
+            cust = sj.get("customer")
+            if cust:
+                out["stripe_customer_id"] = cust
+            pi = sj.get("payment_intent") or {}
+            if isinstance(pi, dict):
+                pm = pi.get("payment_method")
+                if pm:
+                    out["stripe_payment_method_id"] = pm
+            return out
+    except Exception as e:
+        logger.warning(f"_capture_off_session_ids({session_id}) failed: {e}")
+        return {}
+
+
+@api_router.post("/admin/bookings/{booking_id}/backfill-saved-card")
+async def admin_backfill_saved_card(booking_id: str, _: dict = Depends(require_admin)):
+    """For paid bookings where the Stripe webhook beat the polling endpoint and we never
+    saved customer/payment_method IDs — re-look them up from Stripe and save now.
+    No-op if already saved or the booking has no payment_session_id."""
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if b.get("payment_status") != "paid":
+        raise HTTPException(status_code=400, detail="Booking is not paid yet.")
+    sid = b.get("payment_session_id")
+    if not sid:
+        # Fallback: look up via payment_transactions
+        txn = await db.payment_transactions.find_one({"booking_id": booking_id}, {"_id": 0})
+        sid = txn.get("session_id") if txn else None
+    if not sid:
+        raise HTTPException(status_code=400, detail="No Stripe session ID on this booking.")
+    ids = await _capture_off_session_ids(sid)
+    if not ids.get("stripe_payment_method_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="Stripe didn't return a payment_method for this session. The customer may have paid with a method that can't be reused off-session.",
+        )
+    update_set = {}
+    if ids.get("stripe_customer_id"):
+        update_set["stripe_customer_id"] = ids["stripe_customer_id"]
+    if ids.get("stripe_payment_method_id"):
+        update_set["stripe_payment_method_id"] = ids["stripe_payment_method_id"]
+    if update_set:
+        await db.bookings.update_one({"id": booking_id}, {"$set": update_set})
+    return {"backfilled": True, **update_set}
+
+
+@api_router.post("/admin/payments/backfill-saved-cards")
+async def admin_backfill_all_saved_cards(_: dict = Depends(require_admin)):
+    """Bulk version: scan all paid bookings missing `stripe_payment_method_id` and
+    look up their saved card IDs from Stripe. Useful one-shot after this fix."""
+    affected = []
+    skipped = []
+    cursor = db.bookings.find(
+        {
+            "payment_status": "paid",
+            "stripe_payment_method_id": {"$in": [None, ""]},
+        },
+        {"_id": 0, "id": 1, "payment_session_id": 1, "confirmation_number": 1},
+    )
+    async for b in cursor:
+        sid = b.get("payment_session_id")
+        if not sid:
+            txn = await db.payment_transactions.find_one({"booking_id": b["id"]}, {"_id": 0})
+            sid = txn.get("session_id") if txn else None
+        if not sid:
+            skipped.append({"id": b["id"], "cn": b.get("confirmation_number"), "reason": "no session id"})
+            continue
+        ids = await _capture_off_session_ids(sid)
+        if not ids.get("stripe_payment_method_id"):
+            skipped.append({"id": b["id"], "cn": b.get("confirmation_number"), "reason": "stripe returned no payment_method"})
+            continue
+        await db.bookings.update_one({"id": b["id"]}, {"$set": ids})
+        affected.append({"id": b["id"], "cn": b.get("confirmation_number")})
+    return {"backfilled_count": len(affected), "skipped_count": len(skipped), "affected": affected, "skipped": skipped}
+
+
 @api_router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
     body = await request.body()
@@ -2762,16 +2852,21 @@ async def stripe_webhook(request: Request):
                 amount = float(txn.get("amount", 0))
                 cn = booking.get("confirmation_number") or await _next_unique_confirmation_number()
                 token = booking.get("manage_token") or _generate_manage_token()
+                update_set = {
+                    "payment_status": "paid",
+                    "paid_amount": amount,
+                    "paid_currency": txn.get("currency", "usd"),
+                    "manage_token": token,
+                    "confirmation_number": cn,
+                    "quote_amount": booking.get("quote_amount") or amount,
+                }
+                # Capture customer + payment_method so admin can later trigger
+                # off-session wait-time / damage / mid-trip-stop charges.
+                ids = await _capture_off_session_ids(sid)
+                update_set.update(ids)
                 await db.bookings.update_one(
                     {"id": txn["booking_id"]},
-                    {"$set": {
-                        "payment_status": "paid",
-                        "paid_amount": amount,
-                        "paid_currency": txn.get("currency", "usd"),
-                        "manage_token": token,
-                        "confirmation_number": cn,
-                        "quote_amount": booking.get("quote_amount") or amount,
-                    }},
+                    {"$set": update_set},
                 )
                 # Send payment-received email (best-effort)
                 try:
