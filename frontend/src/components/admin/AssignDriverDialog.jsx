@@ -51,6 +51,8 @@ export default function AssignDriverDialog({ booking, onAssigned }) {
     driver_phone: booking.driver_phone || "",
     driver_email: booking.driver_email || "",
     driver_plate: booking.driver_plate || "",
+    driver_vehicle: booking.driver_vehicle || "",
+    notify_customer: true,
   });
 
   const isReassign = !!booking.driver_token;
@@ -165,6 +167,33 @@ export default function AssignDriverDialog({ booking, onAssigned }) {
               />
             </div>
           </div>
+
+          <div>
+            <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">Vehicle (shown to customer)</Label>
+            <Input
+              data-testid="driver-vehicle-input"
+              className={cn(inputCls, "mt-1 h-10")}
+              value={form.driver_vehicle}
+              onChange={(e) => setForm((f) => ({ ...f, driver_vehicle: e.target.value }))}
+              placeholder="e.g., Mercedes S-Class · Black"
+            />
+            <p className="text-[10px] text-white/40 mt-1">
+              Leave blank to default to the booked vehicle class ({booking.vehicle_type}).
+            </p>
+          </div>
+
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              data-testid="notify-customer-checkbox"
+              checked={form.notify_customer}
+              onChange={(e) => setForm((f) => ({ ...f, notify_customer: e.target.checked }))}
+              className="mt-0.5 accent-[#D4AF37]"
+            />
+            <span className="text-xs text-white/70 leading-relaxed">
+              Email the customer with the chauffeur's name, phone, vehicle, and plate. Recommended.
+            </span>
+          </label>
 
           {driverUrl && (
             <div className="rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/5 p-3 mt-2">

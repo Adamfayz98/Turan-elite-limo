@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import asyncio
+from datetime import datetime
 import logging
 from typing import Optional
 
@@ -237,9 +238,50 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str] = None, 
         for e in extras
     )
 
+    # Schema.org structured data — tells Gmail/Apple Mail to render this as a
+    # confirmed limo reservation instead of auto-guessing "train trip canceled".
+    import json as _json
+    pickup_dt_iso = ""
+    try:
+        pdt = booking.get("pickup_date")
+        ptm = booking.get("pickup_time") or "00:00"
+        if pdt:
+            pickup_dt_iso = f"{pdt}T{ptm}:00-08:00"
+    except Exception:
+        pickup_dt_iso = ""
+    schema = {
+        "@context": "http://schema.org",
+        "@type": "Reservation",
+        "reservationNumber": cn,
+        "reservationStatus": "http://schema.org/ReservationConfirmed",
+        "underName": {"@type": "Person", "name": booking.get("full_name", "")},
+        "reservationFor": {
+            "@type": "Taxi",
+            "name": f"TuranEliteLimo · {booking.get('vehicle_type','Chauffeur')}",
+        },
+        "pickupTime": pickup_dt_iso or None,
+        "pickupLocation": {
+            "@type": "Place",
+            "name": booking.get("pickup_location", ""),
+            "address": booking.get("pickup_location", ""),
+        },
+        "dropoffLocation": {
+            "@type": "Place",
+            "name": booking.get("dropoff_location", ""),
+            "address": booking.get("dropoff_location", ""),
+        },
+        "provider": {
+            "@type": "Organization",
+            "name": "TuranEliteLimo",
+            "url": "https://turanelitelimo.com",
+        },
+    }
+    schema = {k: v for k, v in schema.items() if v is not None}
+    schema_block = f'<script type="application/ld+json">{_json.dumps(schema)}</script>'
+
     return f"""
 <!doctype html>
-<html><body style="margin:0;padding:0;background:#0a0a0a;font-family:Arial,Helvetica,sans-serif;color:#ffffff;">
+<html><head>{schema_block}</head><body style="margin:0;padding:0;background:#0a0a0a;font-family:Arial,Helvetica,sans-serif;color:#ffffff;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;padding:40px 16px;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#111111;border-radius:14px;overflow:hidden;border:1px solid #1f1f1f;">
@@ -257,7 +299,7 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str] = None, 
             Hi {booking.get('full_name','').split(' ')[0] or 'there'} — your ride is locked in.
           </h1>
           <p style="color:#aaaaaa;font-size:14px;line-height:1.6;margin:0;">
-            Thank you for choosing TuranEliteLimo. Your reservation has been received and confirmed.
+            Thank you for choosing TuranEliteLimo. Your reservation is received and confirmed.
             Save the confirmation number below — your chauffeur will reference it on arrival.
           </p>
         </td></tr>
@@ -910,6 +952,116 @@ def render_mid_trip_stop_charge_email(booking: dict, stop: dict) -> str:
         </td></tr>
         <tr><td style="padding:18px 32px;border-top:1px solid #eee;color:#888;font-size:11px;text-align:center;">
           TuranEliteLimo · Millbrae, CA · turanelitelimo.com
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+
+
+def render_chauffeur_assigned_email(booking: dict, manage_url: Optional[str] = None) -> str:
+    """Notifies customer that a chauffeur has been assigned. Includes name, phone,
+    vehicle, plate. Sent the moment admin clicks 'Assign driver'."""
+    cn = booking.get("confirmation_number") or "—"
+    first = (booking.get("full_name", "") or "there").split(" ")[0] or "there"
+    driver_name = booking.get("driver_name") or "Your chauffeur"
+    driver_phone = booking.get("driver_phone") or ""
+    driver_phone_clean = "".join(ch for ch in driver_phone if ch.isdigit() or ch == "+")
+    plate = booking.get("driver_plate") or ""
+    vehicle_display = booking.get("driver_vehicle") or booking.get("vehicle_type") or "Premium chauffeur vehicle"
+    pickup_date = booking.get("pickup_date", "")
+    pickup_time_disp = _format_time_12h(booking.get("pickup_time", ""))
+    manage_btn = render_manage_link_html(manage_url) if manage_url else ""
+
+    # Schema.org JSON-LD so Gmail renders this as a confirmed reservation update (not a fresh email guess).
+    import json as _json
+    pickup_dt_iso = ""
+    try:
+        if pickup_date:
+            pickup_dt_iso = f"{pickup_date}T{(booking.get('pickup_time') or '00:00')}:00-08:00"
+    except Exception:
+        pickup_dt_iso = ""
+    schema = {
+        "@context": "http://schema.org",
+        "@type": "Reservation",
+        "reservationNumber": cn,
+        "reservationStatus": "http://schema.org/ReservationConfirmed",
+        "modifiedTime": datetime.utcnow().isoformat() + "Z",
+        "underName": {"@type": "Person", "name": booking.get("full_name", "")},
+        "reservationFor": {"@type": "Taxi", "name": f"TuranEliteLimo · {vehicle_display}"},
+        "pickupTime": pickup_dt_iso or None,
+        "pickupLocation": {"@type": "Place", "name": booking.get("pickup_location", "")},
+        "dropoffLocation": {"@type": "Place", "name": booking.get("dropoff_location", "")},
+        "provider": {"@type": "Organization", "name": "TuranEliteLimo", "url": "https://turanelitelimo.com"},
+    }
+    schema = {k: v for k, v in schema.items() if v is not None}
+    schema_block = f'<script type="application/ld+json">{_json.dumps(schema)}</script>'
+
+    call_btn = (
+        f'<a href="tel:{driver_phone_clean}" '
+        f'style="display:inline-block;background:#D4AF37;color:#0a0a0a;'
+        f'padding:14px 28px;border-radius:999px;text-decoration:none;'
+        f'font-weight:700;font-size:14px;letter-spacing:0.5px;margin-right:8px;">'
+        f'📞 Call chauffeur</a>'
+    ) if driver_phone_clean else ""
+    sms_btn = (
+        f'<a href="sms:{driver_phone_clean}" '
+        f'style="display:inline-block;background:transparent;color:#D4AF37;'
+        f'border:1px solid #D4AF37;padding:13px 28px;border-radius:999px;'
+        f'text-decoration:none;font-weight:600;font-size:14px;letter-spacing:0.5px;">'
+        f'💬 Text chauffeur</a>'
+    ) if driver_phone_clean else ""
+
+    return f"""
+<!doctype html>
+<html><head>{schema_block}</head><body style="margin:0;padding:0;background:#0a0a0a;font-family:Arial,Helvetica,sans-serif;color:#ffffff;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#111111;border-radius:14px;overflow:hidden;border:1px solid #1f1f1f;">
+        <tr><td style="background:#0a0a0a;padding:28px 32px;border-bottom:1px solid #1f1f1f;">
+          <span style="font-size:24px;color:#ffffff;font-weight:700;letter-spacing:-0.3px;">
+            Turan<span style="color:#D4AF37;">EliteLimo</span>
+          </span>
+        </td></tr>
+
+        <tr><td style="padding:32px 32px 8px 32px;">
+          <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#D4AF37;margin-bottom:12px;">
+            Chauffeur Assigned · #{cn}
+          </div>
+          <h1 style="font-size:24px;color:#ffffff;margin:0 0 10px 0;font-weight:600;">
+            Hi {first} — meet your chauffeur.
+          </h1>
+          <p style="color:#aaaaaa;font-size:14px;line-height:1.6;margin:0;">
+            We've matched your reservation with a chauffeur. They'll be in touch close to pickup time, or you can reach out anytime using the buttons below.
+          </p>
+        </td></tr>
+
+        <tr><td style="padding:24px 32px 0 32px;">
+          <table cellpadding="0" cellspacing="0" width="100%" style="background:#0a0a0a;border:1px solid #D4AF37;border-radius:10px;">
+            <tr><td style="padding:22px 24px;">
+              <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#888;">Chauffeur</div>
+              <div style="font-size:22px;color:#ffffff;font-weight:600;margin-top:4px;">{driver_name}</div>
+              <div style="font-size:13px;color:#D4AF37;margin-top:2px;">{driver_phone or "Contact via dispatch"}</div>
+
+              <table cellpadding="0" cellspacing="0" width="100%" style="margin-top:18px;border-top:1px solid #1f1f1f;">
+                <tr><td style="padding-top:14px;color:#888;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Vehicle</td>
+                    <td style="padding-top:14px;color:#ffffff;font-size:14px;text-align:right;">{vehicle_display}</td></tr>
+                {'<tr><td style="padding-top:10px;color:#888;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Plate</td><td style="padding-top:10px;color:#ffffff;font-size:14px;text-align:right;font-family:Courier,monospace;letter-spacing:1.5px;">'+plate+'</td></tr>' if plate else ''}
+                <tr><td style="padding-top:10px;color:#888;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Pickup</td>
+                    <td style="padding-top:10px;color:#ffffff;font-size:14px;text-align:right;">{pickup_date} · {pickup_time_disp}</td></tr>
+              </table>
+            </td></tr>
+          </table>
+        </td></tr>
+
+        {f'<tr><td style="padding:22px 32px 0 32px;text-align:center;">{call_btn}{sms_btn}</td></tr>' if (call_btn or sms_btn) else ''}
+
+        {manage_btn}
+
+        <tr><td style="padding:30px 32px;color:#666;font-size:12px;line-height:1.6;text-align:center;border-top:1px solid #1f1f1f;">
+          Questions? Reply to this email or call <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">(650) 410-0687</a>.<br>
+          <span style="color:#444;">TuranEliteLimo · Millbrae, CA</span>
         </td></tr>
       </table>
     </td></tr>

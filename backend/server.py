@@ -196,6 +196,7 @@ class Booking(BaseModel):
     driver_phone: Optional[str] = None
     driver_email: Optional[str] = None
     driver_plate: Optional[str] = None
+    driver_vehicle: Optional[str] = None
     driver_token: Optional[str] = None  # tokenized URL for the driver dispatch portal
     trip_status: Optional[str] = None   # assigned | en_route | on_location | passenger_onboard | completed
     trip_status_updated_at: Optional[str] = None
@@ -1053,6 +1054,8 @@ class DriverAssignRequest(BaseModel):
     driver_phone: str = Field(..., min_length=7, max_length=30)
     driver_email: Optional[str] = ""
     driver_plate: Optional[str] = ""
+    driver_vehicle: Optional[str] = ""  # e.g., "Mercedes S-Class · Black"
+    notify_customer: bool = True  # send email to customer with chauffeur details
 
 
 class DriverStatusUpdate(BaseModel):
@@ -1078,6 +1081,7 @@ async def assign_driver(booking_id: str, payload: DriverAssignRequest, request: 
         "driver_phone": payload.driver_phone.strip(),
         "driver_email": (payload.driver_email or "").strip(),
         "driver_plate": (payload.driver_plate or "").strip().upper(),
+        "driver_vehicle": (payload.driver_vehicle or "").strip(),
         "driver_token": token,
         "trip_status": b.get("trip_status") or "assigned",
         "trip_status_updated_at": datetime.now(timezone.utc).isoformat(),
@@ -1096,6 +1100,24 @@ async def assign_driver(booking_id: str, payload: DriverAssignRequest, request: 
     except Exception as e:
         logger.warning(f"Driver dispatch SMS failed: {e}")
 
+    # Email the customer with chauffeur contact info + vehicle + plate
+    if payload.notify_customer:
+        try:
+            from email_service import render_chauffeur_assigned_email
+            manage_url = (
+                f"{client_origin}/manage/{b.get('manage_token')}"
+                if b.get("manage_token") else None
+            )
+            html = render_chauffeur_assigned_email({**b, **update_doc}, manage_url=manage_url)
+            await send_email(
+                to=b["email"],
+                subject=f"Your chauffeur for #{b.get('confirmation_number','')} — {update_doc['driver_name']}",
+                html=html,
+                bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+            )
+        except Exception as e:
+            logger.warning(f"Chauffeur-assigned email failed (non-fatal): {e}")
+
     return {"ok": True, "driver_token": token, "driver_url": driver_url}
 
 
@@ -1107,7 +1129,7 @@ async def unassign_driver(booking_id: str, _: dict = Depends(require_admin)):
         {"id": booking_id},
         {"$unset": {
             "driver_name": "", "driver_phone": "", "driver_email": "",
-            "driver_plate": "", "driver_token": "", "trip_status": "",
+            "driver_plate": "", "driver_vehicle": "", "driver_token": "", "trip_status": "",
             "trip_status_updated_at": "",
         }},
     )
@@ -1146,6 +1168,7 @@ async def driver_view_booking(driver_token: str):
         "notes": b.get("notes"),
         "driver_name": b.get("driver_name"),
         "driver_plate": b.get("driver_plate"),
+        "driver_vehicle": b.get("driver_vehicle"),
         # Phase 2b — wait time state
         "wait_time_consent": b.get("wait_time_consent", False),
         "flight_landed_at": b.get("flight_landed_at"),
