@@ -307,3 +307,23 @@ See `/app/memory/test_credentials.md` (includes 2FA programmatic bypass recipe f
 - P2 — Dev-flag 2FA bypass for Playwright UI testing of admin charge buttons
 - P2 — Show damage-charge history more prominently
 - Twilio toll-free SMS verification (blocked on user action)
+
+## Session Update — Feb 2026 (Round 3) — Per-stop Fee
+
+### Pre-booked extra stops now priced
+- New `Settings.per_stop_fee` (default **$15**, configurable in Admin → Settings) — flat fee added per additional stop on transfer-type trips.
+- Hourly Chauffeur bookings are exempt (stops already covered by the hourly clock).
+- `QuoteRequest.additional_stops_count` field; `QuoteResponse` now returns `per_stop_fee`, `stop_fee_total`, `additional_stops_count`.
+- `_compute_quote_amount` (Stripe checkout amount) also applies the per-stop fee from the booking's `additional_stops` array.
+- Booking form: `additional_stops_count` sent automatically from `stops.length`. New "X additional stops · +$Y total" banner shown above service-fee banner.
+- Admin Settings tab: new `Per-stop flat fee` input with industry-standard $15–25 hint.
+- Vehicle quote message tags differentiate "meet & greet" vs "N stop(s)" instead of generic "addon" label.
+- Startup migration `per_stop_fee_migrated_v1` seeds $15 on any settings doc that doesn't have the field.
+
+### Testing
+- Backend pytest (iter 19 + 20): 100% pass.
+- Verified via curl: stops-only quote shows "2 stops" tag, M&G+stops shows both tags, hourly with stops correctly skips fee.
+- Pricing math verified: 2 stops × $15 × 1.035 service fee = +$31.05 over baseline.
+
+### Phase B (NOT YET BUILT — backlog)
+- **Mid-trip stop tracking**: driver records an unplanned stop {address, minutes_at_stop, miles_added}; admin reviews on Booking Details and triggers off-session charge using formula `base + miles × per_mile + wait_overage × wait_minute_rate`. Same off-session consent already covers it.

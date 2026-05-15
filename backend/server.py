@@ -569,9 +569,11 @@ def _build_quotes(
     surge_mult: float = 1.0,
     surge_flat: float = 0.0,
     addon_flat: float = 0.0,
+    addon_tags: Optional[List[str]] = None,
 ) -> List[VehicleQuote]:
     quotes: List[VehicleQuote] = []
     has_event = surge_mult != 1.0 or surge_flat > 0
+    addon_tags = addon_tags or []
     for vt in VEHICLE_TYPES:
         cfg = pricing_map.get(vt)
         if cfg is None or cfg.get("call_only"):
@@ -586,7 +588,7 @@ def _build_quotes(
             price += surcharge
         if has_event:
             price = _apply_surge(price, surge_mult, surge_flat)
-        # Add-on (e.g., Meet & Greet) is added AFTER surge so it's a true flat add
+        # Add-on (e.g., Meet & Greet, per-stop fee) is added AFTER surge as a flat add
         if addon_flat > 0:
             price += addon_flat
         price = round(price, 2)
@@ -595,8 +597,7 @@ def _build_quotes(
             tags.append("long-distance area")
         if has_event:
             tags.append("event surge")
-        if addon_flat > 0:
-            tags.append("meet & greet")
+        tags.extend(addon_tags)
         msg = "Estimated flat rate" + (" · " + " · ".join(tags) if tags else "")
         quotes.append(VehicleQuote(
             vehicle_type=vt,
@@ -811,6 +812,11 @@ async def quote_ride(payload: QuoteRequest):
     stop_fee_total = 0.0 if is_hourly_q else round(per_stop_fee * stops_count, 2)
     # Combined flat add-on that gets bolted onto every priced vehicle quote
     addon_flat_total = round(mg_fee + stop_fee_total, 2)
+    addon_tags: List[str] = []
+    if mg_fee > 0:
+        addon_tags.append("meet & greet")
+    if stop_fee_total > 0:
+        addon_tags.append(f"{stops_count} stop{'s' if stops_count > 1 else ''}")
 
     # Surge events (date-based) — apply on top of all base/hourly pricing
     surge_events = await _load_surge_events()
@@ -857,7 +863,7 @@ async def quote_ride(payload: QuoteRequest):
     dropoff = await _geocode(payload.dropoff_location)
     if not pickup or not dropoff:
         return _apply_service_fee_to_quote_response(QuoteResponse(
-            quotes=_build_quotes(None, pricing_map, addon_flat=addon_flat_total),
+            quotes=_build_quotes(None, pricing_map, addon_flat=addon_flat_total, addon_tags=addon_tags),
             fallback=True,
             meet_and_greet_fee=mg_fee if mg_fee > 0 else None,
             per_stop_fee=per_stop_fee if per_stop_fee > 0 else None,
@@ -897,6 +903,7 @@ async def quote_ride(payload: QuoteRequest):
             surge_mult=surge_mult,
             surge_flat=surge_flat,
             addon_flat=addon_flat_total,
+            addon_tags=addon_tags,
         ),
         fallback=False,
         surcharge_applied=surcharge_info,
