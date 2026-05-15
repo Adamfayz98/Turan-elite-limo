@@ -150,6 +150,7 @@ export default function BookingForm() {
           pickup_date: date ? format(date, "yyyy-MM-dd") : null,
           meet_and_greet: !!form.meet_and_greet,
           additional_stops_count: cleanStops.length,
+          additional_stops: cleanStops,
         });
         setQuote(data);
       } catch {

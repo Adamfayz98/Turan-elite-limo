@@ -411,6 +411,7 @@ class QuoteRequest(BaseModel):
     pickup_date: Optional[str] = None  # YYYY-MM-DD — for surge-event matching
     meet_and_greet: bool = False  # Airport Transfer only
     additional_stops_count: int = Field(0, ge=0, le=10)  # # of extra stops; priced via Settings.per_stop_fee
+    additional_stops: List[str] = Field(default_factory=list)  # actual addresses, used to extend the priced route
 
 
 class VehicleQuote(BaseModel):
@@ -873,6 +874,17 @@ async def quote_ride(payload: QuoteRequest):
         ), settings.service_fee_percent)
 
     miles = _haversine_miles(pickup["lat"], pickup["lon"], dropoff["lat"], dropoff["lon"])
+    # Extend the priced route through any pre-booked additional stops so the
+    # detour mileage is reflected in the per-mile portion of the quote (not just
+    # the flat per-stop fee). Hourly is excluded — its mileage is bundled.
+    if (
+        not is_hourly_q
+        and payload.additional_stops
+        and len(payload.additional_stops) > 0
+    ):
+        stop_coords = await _resolve_coords_for_addresses(payload.additional_stops)
+        if stop_coords:
+            miles = _route_total_miles(pickup, stop_coords, dropoff)
     miles = round(miles, 1)
     duration_minutes = round((miles * 1.4) / 32.0 * 60.0 + 8.0, 0)
 
@@ -2214,6 +2226,12 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
     if not pickup or not dropoff:
         return None
     miles = _haversine_miles(pickup["lat"], pickup["lon"], dropoff["lat"], dropoff["lon"])
+    # Extend the priced route through any pre-booked additional stops (transfer trips only).
+    pre_stops = booking.get("additional_stops") or []
+    if pre_stops:
+        stop_coords = await _resolve_coords_for_addresses(pre_stops)
+        if stop_coords:
+            miles = _route_total_miles(pickup, stop_coords, dropoff)
     price = max(float(cfg["base"]) + float(cfg["per_mile"]) * miles, float(cfg["minimum"]))
     # Apply zone surcharge if applicable (same rule as live /quote endpoint)
     zones = await _load_zones()
