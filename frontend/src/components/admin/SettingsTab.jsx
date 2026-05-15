@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 export default function SettingsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [settings, setSettings] = useState({ deposit_percent: 100, currency: "usd", meet_greet_fee: 25, service_fee_percent: 0, per_stop_fee: 15 });
+  const [settings, setSettings] = useState({ deposit_percent: 100, currency: "usd", meet_greet_fee: 25, service_fee_percent: 0, per_stop_fee: 15, cancellation_tiers: [{hours_before_pickup: 24, refund_percent: 100}, {hours_before_pickup: 6, refund_percent: 50}, {hours_before_pickup: 0, refund_percent: 0}] });
 
   const load = async () => {
     setLoading(true);
@@ -38,6 +38,10 @@ export default function SettingsTab() {
         meet_greet_fee: Number(settings.meet_greet_fee) || 0,
         service_fee_percent: Number(settings.service_fee_percent) || 0,
         per_stop_fee: Number(settings.per_stop_fee) || 0,
+        cancellation_tiers: (settings.cancellation_tiers || []).map((t) => ({
+          hours_before_pickup: Number(t.hours_before_pickup) || 0,
+          refund_percent: Number(t.refund_percent) || 0,
+        })),
       };
       await api.patch("/admin/settings", payload);
       toast.success("Settings saved");
@@ -125,6 +129,90 @@ export default function SettingsTab() {
             <span className="text-xs text-white/55">
               Added transparently to every quote. <strong className="text-white/80">Recommended: 3.5%</strong> to fully cover Stripe's 2.9% + $0.30 cut on refunds. Set to 0 to disable.
             </span>
+          </div>
+        </div>
+
+        <div className="md:col-span-2 pt-4 border-t border-[#1F1F1F]">
+          <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            Cancellation refund tiers
+          </Label>
+          <p className="text-xs text-white/55 mt-1 mb-3 leading-relaxed">
+            When a customer cancels, the "Tier refund" option in the refund dialog auto-calculates from these rules. Higher hours = more refund. The system picks the highest tier the booking still qualifies for.
+          </p>
+          <div className="space-y-2" data-testid="settings-cancellation-tiers">
+            {(settings.cancellation_tiers || []).map((tier, idx) => (
+              <div
+                key={idx}
+                className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2 rounded-lg border border-[#27272A] bg-[#0E0E0E] px-3 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-white/50 whitespace-nowrap">{">"}=</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="1"
+                    data-testid={`tier-hours-${idx}`}
+                    value={tier.hours_before_pickup ?? 0}
+                    onChange={(e) =>
+                      setSettings((s) => {
+                        const next = [...(s.cancellation_tiers || [])];
+                        next[idx] = { ...next[idx], hours_before_pickup: e.target.value };
+                        return { ...s, cancellation_tiers: next };
+                      })
+                    }
+                    className="bg-[#0A0A0A] border-[#27272A] text-white focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] h-9 w-20"
+                  />
+                  <span className="text-xs text-white/65 whitespace-nowrap">hours before</span>
+                </div>
+                <span className="text-xs text-white/40">→</span>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="1"
+                    data-testid={`tier-percent-${idx}`}
+                    value={tier.refund_percent ?? 0}
+                    onChange={(e) =>
+                      setSettings((s) => {
+                        const next = [...(s.cancellation_tiers || [])];
+                        next[idx] = { ...next[idx], refund_percent: e.target.value };
+                        return { ...s, cancellation_tiers: next };
+                      })
+                    }
+                    className="bg-[#0A0A0A] border-[#27272A] text-white focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] h-9 w-20"
+                  />
+                  <Percent className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span className="text-xs text-white/55 whitespace-nowrap">refund</span>
+                </div>
+                <button
+                  type="button"
+                  data-testid={`tier-remove-${idx}`}
+                  onClick={() =>
+                    setSettings((s) => ({
+                      ...s,
+                      cancellation_tiers: (s.cancellation_tiers || []).filter((_, i) => i !== idx),
+                    }))
+                  }
+                  className="text-white/40 hover:text-red-400 text-[10px] uppercase tracking-wider px-2"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              data-testid="tier-add"
+              onClick={() =>
+                setSettings((s) => ({
+                  ...s,
+                  cancellation_tiers: [...(s.cancellation_tiers || []), { hours_before_pickup: 0, refund_percent: 0 }],
+                }))
+              }
+              className="text-[#D4AF37] hover:underline text-xs uppercase tracking-wider"
+            >
+              + Add tier
+            </button>
           </div>
         </div>
 

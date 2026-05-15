@@ -40,6 +40,7 @@ import {
 import Logo from "@/components/Logo";
 import AssignDriverDialog, { DriverStatusPill } from "@/components/admin/AssignDriverDialog";
 import BookingDetailsDialog from "@/components/admin/BookingDetailsDialog";
+import RefundDialog from "@/components/admin/RefundDialog";
 import { formatTime12h } from "@/lib/utils";
 import {
   AlertDialog,
@@ -172,6 +173,7 @@ export default function AdminDashboard() {
   const [cancelling, setCancelling] = useState(false);
   const [autoRefund, setAutoRefund] = useState(true);
   const [detailBooking, setDetailBooking] = useState(null);
+  const [refundTarget, setRefundTarget] = useState(null);
 
   const submitCancel = async () => {
     if (!cancelTarget) return;
@@ -615,36 +617,16 @@ export default function AdminDashboard() {
                             {b.payment_status === "paid" && (
                               <>
                                 <DropdownMenuSeparator className="bg-white/10" />
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <DropdownMenuItem
-                                      onSelect={(e) => e.preventDefault()}
-                                      data-testid={`refund-action-${b.id}`}
-                                      className="text-orange-400 focus:text-orange-400 focus:bg-orange-500/10"
-                                    >
-                                      <CreditCard className="w-4 h-4 mr-2" /> Refund payment
-                                    </DropdownMenuItem>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent className="bg-[#0A0A0A] border-[#1F1F1F] text-white">
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Refund this payment?</AlertDialogTitle>
-                                      <AlertDialogDescription className="text-white/60">
-                                        ${b.paid_amount?.toFixed(2)} will be returned to the customer's card. This cannot be undone.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel className="bg-transparent border-white/20 hover:bg-white/10">
-                                        Cancel
-                                      </AlertDialogCancel>
-                                      <AlertDialogAction
-                                        onClick={() => refundBooking(b.id)}
-                                        className="bg-orange-500 hover:bg-orange-600"
-                                      >
-                                        Refund
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
+                                <DropdownMenuItem
+                                  onSelect={(e) => {
+                                    e.preventDefault();
+                                    setRefundTarget(b);
+                                  }}
+                                  data-testid={`refund-action-${b.id}`}
+                                  className="text-orange-400 focus:text-orange-400 focus:bg-orange-500/10"
+                                >
+                                  <CreditCard className="w-4 h-4 mr-2" /> Refund payment
+                                </DropdownMenuItem>
                               </>
                             )}
                             <DropdownMenuSeparator className="bg-white/10" />
@@ -812,6 +794,12 @@ export default function AdminDashboard() {
         booking={detailBooking}
         open={!!detailBooking}
         onClose={() => setDetailBooking(null)}
+        onChanged={fetchAll}
+      />
+      <RefundDialog
+        booking={refundTarget}
+        open={!!refundTarget}
+        onClose={() => setRefundTarget(null)}
         onChanged={fetchAll}
       />
 

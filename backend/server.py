@@ -2248,6 +2248,13 @@ class Settings(BaseModel):
     deposit_percent: int = Field(100, ge=0, le=100)
     currency: str = "usd"
     meet_greet_fee: float = Field(25.0, ge=0)
+    cancellation_tiers: List[dict] = Field(
+        default_factory=lambda: [
+            {"hours_before_pickup": 24, "refund_percent": 100},
+            {"hours_before_pickup": 6, "refund_percent": 50},
+            {"hours_before_pickup": 0, "refund_percent": 0},
+        ]
+    )
     service_fee_percent: float = Field(3.5, ge=0, le=20)  # default 3.5% — covers Stripe processing on refunds
     per_stop_fee: float = Field(15.0, ge=0)  # flat fee added per additional stop on a transfer
 
@@ -2271,6 +2278,7 @@ async def get_public_settings():
     return {
         "service_fee_percent": s.service_fee_percent,
         "per_stop_fee": s.per_stop_fee,
+        "cancellation_tiers": s.cancellation_tiers,
         "currency": s.currency,
     }
 
@@ -2281,6 +2289,8 @@ class SettingsUpdate(BaseModel):
     meet_greet_fee: Optional[float] = Field(None, ge=0)
     service_fee_percent: Optional[float] = Field(None, ge=0, le=20)
     per_stop_fee: Optional[float] = Field(None, ge=0)
+    cancellation_tiers: Optional[List[dict]] = None
+    cancellation_tiers: Optional[List[dict]] = None
 
 
 @api_router.patch("/admin/settings", response_model=Settings)
@@ -2890,8 +2900,70 @@ async def stripe_webhook(request: Request):
 
 
 # ---------- Admin refund ----------
+def _parse_pickup_dt(booking: dict) -> Optional[datetime]:
+    """Combine pickup_date + pickup_time into a tz-aware datetime (UTC).
+    The site doesn't store a timezone — we assume the pickup time is local Pacific time
+    since this is a Bay Area limo service. For tier math we just need a stable delta."""
+    d = booking.get("pickup_date")
+    t = booking.get("pickup_time") or "00:00"
+    if not d:
+        return None
+    try:
+        dt = datetime.strptime(f"{d} {t}", "%Y-%m-%d %H:%M")
+        return dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def _select_cancellation_tier(hours_until_pickup: float, tiers: List[dict]) -> dict:
+    """Return the matching tier (the highest threshold the booking still qualifies for)."""
+    sorted_tiers = sorted(
+        [t for t in (tiers or [])],
+        key=lambda t: float(t.get("hours_before_pickup") or 0),
+        reverse=True,
+    )
+    for tier in sorted_tiers:
+        if hours_until_pickup >= float(tier.get("hours_before_pickup") or 0):
+            return tier
+    # Fallback: lowest tier (or 0%)
+    return sorted_tiers[-1] if sorted_tiers else {"hours_before_pickup": 0, "refund_percent": 0}
+
+
+@api_router.get("/admin/bookings/{booking_id}/refund-preview")
+async def admin_refund_preview(booking_id: str, _: dict = Depends(require_admin)):
+    """Show what each refund option would pay out for this booking — without actually
+    refunding anything. Frontend uses this to populate the refund dialog."""
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if b.get("payment_status") != "paid":
+        raise HTTPException(status_code=400, detail="Booking is not paid.")
+    paid = float(b.get("paid_amount") or 0)
+    settings = await _load_settings()
+    pickup_dt = _parse_pickup_dt(b)
+    now = datetime.now(timezone.utc)
+    hours_until = round((pickup_dt - now).total_seconds() / 3600.0, 1) if pickup_dt else None
+    tier = _select_cancellation_tier(hours_until or 0, settings.cancellation_tiers or [])
+    tier_pct = float(tier.get("refund_percent") or 0)
+    tier_amount = round(paid * tier_pct / 100.0, 2)
+    return {
+        "paid_amount": paid,
+        "hours_until_pickup": hours_until,
+        "pickup_in_past": (hours_until is not None and hours_until < 0),
+        "full_refund_amount": paid,
+        "tier_refund_amount": tier_amount,
+        "tier_refund_percent": tier_pct,
+        "tier_threshold_hours": float(tier.get("hours_before_pickup") or 0),
+        "tiers": settings.cancellation_tiers or [],
+        "stripe_fee_estimate": round(paid * 0.029 + 0.30, 2) if paid > 0 else 0.0,
+        "cancellation_requested": b.get("cancellation_requested", False),
+    }
+
+
 class RefundRequest(BaseModel):
     amount: Optional[float] = Field(None, ge=0)  # if None → full refund
+    reason: Optional[str] = Field(None, max_length=80)  # e.g. "admin_cancel", "tier", "custom", "goodwill"
+    note: Optional[str] = Field(None, max_length=300)
 
 
 @api_router.post("/admin/payments/{booking_id}/refund")
@@ -2930,17 +3002,27 @@ async def admin_refund(booking_id: str, payload: RefundRequest, _: dict = Depend
         rj = r.json()
 
     refund_amount = (rj.get("amount") or 0) / 100.0
+    status_label = "refunded" if refund_amount >= float(booking.get("paid_amount") or 0) else "partially_refunded"
     await db.bookings.update_one(
         {"id": booking_id},
         {
             "$set": {
-                "payment_status": "refunded",
+                "payment_status": status_label,
+                "status": "cancelled",
                 "refund_amount": refund_amount,
+                "refund_reason": (payload.reason or "").strip() or None,
+                "refund_note": (payload.note or "").strip() or None,
+                "refunded_at": datetime.now(timezone.utc).isoformat(),
                 "payment_intent_id": pi,
             }
         },
     )
-    return {"refunded": True, "amount": refund_amount, "stripe_refund_id": rj.get("id")}
+    return {
+        "refunded": True,
+        "amount": refund_amount,
+        "stripe_refund_id": rj.get("id"),
+        "status": status_label,
+    }
 
 
 # ---------- Admin: charge wait time (uses driver-recorded minutes) ----------
