@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 18 — Wait-time recording (driver) + admin off-session charges (wait + damages) + 3.5% default service fee. Backend pytest: 19/19 PASS (2.3s) in /app/backend/tests/test_iteration18_wait_damage.py covering: (a) GET /api/settings/public returns service_fee_percent=3.5; (b) POST /api/quote includes service_fee_percent=3.5 on all priced quotes; (c) POST /api/driver/{token}/record-wait-time saves minutes WITHOUT Stripe, returns {recorded:true, pending_admin_review:true, minutes_waited}, is idempotent (overwrites pending), and short-circuits with {already_charged:true} once wait_time_charged_at is set; (d) old POST /api/driver/{token}/charge-wait-time is REMOVED (returns 405); (e) admin POST /admin/bookings/{id}/charge-wait-time validation branches: 401/403 without auth, 404 unknown booking, 400 no-consent, 400 no-saved-card, 400 no-pending-minutes-and-no-override; (f) admin POST /admin/bookings/{id}/charge-damages branches: 401/403 without auth, 404 unknown booking, 422 amount<=0, 422 reason<4 chars, 400 no-consent, 400 no-saved-card; (g) regression: POST /api/bookings still 200. NO live Stripe charges attempted (per instruction — used a booking with no saved card so 400-branches fire deterministically). Frontend smoke: (1) WAIT TIME & DAMAGES POLICY heading + 'I authorize TuranEliteLimo to charge my card on file for wait time fees ... and for trip damages or incidentals' consent text verified on BookingForm; (2) consent checkbox is `required`; (3) GET /api/settings/public from browser returns 3.5; (4) DriverPortal renders with no page-level JS errors; (5) BookingDetailsDialog code-reviewed — chargeWaitTime + chargeDamage handlers wired to /admin/bookings/{id}/charge-wait-time and /charge-damages, pending minutes UI gated on b.wait_time_minutes_pending && hasSavedCard, damage form gated on hasSavedCard.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration18_wait_damage.py",
+    "/app/test_reports/pytest/iter18_results.xml"
+  ],
+  "action_items": [
+    "(Carry-over) server.py is now ~3500 lines — modularize into routers (bookings, admin, payments, driver, manage) is OVERDUE.",
+    "(Carry-over) Admin UI for charge-wait-time and charge-damages cannot be Playwright-tested end-to-end because admin login requires real 2FA email code. Recommend a dev-only env flag (e.g., ADMIN_2FA_BYPASS=1) so testers can verify the BookingDetailsDialog 'Review & charge wait time' button + damage form via UI rather than code review."
+  ],
+  "critical_code_review_comments": [
+    "FIXED IN-FLIGHT (DriverPortal.jsx lines 96-121): Incomplete rename — main agent renamed the BUTTON label to 'Record wait time' and the onClick handler to `recordWaitTime` (line 281), but left the function DEFINED as `chargeWaitTime` AND still pointed at the now-removed POST /driver/{token}/charge-wait-time endpoint. Without the fix the driver portal would have thrown ReferenceError: recordWaitTime is not defined the moment a driver clicked the button, and on dev environments where the old endpoint was kept it would have silently charged the customer immediately (bypassing admin review). Applied minimal rename: function renamed to recordWaitTime, endpoint switched to /record-wait-time, success toast now reads 'N min logged · pending dispatch review' (matches spec). Verified backend rejects the old endpoint (405) and the new endpoint saves without charging.",
+    "server.py driver_record_wait_time (lines 1272-1308): correctly persists wait_time_minutes_pending + wait_time_recorded_at + wait_time_recorded_by='driver', returns pending_admin_review:true. Idempotent. Short-circuits on already_charged. No Stripe call. Solid.",
+    "server.py admin_charge_wait_time (lines 2508-2611): correct guard order — already_charged → consent → saved card → pending minutes/override → rate → grace → min charge → Stripe → DB write → email. $unset wait_time_minutes_pending on success is right.",
+    "server.py admin_charge_damages (lines 2620-2683): proper guards (consent, saved card, amount>=0.50, reason min 4); appends to damage_charges[] array (not overwrite). Uses render_damage_charge_email with try/except so email failure doesn't roll back the charge.",
+    "BookingForm.jsx (lines 988-1046): consent block heading 'Wait time & damages policy' present; consent paragraph covers BOTH wait time fees AND trip damages/incidentals; checkbox is `required`. Spec satisfied.",
+    "BookingDetailsDialog.jsx (lines 95-169): pendingMinutes + damageCharges destructured; chargeWaitTime + chargeDamage handlers wired. Pending wait UI + damage form UI both gated on hasSavedCard. Spec satisfied.",
+    "Service-fee migration (server.py lines 3291-3308): one-time backfill correctly targets docs missing the field OR set to 0 / 0.0, sets service_fee_migrated_v1 flag to prevent re-run. Idempotent."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration18_wait_damage.py",
+    "/app/frontend/src/pages/DriverPortal.jsx"
+  ],
+  "success_rate": {"backend": "100% (19/19 pytest)", "frontend": "100% on tested flows (BookingForm consent block, settings/public, DriverPortal render). Admin charge UIs verified via code review only — 2FA gate blocks Playwright e2e."},
+  "test_credentials": "Admin: support@turanelitelimo.com / TuronAdmin@2025. 2FA bypass: insert admin_2fa_challenges doc with bcrypt('123456') hash (see /app/memory/test_credentials.md).",
+  "seed_data_creation": "Per-test seeded bookings prefixed TEST_iter18_* (~6 created during run); all cleaned up via per-test fixture teardown + final delete_many({'id': {'$regex': '^TEST_iter18'}}). No live Stripe customers/charges touched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-18 verified the full wait-time-recording → admin-review → charge handoff at the backend layer (no live Stripe invoked — tests use a booking with no saved card so 400-branches fire). Critical in-flight fix: DriverPortal.jsx had an incomplete rename (function name + endpoint URL) that would have ReferenceError'd the driver flow on first click — fixed and verified. For e2e admin UI testing in future iters, main agent should add an env-flag 2FA bypass (currently the only path is seeding admin_2fa_challenges directly in MongoDB with bcrypt('123456') — pytest does this; Playwright cannot easily). damage_charges[] is a $push array — future iters may want to expose a 'damage history' table in BookingDetailsDialog (currently the array is stored but not surfaced in the UI based on my code review). service_fee_percent is now 3.5 by default via migration (lines 3291-3308) — backfilled on startup.",
+  "rca_of_the_issue": "DriverPortal.jsx rename was 90% complete: button label + onClick selector + frontend toast wording were all updated by main agent, but the FUNCTION DEFINITION (line 96) and the API URL (line 109) were left unchanged. Symptom would have been: (a) driver clicks 'Record wait time' button → ReferenceError: recordWaitTime is not defined in browser console, button does nothing; (b) if somehow the old function had been kept reachable, it would have called /driver/{token}/charge-wait-time which now returns 405 (route removed) — driver would see 'Charge failed' toast. Either way the driver could not log wait time. Fix: renamed function `chargeWaitTime` → `recordWaitTime` + swapped endpoint `/charge-wait-time` → `/record-wait-time` + rewrote success toast to 'N min logged · pending dispatch review' to match spec. No business logic changed — pure rename completion."
+}

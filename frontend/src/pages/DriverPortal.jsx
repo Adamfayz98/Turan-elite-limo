@@ -13,6 +13,7 @@ import {
   Check,
   ChevronRight,
   Sparkles,
+  Clock4,
 } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
@@ -92,9 +93,9 @@ export default function DriverPortal() {
     }
   };
 
-  const chargeWaitTime = async () => {
+  const recordWaitTime = async () => {
     const minutes = window.prompt(
-      "Total minutes waited (including grace period):\n\n• Airport: 45 min free, then charged per min\n• Other trips: 15 min free, then charged per min",
+      "Total minutes waited (including grace period):\n\n• Airport: 45 min free, then charged per min\n• Other trips: 15 min free, then charged per min\n\nDispatch will review and charge.",
       "",
     );
     if (!minutes) return;
@@ -105,15 +106,15 @@ export default function DriverPortal() {
     }
     setUpdating(true);
     try {
-      const { data } = await api.post(`/driver/${token}/charge-wait-time`, { minutes_waited: n });
+      const { data } = await api.post(`/driver/${token}/record-wait-time`, { minutes_waited: n });
       if (data.already_charged) {
-        toast.info(`Already charged $${data.amount?.toFixed(2)} for ${data.minutes} min`);
+        toast.info(`Already charged $${data.amount?.toFixed(2)} for ${data.minutes_waited} min`);
       } else {
-        toast.success(`Charged $${data.amount?.toFixed(2)} (${data.chargeable_minutes} min × $${data.rate.toFixed(2)})`);
+        toast.success(`${n} min logged · pending dispatch review`);
       }
       await load();
     } catch (err) {
-      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Charge failed");
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to record");
     } finally {
       setUpdating(false);
     }
@@ -277,13 +278,19 @@ export default function DriverPortal() {
             )}
             {trip.has_saved_card && !trip.wait_time_charged_at && trip.wait_time_consent && (
               <Button
-                onClick={chargeWaitTime}
+                onClick={recordWaitTime}
                 disabled={updating}
-                data-testid="driver-charge-wait"
+                data-testid="driver-record-wait"
                 className="bg-white/5 hover:bg-white/10 border border-[#D4AF37]/40 text-[#D4AF37] rounded-xl h-11 text-sm font-medium"
               >
-                ⏱️ Charge wait time
+                ⏱️ {trip.wait_time_minutes_pending ? `Update wait time (${trip.wait_time_minutes_pending} min logged)` : "Record wait time"}
               </Button>
+            )}
+            {trip.wait_time_minutes_pending && !trip.wait_time_charged_at && (
+              <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-xs text-amber-300 flex items-center gap-2">
+                <Clock4 className="w-4 h-4" />
+                <span>{trip.wait_time_minutes_pending} min logged · pending dispatch review</span>
+              </div>
             )}
             {trip.wait_time_charged_at && (
               <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-300 flex items-center gap-2">

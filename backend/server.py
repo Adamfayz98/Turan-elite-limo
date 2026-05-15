@@ -219,6 +219,10 @@ class Booking(BaseModel):
     wait_time_minutes: Optional[int] = None
     wait_time_fee_amount: Optional[float] = None
     wait_time_charged_at: Optional[str] = None
+    wait_time_minutes_pending: Optional[int] = None
+    wait_time_recorded_at: Optional[str] = None
+    wait_time_payment_intent_id: Optional[str] = None
+    damage_charges: List[dict] = Field(default_factory=list)
     no_show: bool = False
     created_at: str
 
@@ -1107,6 +1111,8 @@ async def driver_view_booking(driver_token: str):
         "wait_time_minutes": b.get("wait_time_minutes"),
         "wait_time_fee_amount": b.get("wait_time_fee_amount"),
         "wait_time_charged_at": b.get("wait_time_charged_at"),
+        "wait_time_minutes_pending": b.get("wait_time_minutes_pending"),
+        "wait_time_recorded_at": b.get("wait_time_recorded_at"),
         "no_show": b.get("no_show", False),
         "has_saved_card": bool(b.get("stripe_payment_method_id")),
     }
@@ -1193,59 +1199,35 @@ async def driver_mark_flight_landed(driver_token: str, payload: FlightLandedPayl
     return {"ok": True, "flight_landed_at": landed_iso}
 
 
-class WaitTimeChargePayload(BaseModel):
+class WaitTimeRecordPayload(BaseModel):
     minutes_waited: int = Field(..., ge=1, le=240)  # total minutes waited (including grace)
 
 
-@api_router.post("/driver/{driver_token}/charge-wait-time")
-async def driver_charge_wait_time(driver_token: str, payload: WaitTimeChargePayload, request: Request):
-    """Off-session charge to customer's saved card for wait time exceeding grace period.
-    Idempotent — returns existing charge if already done."""
-    b = await db.bookings.find_one({"driver_token": driver_token}, {"_id": 0})
-    if not b:
-        raise HTTPException(status_code=404, detail="Trip not found")
+def _wait_time_grace(service_type: Optional[str]) -> int:
+    return 45 if service_type == "Airport Transfer" else 15
 
-    if b.get("wait_time_charged_at"):
-        return {
-            "already_charged": True,
-            "amount": b.get("wait_time_fee_amount"),
-            "minutes": b.get("wait_time_minutes"),
-        }
 
-    if not b.get("wait_time_consent"):
-        raise HTTPException(
-            status_code=400,
-            detail="Customer did not consent to wait time charges. Charge manually.",
-        )
-    pm_id = b.get("stripe_payment_method_id")
-    customer_id = b.get("stripe_customer_id")
-    if not pm_id or not customer_id:
-        raise HTTPException(
-            status_code=400,
-            detail="No saved card on this booking. Customer paid before card-save was enabled.",
-        )
+def _wait_time_amount_preview(minutes_waited: int, service_type: Optional[str], rate: float) -> dict:
+    grace = _wait_time_grace(service_type)
+    chargeable = max(0, minutes_waited - grace)
+    amount = round(chargeable * rate, 2) if rate > 0 else 0.0
+    return {
+        "grace_minutes": grace,
+        "chargeable_minutes": chargeable,
+        "rate": float(rate),
+        "amount": amount,
+    }
 
-    # Grace + rate lookup
-    grace = 45 if b.get("service_type") == "Airport Transfer" else 15
-    if payload.minutes_waited <= grace:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Wait time is within the {grace}-minute grace period — no charge needed.",
-        )
-    chargeable = payload.minutes_waited - grace
-    pricing = await db.pricing_config.find_one({"vehicle_type": b["vehicle_type"]}, {"_id": 0})
-    rate = float((pricing or {}).get("wait_minute_rate") or 0)
-    if rate <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="No wait-time rate set for this vehicle. Configure in Admin → Pricing.",
-        )
-    amount = round(chargeable * rate, 2)
-    if amount < 0.50:
-        raise HTTPException(status_code=400, detail="Charge too small (under $0.50 minimum).")
-    amount_cents = int(round(amount * 100))
 
-    # Create off-session PaymentIntent via Stripe REST
+async def _stripe_off_session_charge(
+    customer_id: str,
+    payment_method_id: str,
+    amount_cents: int,
+    description: str,
+    metadata: dict,
+) -> dict:
+    """Shared helper for off-session PaymentIntents (wait time + damage charges).
+    Raises HTTPException on failure. Returns the Stripe PaymentIntent JSON on success."""
     api_key = os.environ.get("STRIPE_API_KEY", "")
     if not api_key:
         raise HTTPException(status_code=500, detail="Stripe is not configured")
@@ -1253,15 +1235,13 @@ async def driver_charge_wait_time(driver_token: str, payload: WaitTimeChargePayl
         ("amount", str(amount_cents)),
         ("currency", "usd"),
         ("customer", customer_id),
-        ("payment_method", pm_id),
+        ("payment_method", payment_method_id),
         ("off_session", "true"),
         ("confirm", "true"),
-        ("description", f"Wait-time charge ({chargeable} min × ${rate:.2f}) · #{b.get('confirmation_number','')}"),
-        ("metadata[booking_id]", b["id"]),
-        ("metadata[kind]", "wait_time"),
-        ("metadata[minutes_waited]", str(payload.minutes_waited)),
-        ("metadata[chargeable_minutes]", str(chargeable)),
+        ("description", description),
     ]
+    for k, v in metadata.items():
+        form.append((f"metadata[{k}]", str(v)))
     async with httpx.AsyncClient(timeout=15.0) as cli:
         r = await cli.post(
             "https://api.stripe.com/v1/payment_intents",
@@ -1273,55 +1253,58 @@ async def driver_charge_wait_time(driver_token: str, payload: WaitTimeChargePayl
         )
     if r.status_code != 200:
         err_text = r.text[:500]
-        logger.error(f"Wait-time charge failed: {r.status_code} {err_text}")
-        # Try to extract a friendly message
+        logger.error(f"Off-session charge failed: {r.status_code} {err_text}")
         try:
             err = r.json().get("error", {})
             detail = err.get("message") or err.get("code") or "Charge failed"
         except Exception:
             detail = "Charge failed"
         raise HTTPException(status_code=402, detail=f"Card declined: {detail}")
-
     pi = r.json()
     if pi.get("status") not in ("succeeded", "processing"):
         raise HTTPException(
             status_code=402,
             detail=f"Charge not completed — Stripe status: {pi.get('status')}",
         )
+    return pi
+
+
+@api_router.post("/driver/{driver_token}/record-wait-time")
+async def driver_record_wait_time(driver_token: str, payload: WaitTimeRecordPayload):
+    """Driver records the total minutes waited. NO charge happens here — the admin
+    reviews and charges from the admin dashboard. Idempotent (overwrites the
+    pending record while the booking has not yet been charged)."""
+    b = await db.bookings.find_one({"driver_token": driver_token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    if b.get("wait_time_charged_at"):
+        return {
+            "already_charged": True,
+            "amount": b.get("wait_time_fee_amount"),
+            "minutes_waited": b.get("wait_time_minutes"),
+        }
+
+    pricing = await db.pricing_config.find_one({"vehicle_type": b["vehicle_type"]}, {"_id": 0})
+    rate = float((pricing or {}).get("wait_minute_rate") or 0)
+    preview = _wait_time_amount_preview(payload.minutes_waited, b.get("service_type"), rate)
 
     now_iso = datetime.now(timezone.utc).isoformat()
     await db.bookings.update_one(
         {"id": b["id"]},
         {
             "$set": {
-                "wait_time_minutes": payload.minutes_waited,
-                "wait_time_fee_amount": amount,
-                "wait_time_charged_at": now_iso,
+                "wait_time_minutes_pending": payload.minutes_waited,
+                "wait_time_recorded_at": now_iso,
+                "wait_time_recorded_by": "driver",
             }
         },
     )
-
-    # Email the customer explaining the charge
-    try:
-        receipt_html = render_wait_time_charge_email(
-            b, chargeable_minutes=chargeable, rate=rate, amount=amount,
-            grace_minutes=grace,
-        )
-        await send_email(
-            to=b["email"],
-            subject=f"Wait time charge · ${amount:.2f} · #{b.get('confirmation_number','')}",
-            html=receipt_html,
-            bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
-        )
-    except Exception as e:
-        logger.warning(f"Wait-time email failed: {e}")
-
     return {
-        "charged": True,
-        "amount": amount,
+        "recorded": True,
         "minutes_waited": payload.minutes_waited,
-        "chargeable_minutes": chargeable,
-        "rate": rate,
+        **preview,
+        "pending_admin_review": True,
     }
 
 
@@ -1930,7 +1913,7 @@ class Settings(BaseModel):
     deposit_percent: int = Field(100, ge=0, le=100)
     currency: str = "usd"
     meet_greet_fee: float = Field(25.0, ge=0)
-    service_fee_percent: float = Field(0.0, ge=0, le=20)  # 0 = OFF; covers Stripe processing
+    service_fee_percent: float = Field(3.5, ge=0, le=20)  # default 3.5% — covers Stripe processing on refunds
 
 
 async def _load_settings() -> Settings:
@@ -2515,6 +2498,189 @@ async def admin_refund(booking_id: str, payload: RefundRequest, _: dict = Depend
         },
     )
     return {"refunded": True, "amount": refund_amount, "stripe_refund_id": rj.get("id")}
+
+
+# ---------- Admin: charge wait time (uses driver-recorded minutes) ----------
+class AdminWaitTimeChargeRequest(BaseModel):
+    minutes_waited: Optional[int] = Field(None, ge=1, le=240)  # optional override; falls back to driver-recorded
+
+
+@api_router.post("/admin/bookings/{booking_id}/charge-wait-time")
+async def admin_charge_wait_time(
+    booking_id: str,
+    payload: AdminWaitTimeChargeRequest,
+    _: dict = Depends(require_admin),
+):
+    """Admin reviews the wait minutes recorded by the driver (or supplies a value) and
+    triggers the off-session Stripe charge against the customer's saved card. Idempotent."""
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if b.get("wait_time_charged_at"):
+        return {
+            "already_charged": True,
+            "amount": b.get("wait_time_fee_amount"),
+            "minutes_waited": b.get("wait_time_minutes"),
+        }
+    if not b.get("wait_time_consent"):
+        raise HTTPException(
+            status_code=400,
+            detail="Customer did not consent to wait-time/damage charges on this booking.",
+        )
+    pm_id = b.get("stripe_payment_method_id")
+    customer_id = b.get("stripe_customer_id")
+    if not pm_id or not customer_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No saved card on this booking.",
+        )
+
+    minutes_waited = payload.minutes_waited or b.get("wait_time_minutes_pending")
+    if not minutes_waited or minutes_waited < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="No wait minutes recorded yet. Ask the driver to record wait time first, or supply a value.",
+        )
+
+    pricing = await db.pricing_config.find_one({"vehicle_type": b["vehicle_type"]}, {"_id": 0})
+    rate = float((pricing or {}).get("wait_minute_rate") or 0)
+    if rate <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No wait-time rate set for this vehicle. Configure in Admin → Pricing.",
+        )
+    grace = _wait_time_grace(b.get("service_type"))
+    if minutes_waited <= grace:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Wait time ({minutes_waited} min) is within the {grace}-min grace period — no charge needed.",
+        )
+    chargeable = minutes_waited - grace
+    amount = round(chargeable * rate, 2)
+    if amount < 0.50:
+        raise HTTPException(status_code=400, detail="Charge too small (under $0.50 minimum).")
+
+    pi = await _stripe_off_session_charge(
+        customer_id=customer_id,
+        payment_method_id=pm_id,
+        amount_cents=int(round(amount * 100)),
+        description=f"Wait-time charge ({chargeable} min × ${rate:.2f}) · #{b.get('confirmation_number','')}",
+        metadata={
+            "booking_id": b["id"],
+            "kind": "wait_time",
+            "minutes_waited": minutes_waited,
+            "chargeable_minutes": chargeable,
+        },
+    )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {
+            "$set": {
+                "wait_time_minutes": minutes_waited,
+                "wait_time_fee_amount": amount,
+                "wait_time_charged_at": now_iso,
+                "wait_time_payment_intent_id": pi.get("id"),
+            },
+            "$unset": {"wait_time_minutes_pending": ""},
+        },
+    )
+
+    # Email the customer
+    try:
+        receipt_html = render_wait_time_charge_email(
+            b, chargeable_minutes=chargeable, rate=rate, amount=amount,
+            grace_minutes=grace,
+        )
+        await send_email(
+            to=b["email"],
+            subject=f"Wait time charge · ${amount:.2f} · #{b.get('confirmation_number','')}",
+            html=receipt_html,
+            bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+        )
+    except Exception as e:
+        logger.warning(f"Wait-time email failed: {e}")
+
+    return {
+        "charged": True,
+        "amount": amount,
+        "minutes_waited": minutes_waited,
+        "chargeable_minutes": chargeable,
+        "rate": rate,
+    }
+
+
+# ---------- Admin: charge damages (separate from wait time) ----------
+class AdminDamageChargeRequest(BaseModel):
+    amount: float = Field(..., gt=0, le=10000)
+    reason: str = Field(..., min_length=4, max_length=500)
+
+
+@api_router.post("/admin/bookings/{booking_id}/charge-damages")
+async def admin_charge_damages(
+    booking_id: str,
+    payload: AdminDamageChargeRequest,
+    _: dict = Depends(require_admin),
+):
+    """Admin charges the customer's saved card for damages / cleaning / incidentals.
+    Each call appends to `damage_charges[]` so multiple incidents are tracked."""
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if not b.get("wait_time_consent"):
+        raise HTTPException(
+            status_code=400,
+            detail="Customer did not consent to wait-time/damage charges on this booking.",
+        )
+    pm_id = b.get("stripe_payment_method_id")
+    customer_id = b.get("stripe_customer_id")
+    if not pm_id or not customer_id:
+        raise HTTPException(status_code=400, detail="No saved card on this booking.")
+
+    amount = round(float(payload.amount), 2)
+    if amount < 0.50:
+        raise HTTPException(status_code=400, detail="Charge too small (under $0.50 minimum).")
+    reason = payload.reason.strip()
+
+    pi = await _stripe_off_session_charge(
+        customer_id=customer_id,
+        payment_method_id=pm_id,
+        amount_cents=int(round(amount * 100)),
+        description=f"Damage/incidental charge · #{b.get('confirmation_number','')} · {reason[:80]}",
+        metadata={
+            "booking_id": b["id"],
+            "kind": "damages",
+            "reason": reason[:200],
+        },
+    )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    entry = {
+        "amount": amount,
+        "reason": reason,
+        "charged_at": now_iso,
+        "payment_intent_id": pi.get("id"),
+    }
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {"$push": {"damage_charges": entry}},
+    )
+
+    # Email the customer (re-use wait-time template generically for now; subject + body wording differs)
+    try:
+        from email_service import render_damage_charge_email  # local optional import
+        receipt_html = render_damage_charge_email(b, amount=amount, reason=reason)
+        await send_email(
+            to=b["email"],
+            subject=f"Incidental charge · ${amount:.2f} · #{b.get('confirmation_number','')}",
+            html=receipt_html,
+            bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+        )
+    except Exception as e:
+        logger.warning(f"Damage-charge email failed (non-fatal): {e}")
+
+    return {"charged": True, "amount": amount, "reason": reason, "payment_intent_id": pi.get("id")}
 
 
 @api_router.post("/admin/bookings/{booking_id}/force-sync-payment")
@@ -3121,6 +3287,25 @@ async def startup_seed():
         )
     except Exception as e:
         logger.warning(f"meet_greet_fee backfill skipped: {e}")
+
+    # One-time migration: set default service_fee_percent to 3.5% on legacy docs
+    # that either don't have the field or have it at 0 (was the prior default).
+    # We gate with a flag so admin overrides are never clobbered on restart.
+    try:
+        await db.settings.update_one(
+            {
+                "key": "global",
+                "service_fee_migrated_v1": {"$ne": True},
+                "$or": [
+                    {"service_fee_percent": {"$exists": False}},
+                    {"service_fee_percent": 0},
+                    {"service_fee_percent": 0.0},
+                ],
+            },
+            {"$set": {"service_fee_percent": 3.5, "service_fee_migrated_v1": True}},
+        )
+    except Exception as e:
+        logger.warning(f"service_fee_percent backfill skipped: {e}")
 
     # Migration: rename legacy "Luxury Sedan" → "S-Class" in existing bookings
     try:

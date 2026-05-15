@@ -122,7 +122,7 @@ export default function SettingsTab() {
             />
             <Percent className="w-4 h-4 text-[#D4AF37]" />
             <span className="text-xs text-white/55">
-              Added transparently to every quote. <strong className="text-white/80">Recommended: 3%</strong> to fully cover Stripe's 2.9% + $0.30 cut. Set to 0 to disable.
+              Added transparently to every quote. <strong className="text-white/80">Recommended: 3.5%</strong> to fully cover Stripe's 2.9% + $0.30 cut on refunds. Set to 0 to disable.
             </span>
           </div>
         </div>

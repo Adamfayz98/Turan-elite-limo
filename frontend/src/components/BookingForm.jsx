@@ -755,7 +755,7 @@ export default function BookingForm() {
                 <span className="text-white/65 text-xs">i</span>
               </div>
               <div className="flex-1 text-xs text-white/65 leading-relaxed">
-                <strong className="text-white/85">Quoted prices include a {Number(quote.service_fee_percent).toFixed(quote.service_fee_percent % 1 ? 1 : 0)}% service fee</strong> that covers secure card processing. No hidden surprises.
+                <strong className="text-white/85">Quoted prices include a {Number(quote.service_fee_percent).toFixed(quote.service_fee_percent % 1 ? 1 : 0)}% service fee</strong> — this covers Stripe's secure card processing so refunds you receive (full or partial) come back at 100% rather than minus their processing cut. No hidden surprises.
               </div>
             </div>
           ) : null}
@@ -989,7 +989,7 @@ export default function BookingForm() {
           {waitPolicy && (
             <div data-testid="wait-time-consent-block" className="mt-3 rounded-xl border border-[#1F1F1F] bg-[#0A0A0A] p-5">
               <div className="text-xs uppercase tracking-[0.25em] text-[#D4AF37] mb-3">
-                Wait time policy
+                Wait time &amp; damages policy
               </div>
               <div className="text-sm text-white/75 leading-relaxed space-y-2">
                 <p>
@@ -1020,6 +1020,9 @@ export default function BookingForm() {
                 <p>
                   If we wait <strong className="text-white">45 minutes beyond the grace period</strong> without contact, the reservation is treated as a no-show — no refund.
                 </p>
+                <p className="pt-1 border-t border-white/5">
+                  <strong className="text-white">Damages &amp; incidentals.</strong> If the vehicle is damaged, soiled, or requires special cleaning during your trip, the actual repair/cleaning cost may be charged to the card on file. Every charge is itemized with the reason and emailed to you.
+                </p>
               </div>
               <label
                 data-testid="wait-consent-label"
@@ -1034,7 +1037,9 @@ export default function BookingForm() {
                   className="mt-1 h-5 w-5 accent-[#D4AF37] cursor-pointer flex-shrink-0"
                 />
                 <span className="text-sm text-white/85 leading-relaxed">
-                  I authorize TuranEliteLimo to charge my card for wait time fees beyond the grace period, per the policy above.
+                  I authorize TuranEliteLimo to charge my card on file for{" "}
+                  <strong className="text-white">wait time fees</strong> beyond the grace period and for{" "}
+                  <strong className="text-white">trip damages or incidentals</strong> (e.g., spills, vehicle damage, excessive cleaning), per the policy above. All charges are itemized and emailed to me.
                 </span>
               </label>
             </div>

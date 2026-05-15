@@ -812,6 +812,7 @@ export default function AdminDashboard() {
         booking={detailBooking}
         open={!!detailBooking}
         onClose={() => setDetailBooking(null)}
+        onChanged={fetchAll}
       />
 
       {/* Admin Cancel-with-reason Dialog */}
