@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import os
 import asyncio
-from datetime import datetime
+import json
+from datetime import datetime, timezone
 import logging
 from typing import Optional
 
@@ -240,7 +241,6 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str] = None, 
 
     # Schema.org structured data — tells Gmail/Apple Mail to render this as a
     # confirmed limo reservation instead of auto-guessing "train trip canceled".
-    import json as _json
     pickup_dt_iso = ""
     try:
         pdt = booking.get("pickup_date")
@@ -277,7 +277,7 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str] = None, 
         },
     }
     schema = {k: v for k, v in schema.items() if v is not None}
-    schema_block = f'<script type="application/ld+json">{_json.dumps(schema)}</script>'
+    schema_block = f'<script type="application/ld+json">{json.dumps(schema)}</script>'
 
     return f"""
 <!doctype html>
@@ -975,7 +975,6 @@ def render_chauffeur_assigned_email(booking: dict, manage_url: Optional[str] = N
     manage_btn = render_manage_link_html(manage_url) if manage_url else ""
 
     # Schema.org JSON-LD so Gmail renders this as a confirmed reservation update (not a fresh email guess).
-    import json as _json
     pickup_dt_iso = ""
     try:
         if pickup_date:
@@ -987,7 +986,7 @@ def render_chauffeur_assigned_email(booking: dict, manage_url: Optional[str] = N
         "@type": "Reservation",
         "reservationNumber": cn,
         "reservationStatus": "http://schema.org/ReservationConfirmed",
-        "modifiedTime": datetime.utcnow().isoformat() + "Z",
+        "modifiedTime": datetime.now(timezone.utc).isoformat(),
         "underName": {"@type": "Person", "name": booking.get("full_name", "")},
         "reservationFor": {"@type": "Taxi", "name": f"TuranEliteLimo · {vehicle_display}"},
         "pickupTime": pickup_dt_iso or None,
@@ -996,7 +995,7 @@ def render_chauffeur_assigned_email(booking: dict, manage_url: Optional[str] = N
         "provider": {"@type": "Organization", "name": "TuranEliteLimo", "url": "https://turanelitelimo.com"},
     }
     schema = {k: v for k, v in schema.items() if v is not None}
-    schema_block = f'<script type="application/ld+json">{_json.dumps(schema)}</script>'
+    schema_block = f'<script type="application/ld+json">{json.dumps(schema)}</script>'
 
     call_btn = (
         f'<a href="tel:{driver_phone_clean}" '
