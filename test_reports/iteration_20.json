@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 20 — Re-verified the iter-19 regression fix for SettingsTab.jsx save() now sending per_stop_fee in the PATCH payload. Frontend Playwright smoke (admin token injected via localStorage with 2FA bypassed by seeding admin_2fa_challenges) → opened Settings tab → loaded value 15 → entered 20 → clicked Save → captured the outbound PATCH /api/admin/settings request body via page.on('request'): {\"deposit_percent\":100,\"currency\":\"usd\",\"meet_greet_fee\":25,\"service_fee_percent\":3.5,\"per_stop_fee\":20} — per_stop_fee IS present in payload, status 200, 'Settings saved' toast rendered, field displays 20 after reload. Followed up with GET /api/settings/public which returns per_stop_fee=20.0. Backend pytest /app/backend/tests/test_iteration19_per_stop_fee.py: 10/10 PASS in 2.9s (covers default 15.0 migration, 2 stops on Airport Transfer = +$30 base + 3.5% service fee, Hourly Chauffeur exemption with stop_fee_total=None, PATCH persistence + roundtrip, /api/payments/checkout amount math, iter-18 admin auth regression). Additional sanity script /tmp/verify_per_stop_20.py PATCH'd exactly 20 (the value mentioned in the request), verified PATCH response echo, GET /settings/public, /api/quote per_stop_fee=20 stop_fee_total=40 on transfer, and Hourly stop_fee_total=None — all PASS. Restored per_stop_fee=15.0 in teardown.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration19_per_stop_fee.py",
+    "/app/test_reports/pytest/iter20_results.xml",
+    "/tmp/verify_per_stop_20.py"
+  ],
+  "action_items": [
+    "(Carry-over from iter-18/19, not blocking) Add ADMIN_2FA_BYPASS env flag so Playwright can fully smoke-test admin UI flows without seeding Mongo challenges.",
+    "(Carry-over) server.py is ~3544 lines — modularize into routers (settings/bookings/admin/payments/driver/manage).",
+    "(Minor, iter-19 review) _build_quotes line ~598: tag pushed to msg is hardcoded 'meet & greet' whenever addon_flat>0 — mislabels stop-only quotes. Differentiate 'meet & greet' vs 'stops'."
+  ],
+  "critical_code_review_comments": [
+    "SettingsTab.jsx line 40: `per_stop_fee: Number(settings.per_stop_fee) || 0,` correctly added to the PATCH payload object. Roundtrip verified via captured network request.",
+    "Note: `Number('') || 0` evaluates to 0 — so if admin clears the input, it saves as 0 (disabled). Intentional and documented in the helper text ('Set to 0 to disable.').",
+    "Server SettingsUpdate model accepts per_stop_fee; migration backfill still idempotent; hourly exemption still enforced at quote-time AND in _compute_quote_amount."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (10/10 pytest + sanity script)", "frontend": "100% (PATCH payload now includes per_stop_fee, toast + reload confirm persistence)"},
+  "test_credentials": "Admin: support@turanelitelimo.com / TuronAdmin@2025. 2FA bypass: insert admin_2fa_challenges with bcrypt('123456') hash (per /app/memory/test_credentials.md).",
+  "seed_data_creation": "Briefly set per_stop_fee=20 via PATCH for smoke test, restored to 15.0 in teardown. 1 booking prefixed TEST_iter19_* created+deleted by pytest fixture. No live Stripe charges.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Per-stop fee end-to-end is fully green. Pricing chain: settings.per_stop_fee → _build_quotes (added before service-fee%) → /api/quote returns per_stop_fee/stop_fee_total/additional_stops_count → BookingForm banner renders → /api/payments/checkout amount includes 2*per_stop*(1+svc%). Hourly Chauffeur is exempt at every layer. Admin SettingsTab save now persists the value (was the iter-19 regression — fixed in line 40). Regression suite: pytest /app/backend/tests/test_iteration19_per_stop_fee.py.",
+  "rca_of_the_issue": "FIXED — iter-19 reported SettingsTab.jsx save() PATCH payload omitted per_stop_fee. Iter-20 confirms the one-line addition (`per_stop_fee: Number(settings.per_stop_fee) || 0,`) is in place at line 40 and the outbound network request now correctly includes the field. End-to-end roundtrip (UI edit → PATCH → GET /settings/public → /api/quote) verified."
+}

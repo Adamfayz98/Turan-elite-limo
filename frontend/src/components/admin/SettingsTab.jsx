@@ -37,6 +37,7 @@ export default function SettingsTab() {
         currency: settings.currency || "usd",
         meet_greet_fee: Number(settings.meet_greet_fee) || 0,
         service_fee_percent: Number(settings.service_fee_percent) || 0,
+        per_stop_fee: Number(settings.per_stop_fee) || 0,
       };
       await api.patch("/admin/settings", payload);
       toast.success("Settings saved");
