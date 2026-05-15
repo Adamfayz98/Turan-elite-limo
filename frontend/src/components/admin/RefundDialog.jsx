@@ -228,7 +228,7 @@ export default function RefundDialog({ booking, open, onClose, onChanged }) {
 
             <Button
               onClick={submit}
-              disabled={submitting || chosenAmount <= 0}
+              disabled={submitting || chosenAmount < 0 || (choice === "custom" && customAmount === "")}
               data-testid="refund-submit"
               className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-11 font-medium"
             >

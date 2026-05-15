@@ -2290,7 +2290,6 @@ class SettingsUpdate(BaseModel):
     service_fee_percent: Optional[float] = Field(None, ge=0, le=20)
     per_stop_fee: Optional[float] = Field(None, ge=0)
     cancellation_tiers: Optional[List[dict]] = None
-    cancellation_tiers: Optional[List[dict]] = None
 
 
 @api_router.patch("/admin/settings", response_model=Settings)
@@ -2973,6 +2972,20 @@ async def admin_refund(booking_id: str, payload: RefundRequest, _: dict = Depend
         raise HTTPException(status_code=404, detail="Booking not found")
     if booking.get("payment_status") != "paid":
         raise HTTPException(status_code=400, detail="Booking is not paid")
+    # Short-circuit: a $0 refund means "no money moves" — record the metadata only.
+    # This lets admin issue a 0% tier (i.e., a hard no-refund cancellation) cleanly.
+    if payload.amount is not None and payload.amount <= 0:
+        await db.bookings.update_one(
+            {"id": booking_id},
+            {"$set": {
+                "status": "cancelled",
+                "refund_amount": 0,
+                "refund_reason": (payload.reason or "").strip() or None,
+                "refund_note": (payload.note or "").strip() or None,
+                "refunded_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        return {"refunded": True, "amount": 0.0, "stripe_refund_id": None, "status": "no_refund"}
     sid = booking.get("payment_session_id")
     if not sid:
         raise HTTPException(status_code=400, detail="No Stripe session associated")
