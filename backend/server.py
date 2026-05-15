@@ -223,6 +223,7 @@ class Booking(BaseModel):
     wait_time_recorded_at: Optional[str] = None
     wait_time_payment_intent_id: Optional[str] = None
     damage_charges: List[dict] = Field(default_factory=list)
+    mid_trip_stops: List[dict] = Field(default_factory=list)
     no_show: bool = False
     created_at: str
 
@@ -1141,6 +1142,7 @@ async def driver_view_booking(driver_token: str):
         "wait_time_charged_at": b.get("wait_time_charged_at"),
         "wait_time_minutes_pending": b.get("wait_time_minutes_pending"),
         "wait_time_recorded_at": b.get("wait_time_recorded_at"),
+        "mid_trip_stops": b.get("mid_trip_stops") or [],
         "no_show": b.get("no_show", False),
         "has_saved_card": bool(b.get("stripe_payment_method_id")),
     }
@@ -1338,6 +1340,194 @@ async def driver_record_wait_time(driver_token: str, payload: WaitTimeRecordPayl
 
 class NoShowPayload(BaseModel):
     reason: Optional[str] = Field(None, max_length=500)
+
+
+# ---------- Driver: mid-trip unplanned stop (Phase B) ----------
+class MidTripStopPayload(BaseModel):
+    stop_address: str = Field(..., min_length=3, max_length=300)
+    minutes_at_stop: int = Field(0, ge=0, le=240)
+
+
+MID_TRIP_STOP_WAIT_GRACE_MIN = 10
+
+
+def _route_total_miles(pickup_coord: dict, waypoints: List[dict], dropoff_coord: dict) -> float:
+    """Sum-of-legs haversine distance for pickup → waypoints (in order) → dropoff.
+    Matches the rest of the codebase (which uses haversine, not Google Directions)."""
+    pts = [pickup_coord] + (waypoints or []) + [dropoff_coord]
+    total = 0.0
+    for a, b in zip(pts, pts[1:]):
+        total += _haversine_miles(a["lat"], a["lon"], b["lat"], b["lon"])
+    return total
+
+
+async def _resolve_coords_for_addresses(addresses: List[str]) -> List[dict]:
+    """Best-effort geocode a list of addresses. Silently drops un-geocodable ones —
+    we'd rather under-charge than crash on a typo."""
+    out: List[dict] = []
+    for a in addresses or []:
+        if not a or not a.strip():
+            continue
+        c = await _geocode(a)
+        if c and "lat" in c and "lon" in c:
+            out.append(c)
+    return out
+
+
+@api_router.post("/driver/{driver_token}/record-mid-trip-stop")
+async def driver_record_mid_trip_stop(driver_token: str, payload: MidTripStopPayload):
+    """Driver logs an unplanned stop made during the trip.
+
+    Computes the detour miles caused by THIS stop (cumulative model: each stop is
+    appended to the route between the previous waypoint and the dropoff, so the
+    detour = new_total_route_miles − previous_total_route_miles).
+
+    No charge happens here — the entry sits in `mid_trip_stops` with
+    `charged_at=None` until the admin reviews and triggers the off-session charge.
+    """
+    b = await db.bookings.find_one({"driver_token": driver_token}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    # Geocode pickup, dropoff, pre-booked stops, existing mid-trip stops, and the new stop
+    pickup = await _geocode(b.get("pickup_location") or "")
+    dropoff = await _geocode(b.get("dropoff_location") or "")
+    new_stop_coord = await _geocode(payload.stop_address)
+    if not pickup or not dropoff:
+        raise HTTPException(status_code=400, detail="Couldn't resolve the trip's pickup/dropoff for distance math.")
+    if not new_stop_coord:
+        raise HTTPException(status_code=400, detail="Couldn't resolve that stop address. Try adding the city or a nearer landmark.")
+
+    prebook_coords = await _resolve_coords_for_addresses(b.get("additional_stops") or [])
+    existing_mts = b.get("mid_trip_stops") or []
+    existing_mts_coords = await _resolve_coords_for_addresses(
+        [s.get("address") for s in existing_mts if s.get("address")]
+    )
+
+    # Route waypoints in chronological order: pre-booked stops first, then mid-trip stops
+    # added so far. The new stop is appended at the end before dropoff.
+    waypoints_before = prebook_coords + existing_mts_coords
+    miles_before = _route_total_miles(pickup, waypoints_before, dropoff)
+    miles_after = _route_total_miles(pickup, waypoints_before + [new_stop_coord], dropoff)
+    detour_miles = round(max(0.0, miles_after - miles_before), 2)
+
+    # Pricing inputs from the booking's vehicle
+    pricing = await db.pricing_config.find_one({"vehicle_type": b["vehicle_type"]}, {"_id": 0}) or {}
+    per_mile_rate = float(pricing.get("per_mile") or 0)
+    wait_minute_rate = float(pricing.get("wait_minute_rate") or 0)
+    settings = await _load_settings()
+    flat_fee = float(settings.per_stop_fee or 0)
+    service_fee_pct = float(settings.service_fee_percent or 0)
+
+    wait_overage = max(0, int(payload.minutes_at_stop) - MID_TRIP_STOP_WAIT_GRACE_MIN)
+    distance_charge = round(detour_miles * per_mile_rate, 2)
+    wait_charge = round(wait_overage * wait_minute_rate, 2)
+    subtotal = round(flat_fee + distance_charge + wait_charge, 2)
+    service_fee = round(subtotal * (service_fee_pct / 100.0), 2) if service_fee_pct > 0 else 0.0
+    total = round(subtotal + service_fee, 2)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    entry = {
+        "id": str(uuid.uuid4()),
+        "address": new_stop_coord.get("display") or payload.stop_address,
+        "address_input": payload.stop_address,
+        "minutes_at_stop": int(payload.minutes_at_stop),
+        "wait_grace_minutes": MID_TRIP_STOP_WAIT_GRACE_MIN,
+        "wait_overage_minutes": wait_overage,
+        "detour_miles": detour_miles,
+        "flat_fee": flat_fee,
+        "per_mile_rate": per_mile_rate,
+        "wait_minute_rate": wait_minute_rate,
+        "distance_charge": distance_charge,
+        "wait_charge": wait_charge,
+        "subtotal": subtotal,
+        "service_fee": service_fee,
+        "total": total,
+        "recorded_at": now_iso,
+        "recorded_by": "driver",
+        "charged_at": None,
+        "payment_intent_id": None,
+    }
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {"$push": {"mid_trip_stops": entry}},
+    )
+    return {"recorded": True, "stop": entry}
+
+
+class AdminChargeMidTripStopRequest(BaseModel):
+    stop_id: str = Field(..., min_length=1, max_length=80)
+
+
+@api_router.post("/admin/bookings/{booking_id}/charge-mid-trip-stop")
+async def admin_charge_mid_trip_stop(
+    booking_id: str,
+    payload: AdminChargeMidTripStopRequest,
+    _: dict = Depends(require_admin),
+):
+    """Admin reviews a driver-recorded mid-trip stop and triggers the off-session charge."""
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if not b.get("wait_time_consent"):
+        raise HTTPException(
+            status_code=400,
+            detail="Customer did not consent to off-session charges on this booking.",
+        )
+    pm_id = b.get("stripe_payment_method_id")
+    customer_id = b.get("stripe_customer_id")
+    if not pm_id or not customer_id:
+        raise HTTPException(status_code=400, detail="No saved card on this booking.")
+
+    stops = b.get("mid_trip_stops") or []
+    idx = next((i for i, s in enumerate(stops) if s.get("id") == payload.stop_id), -1)
+    if idx == -1:
+        raise HTTPException(status_code=404, detail="Mid-trip stop not found on this booking.")
+    stop = stops[idx]
+    if stop.get("charged_at"):
+        return {"already_charged": True, "stop": stop}
+    total = float(stop.get("total") or 0)
+    if total < 0.50:
+        raise HTTPException(status_code=400, detail="Charge too small (under $0.50 minimum).")
+
+    pi = await _stripe_off_session_charge(
+        customer_id=customer_id,
+        payment_method_id=pm_id,
+        amount_cents=int(round(total * 100)),
+        description=f"Mid-trip stop · {stop.get('address','')[:60]} · #{b.get('confirmation_number','')}",
+        metadata={
+            "booking_id": b["id"],
+            "kind": "mid_trip_stop",
+            "stop_id": stop["id"],
+            "detour_miles": stop.get("detour_miles", 0),
+            "minutes_at_stop": stop.get("minutes_at_stop", 0),
+        },
+    )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.bookings.update_one(
+        {"id": b["id"], "mid_trip_stops.id": stop["id"]},
+        {"$set": {
+            "mid_trip_stops.$.charged_at": now_iso,
+            "mid_trip_stops.$.payment_intent_id": pi.get("id"),
+        }},
+    )
+
+    # Email the customer with an itemized receipt
+    try:
+        from email_service import render_mid_trip_stop_charge_email
+        html = render_mid_trip_stop_charge_email(b, stop=stop)
+        await send_email(
+            to=b["email"],
+            subject=f"Mid-trip stop charge · ${total:.2f} · #{b.get('confirmation_number','')}",
+            html=html,
+            bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+        )
+    except Exception as e:
+        logger.warning(f"Mid-trip stop email failed (non-fatal): {e}")
+
+    refreshed_stop = {**stop, "charged_at": now_iso, "payment_intent_id": pi.get("id")}
+    return {"charged": True, "stop": refreshed_stop}
 
 
 @api_router.post("/driver/{driver_token}/no-show")

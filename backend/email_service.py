@@ -851,3 +851,69 @@ def render_damage_charge_email(booking: dict, amount: float, reason: str) -> str
   </table>
 </body></html>
 """
+
+def render_mid_trip_stop_charge_email(booking: dict, stop: dict) -> str:
+    """Itemized receipt for an admin-triggered mid-trip stop charge."""
+    cn = booking.get("confirmation_number") or "—"
+    first = booking.get("full_name", "").split(" ")[0] or "there"
+    total = float(stop.get("total") or 0)
+    detour = float(stop.get("detour_miles") or 0)
+    flat = float(stop.get("flat_fee") or 0)
+    per_mile = float(stop.get("per_mile_rate") or 0)
+    distance_charge = float(stop.get("distance_charge") or 0)
+    wait_charge = float(stop.get("wait_charge") or 0)
+    wait_overage = int(stop.get("wait_overage_minutes") or 0)
+    wait_rate = float(stop.get("wait_minute_rate") or 0)
+    service_fee = float(stop.get("service_fee") or 0)
+    address = stop.get("address") or stop.get("address_input") or "—"
+    return f"""
+<!doctype html><html><body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0"
+             style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e5e5;">
+        <tr><td style="background:#0a0a0a;padding:24px 32px;color:#fff;text-align:center;">
+          <div style="font-size:11px;color:#D4AF37;letter-spacing:2px;text-transform:uppercase;">
+            TuranEliteLimo · Mid-Trip Stop Charge
+          </div>
+          <div style="font-size:32px;font-family:Georgia,serif;margin-top:10px;color:#D4AF37;">
+            ${total:.2f}
+          </div>
+          <div style="font-size:12px;color:#aaa;margin-top:4px;">
+            Reservation #{cn}
+          </div>
+        </td></tr>
+        <tr><td style="padding:24px 32px;color:#222;font-size:14px;line-height:1.7;">
+          <p style="margin:0 0 14px 0;">Hi {first},</p>
+          <p style="margin:0 0 14px 0;">
+            We've charged your card on file <strong>${total:.2f}</strong> for an unplanned stop your
+            chauffeur made during your trip on your request.
+          </p>
+          <div style="background:#fafafa;border:1px solid #eee;border-radius:8px;padding:16px;margin:16px 0;font-size:13px;">
+            <div style="color:#888;margin-bottom:6px;">Stop:</div>
+            <div style="color:#222;margin-bottom:12px;">{address}</div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr><td style="padding:3px 0;color:#888;">Flat stop fee:</td><td style="padding:3px 0;text-align:right;">${flat:.2f}</td></tr>
+              <tr><td style="padding:3px 0;color:#888;">Detour ({detour:.1f} mi × ${per_mile:.2f}/mi):</td><td style="padding:3px 0;text-align:right;">${distance_charge:.2f}</td></tr>
+              {'<tr><td style="padding:3px 0;color:#888;">Wait at stop ('+str(wait_overage)+' min × $'+f"{wait_rate:.2f}"+'/min, after 10-min grace):</td><td style="padding:3px 0;text-align:right;">$'+f"{wait_charge:.2f}"+'</td></tr>' if wait_overage > 0 else ''}
+              <tr><td style="padding:3px 0;color:#888;">Service fee:</td><td style="padding:3px 0;text-align:right;">${service_fee:.2f}</td></tr>
+              <tr><td style="padding:8px 0 3px 0;border-top:1px solid #eee;font-weight:bold;">Total charged:</td><td style="padding:8px 0 3px 0;text-align:right;font-weight:bold;border-top:1px solid #eee;">${total:.2f}</td></tr>
+            </table>
+          </div>
+          <p style="margin:0 0 14px 0;color:#555;font-size:13px;">
+            Authorized at booking under our wait-time &amp; damages consent. Detour distance is computed from
+            the deviation from your originally-scheduled route.
+          </p>
+          <p style="margin:0;font-size:13px;color:#888;">
+            Questions? Reply to this email or call <a href="tel:+16504100687" style="color:#0a0a0a;">(650) 410-0687</a>.
+          </p>
+        </td></tr>
+        <tr><td style="padding:18px 32px;border-top:1px solid #eee;color:#888;font-size:11px;text-align:center;">
+          TuranEliteLimo · Millbrae, CA · turanelitelimo.com
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+

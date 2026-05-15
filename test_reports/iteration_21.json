@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 21 — Phase B (mid-trip unplanned stops) full e2e verification. Backend: 16/16 pytest PASS in /app/backend/tests/test_iteration21_mid_trip_stops.py covering POST /api/driver/{token}/record-mid-trip-stop (bad token→404, bad address→400, valid stop returns full breakdown {detour_miles, per_mile_rate, wait_overage_minutes, distance_charge, wait_charge, subtotal, service_fee, total}, near-route detour <1.0 mi, real Philadelphia detour >1 mi, wait grace at 10 min — minutes=25 → overage=15 → wait_charge=15*wait_minute_rate exactly). Driver GET /api/driver/{token} returns mid_trip_stops array. Admin POST /api/admin/bookings/{id}/charge-mid-trip-stop: no auth→401, bad booking→404, bad stop_id→404, no saved card→400 'No saved card on this booking.' (test booking 5d6c9c49 has no stripe_payment_method_id). Regression suite (29/29 PASS): iter-18 wait/damage + iter-19 per-stop, plus /api/quote, /api/admin/bookings list, /api/driver/{token}/record-wait-time, charge-wait-time 400 no-card, charge-damages 400 no-card. Frontend Playwright on mobile (390×844) at /driver/5oOuv345Fr-LxKIaj8o94g: 'Add unplanned stop' button (driver-add-stop) visible, click opens mid-trip-stop-dialog with address+minutes inputs, submit closes dialog and a new stop card appears in driver-mid-trip-stops block — captured toast 'Stop logged · 148.73 mi detour · est. $554.29 pending review' for a JFK-from-SF stop (real detour math working). Admin BookingDetailsDialog code review: mid-trip-admin-block renders each stop with full math breakdown (flat + detour×per_mile + overage×wait_rate + service fee = total), charge button gated on canChargeOffSession (no-card booking hides button as designed).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "DriverPortal mid-trip-stop-dialog", "issues": ["Radix DialogContent emits 'Missing Description or aria-describedby' a11y warning. Add <DialogDescription> or aria-describedby for screen-reader compliance."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration21_mid_trip_stops.py",
+    "/app/test_reports/pytest/iter21_results.xml"
+  ],
+  "action_items": [
+    "(Minor a11y) Add <DialogDescription> inside mid-trip-stop-dialog (DriverPortal.jsx ~L477) to silence the Radix aria-describedby warning. Same warning likely also fires on iter-18 wait-time dialog.",
+    "(Carry-over from iter-20) Modularize server.py (now 3741 lines) into routers — getting tough to navigate.",
+    "(Optional, nice-to-have) Surface 'unable to geocode' errors more gracefully in the UI: backend returns 400 with helpful detail, but DriverPortal currently just shows a generic toast. Worth verifying the toast pulls err.response.data.detail."
+  ],
+  "critical_code_review_comments": [
+    "server.py L1377-1455 record-mid-trip-stop: detour math is cumulative-correct — re-geocodes pickup/dropoff/pre-booked-stops/existing-mid-trip-stops on every call and computes delta from miles_before vs miles_after. Slightly wasteful (re-geocodes everything per stop) but acceptable; could cache coords on booking write.",
+    "server.py L1396-1399: returns 400 with descriptive messages for ungeocodable pickup/dropoff vs ungeocodable stop. Good.",
+    "server.py L1412 max(0.0, miles_after-miles_before): correctly clamps negative detours (which could occur if existing stops are out-of-order geographically) to 0. Won't accidentally credit the customer.",
+    "server.py L1419 flat_fee uses settings.per_stop_fee — same value as pre-booked stops. Intentional and consistent with Phase A.",
+    "server.py L1426 service_fee_pct applies to the (flat+distance+wait) subtotal — consistent with quote pricing.",
+    "server.py L1472-1480 admin charge: consent gate checked BEFORE saved-card gate. Order is correct (no saved card test will still surface as 400 'No saved card' because test booking has wait_time_consent=true).",
+    "server.py L1487-1488 idempotency: if charged_at already set, returns {already_charged: true, stop}. Verified by code read (couldn't fire path because test booking has no card, so the charge never reaches the success path — would be a real Stripe call).",
+    "server.py L1509 Mongo positional update {'mid_trip_stops.id': stop_id, '$set: {mid_trip_stops.$.charged_at}'} — correct atomic per-stop update pattern.",
+    "DriverPortal.jsx L520 submitMidTripStop button is properly disabled while savingStop true; dialog auto-closes on success.",
+    "BookingDetailsDialog.jsx L432 canChargeOffSession gate hides 'Review & charge' button when there's no saved card — matches the backend 400 contract."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration21_mid_trip_stops.py (created)",
+    "/app/test_reports/pytest/iter21_results.xml (generated)"
+  ],
+  "success_rate": {"backend": "100% (16/16 iter21 + 29/29 iter18+19 regression)", "frontend": "100% (driver flow opens dialog, submits, stop appears with real detour math)"},
+  "test_credentials": "Admin: support@turanelitelimo.com / TuronAdmin@2025 with 2FA bypass via seeding admin_2fa_challenges (per /app/memory/test_credentials.md).",
+  "seed_data_creation": "Pytest run added ~9 mid-trip stops to the existing booking 5d6c9c49-a7b5-4bd6-97b0-86cbffff288b (4 from pytest + 5 from Playwright/Philadelphia retry path). Cleaned up post-run: trimmed mid_trip_stops back to the original 2 entries. No Stripe charges occurred (test booking has no saved card → 400 guard fires).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase B mid-trip unplanned stops is fully green end-to-end. Regression file at /app/backend/tests/test_iteration21_mid_trip_stops.py — run with REACT_APP_BACKEND_URL/MONGO_URL/DB_NAME env vars. Pre-seeded test booking id=5d6c9c49-a7b5-4bd6-97b0-86cbffff288b / driver_token=5oOuv345Fr-LxKIaj8o94g (NO saved card, wait_time_consent=true, trip_status=passenger_onboard) is the canonical fixture; mid_trip_stops was cleaned back to the original 2 entries after run. Math verified: stop near pickup → tiny detour; Philadelphia → ~150 mi detour; minutes<=10 → wait_charge=0; minutes=25 → 15-min overage × wait_minute_rate exactly. STRIPE LIVE — never let the admin charge endpoint reach Stripe on a real card.",
+  "rca_of_the_issue": "N/A — feature works as specified. Only nit is the Radix DialogContent aria-describedby warning, which is a console-only a11y note (non-blocking)."
+}

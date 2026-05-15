@@ -73,6 +73,7 @@ function Row({ icon: Icon, label, value, highlight, mono }) {
 export default function BookingDetailsDialog({ booking, open, onClose, onChanged }) {
   const [chargingWait, setChargingWait] = useState(false);
   const [chargingDamage, setChargingDamage] = useState(false);
+  const [chargingStopId, setChargingStopId] = useState(null);
   const [damageAmount, setDamageAmount] = useState("");
   const [damageReason, setDamageReason] = useState("");
   if (!booking) return null;
@@ -99,6 +100,7 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
   const pendingMinutes = b.wait_time_minutes_pending;
   const alreadyChargedWait = !!b.wait_time_charged_at;
   const damageCharges = Array.isArray(b.damage_charges) ? b.damage_charges : [];
+  const midTripStops = Array.isArray(b.mid_trip_stops) ? b.mid_trip_stops : [];
 
   const chargeWaitTime = async () => {
     if (!pendingMinutes) {
@@ -136,6 +138,27 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Charge failed");
     } finally {
       setChargingWait(false);
+    }
+  };
+
+  const chargeMidTripStop = async (stop) => {
+    if (!window.confirm(
+      `Charge customer $${Number(stop.total || 0).toFixed(2)} for stop at "${stop.address}"?\n\nDetour: ${stop.detour_miles} mi · ${stop.minutes_at_stop} min at stop`
+    )) return;
+    setChargingStopId(stop.id);
+    try {
+      const { data } = await api.post(`/admin/bookings/${b.id}/charge-mid-trip-stop`, { stop_id: stop.id });
+      if (data.already_charged) {
+        toast.info(`Already charged $${Number(data.stop?.total || 0).toFixed(2)}`);
+      } else {
+        toast.success(`Charged $${Number(data.stop?.total || 0).toFixed(2)}`);
+      }
+      onChanged?.();
+      onClose?.();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Charge failed");
+    } finally {
+      setChargingStopId(null);
     }
   };
 
@@ -400,6 +423,95 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
             ) : (
               <div className="text-xs text-white/55">
                 Customer paid before card-on-file was enabled. No auto-charge possible.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Mid-trip stops (admin-only) */}
+        {(canChargeOffSession || midTripStops.length > 0) && (
+          <div className="mt-5 pt-5 border-t border-[#1F1F1F]" data-testid="mid-trip-admin-block">
+            <div className="text-[10px] uppercase tracking-[0.25em] text-[#D4AF37] mb-2 flex items-center gap-2">
+              <MapPin className="w-3 h-3" /> Mid-trip stops
+            </div>
+            {midTripStops.length === 0 ? (
+              <div className="text-xs text-white/55">
+                No unplanned stops logged. Driver can add one from the trip portal.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {midTripStops.map((s) => {
+                  const charged = !!s.charged_at;
+                  return (
+                    <div
+                      key={s.id}
+                      data-testid={`mid-trip-stop-${s.id}`}
+                      className={cn(
+                        "rounded-lg border p-3 text-xs",
+                        charged
+                          ? "border-emerald-500/30 bg-emerald-500/[0.04]"
+                          : "border-amber-400/30 bg-amber-400/[0.06]",
+                      )}
+                    >
+                      <div className="flex items-start gap-2">
+                        <MapPin className={cn("w-3.5 h-3.5 mt-0.5 flex-shrink-0", charged ? "text-emerald-300" : "text-amber-300")} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white/90 break-words">{s.address}</div>
+                          <div className="text-white/55 mt-1">
+                            {Number(s.detour_miles || 0).toFixed(1)} mi detour ·{" "}
+                            {s.minutes_at_stop} min at stop
+                            {s.wait_overage_minutes > 0 && (
+                              <> ({s.wait_overage_minutes} chargeable)</>
+                            )}
+                          </div>
+                          <div className="text-white/60 mt-1 leading-relaxed">
+                            <span className="text-white/45">Math:</span> ${Number(s.flat_fee || 0).toFixed(2)} flat
+                            {" + "}{Number(s.detour_miles || 0).toFixed(1)} mi × ${Number(s.per_mile_rate || 0).toFixed(2)}/mi (${Number(s.distance_charge || 0).toFixed(2)})
+                            {s.wait_charge > 0 && (
+                              <> {" + "}{s.wait_overage_minutes} min × ${Number(s.wait_minute_rate || 0).toFixed(2)}/min (${Number(s.wait_charge || 0).toFixed(2)})</>
+                            )}
+                            {s.service_fee > 0 && (
+                              <> {" + "}${Number(s.service_fee || 0).toFixed(2)} service fee</>
+                            )}
+                          </div>
+                          <div className="text-white mt-1.5 font-medium">
+                            Total: ${Number(s.total || 0).toFixed(2)}
+                            {charged && (
+                              <span className="ml-2 text-emerald-300 text-[10px]">
+                                · charged {new Date(s.charged_at).toLocaleString()}
+                              </span>
+                            )}
+                            {!charged && (
+                              <span className="ml-2 text-amber-300 text-[10px]">
+                                · pending dispatch
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {!charged && canChargeOffSession && (
+                        <Button
+                          onClick={() => chargeMidTripStop(s)}
+                          disabled={chargingStopId === s.id}
+                          data-testid={`charge-mid-trip-stop-${s.id}`}
+                          className="mt-3 bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-9 text-xs font-medium px-4"
+                        >
+                          {chargingStopId === s.id ? (
+                            <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                          ) : (
+                            <CreditCard className="w-3.5 h-3.5 mr-2" />
+                          )}
+                          Review &amp; charge ${Number(s.total || 0).toFixed(2)}
+                        </Button>
+                      )}
+                      {!charged && !canChargeOffSession && (
+                        <div className="text-[10px] text-white/45 mt-2">
+                          No saved card / consent on this booking — invoice manually.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

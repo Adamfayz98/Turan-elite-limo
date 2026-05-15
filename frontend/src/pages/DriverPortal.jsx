@@ -14,10 +14,19 @@ import {
   ChevronRight,
   Sparkles,
   Clock4,
+  Plus,
 } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import Logo from "@/components/Logo";
 import { cn } from "@/lib/utils";
 
@@ -50,6 +59,10 @@ export default function DriverPortal() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState(null);
+  const [stopOpen, setStopOpen] = useState(false);
+  const [stopAddress, setStopAddress] = useState("");
+  const [stopMinutes, setStopMinutes] = useState("");
+  const [savingStop, setSavingStop] = useState(false);
 
   const load = async () => {
     try {
@@ -134,6 +147,38 @@ export default function DriverPortal() {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed");
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const submitMidTripStop = async () => {
+    const addr = stopAddress.trim();
+    const mins = parseInt(stopMinutes, 10);
+    if (addr.length < 3) {
+      toast.error("Enter the stop address");
+      return;
+    }
+    if (isNaN(mins) || mins < 0 || mins > 240) {
+      toast.error("Enter minutes at stop (0–240)");
+      return;
+    }
+    setSavingStop(true);
+    try {
+      const { data } = await api.post(`/driver/${token}/record-mid-trip-stop`, {
+        stop_address: addr,
+        minutes_at_stop: mins,
+      });
+      const s = data.stop || {};
+      toast.success(
+        `Stop logged · ${s.detour_miles ?? 0} mi detour · est. $${(s.total ?? 0).toFixed(2)} pending review`,
+      );
+      setStopOpen(false);
+      setStopAddress("");
+      setStopMinutes("");
+      await load();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't log the stop");
+    } finally {
+      setSavingStop(false);
     }
   };
 
@@ -306,6 +351,47 @@ export default function DriverPortal() {
             >
               Mark as no-show
             </Button>
+            <Button
+              onClick={() => setStopOpen(true)}
+              disabled={updating}
+              data-testid="driver-add-stop"
+              className="bg-white/5 hover:bg-white/10 border border-[#D4AF37]/30 text-[#D4AF37] rounded-xl h-11 text-sm font-medium sm:col-span-2"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add unplanned stop
+            </Button>
+          </div>
+        )}
+
+        {/* Mid-trip stops already logged */}
+        {Array.isArray(trip.mid_trip_stops) && trip.mid_trip_stops.length > 0 && (
+          <div className="mt-4 space-y-2" data-testid="driver-mid-trip-stops">
+            <div className="text-[10px] uppercase tracking-[0.25em] text-white/45 mb-1">
+              Mid-trip stops
+            </div>
+            {trip.mid_trip_stops.map((s) => (
+              <div
+                key={s.id}
+                className={cn(
+                  "rounded-xl border p-3 text-xs",
+                  s.charged_at
+                    ? "border-emerald-400/25 bg-emerald-400/[0.04] text-emerald-200"
+                    : "border-amber-400/25 bg-amber-400/[0.04] text-amber-200",
+                )}
+              >
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-white/90 truncate">{s.address}</div>
+                    <div className="text-white/60 mt-0.5">
+                      {s.detour_miles?.toFixed?.(1) ?? s.detour_miles} mi detour · {s.minutes_at_stop} min at stop · est. ${Number(s.total || 0).toFixed(2)}
+                      {s.charged_at && <> · <strong className="text-emerald-300">charged</strong></>}
+                      {!s.charged_at && <> · <span className="text-amber-300">pending review</span></>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -385,6 +471,64 @@ export default function DriverPortal() {
           Status updates instantly text the customer. Questions? Call dispatch.
         </p>
       </div>
+
+      {/* Mid-trip stop dialog */}
+      <Dialog open={stopOpen} onOpenChange={setStopOpen}>
+        <DialogContent className="bg-[#0A0A0A] border-[#1F1F1F] text-white max-w-md" data-testid="mid-trip-stop-dialog">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-2xl">Add an unplanned stop</DialogTitle>
+            <p className="text-xs text-white/55 mt-1 leading-relaxed">
+              Logs the stop for dispatch review. The customer's saved card is charged only after dispatch confirms the amount.
+            </p>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div>
+              <Label className="text-[10px] uppercase tracking-[0.2em] text-white/55">
+                Stop address
+              </Label>
+              <Input
+                data-testid="mid-trip-stop-address"
+                value={stopAddress}
+                onChange={(e) => setStopAddress(e.target.value)}
+                placeholder="e.g., Walgreens, 4th & Market, SF"
+                className="bg-[#0E0E0E] border-[#27272A] text-white focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] mt-2 h-11"
+                maxLength={300}
+              />
+              <p className="text-[10px] text-white/40 mt-1.5">
+                Include the city or a nearby landmark for accurate distance math.
+              </p>
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-[0.2em] text-white/55">
+                Minutes spent at stop
+              </Label>
+              <Input
+                data-testid="mid-trip-stop-minutes"
+                type="number"
+                min={0}
+                max={240}
+                value={stopMinutes}
+                onChange={(e) => setStopMinutes(e.target.value)}
+                placeholder="e.g., 8"
+                inputMode="numeric"
+                className="bg-[#0E0E0E] border-[#27272A] text-white focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] mt-2 h-11 w-32"
+              />
+              <p className="text-[10px] text-white/40 mt-1.5">
+                First 10 minutes are free. After that, the vehicle's per-minute wait rate applies.
+              </p>
+            </div>
+            <Button
+              onClick={submitMidTripStop}
+              disabled={savingStop}
+              data-testid="mid-trip-stop-submit"
+              className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-11 font-medium"
+            >
+              {savingStop ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+              Submit for review
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
