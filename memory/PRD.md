@@ -481,3 +481,15 @@ External code review surfaced 39+ issues. Applied the actionable, low-risk subse
 - (P2 UX) Surface 'Assign driver' as a top-row action on confirmed-booking rows (currently inside the row-detail modal)
 - (P3) Migrate admin auth from localStorage to httpOnly cookies
 - ⏸ Twilio toll-free SMS verification — blocked on user dashboard action
+
+### Production error pipe (Sentry-lite) — Feb 2026 (Round 6.2)
+- New endpoint `POST /api/errors/report` (public, validated via Pydantic). Accepts `{message, page_url, user_agent, stack, context}`. Returns 204 always so the reporter is fire-and-forget.
+- In-process dedupe (5-min window per `message+path` fingerprint) + rate-limit (max 5 emails/min). An error loop can't spam the inbox.
+- Email template `render_admin_error_alert_email` in `email_service.py` — red branded card with message, stack, page URL, browser, timestamp, custom context.
+- Frontend `/app/frontend/src/lib/errorReporter.js` — registers `window.onerror` + `unhandledrejection` listeners. Uses `navigator.sendBeacon` when available so reports flush on page unload too. Suppresses noisy false positives (`ResizeObserver loop`, `Script error.`, `Failed to fetch` from cancelled requests).
+- `installErrorReporter()` called once from `src/index.js`.
+- Manual reporting also available: `import { reportError } from "@/lib/errorReporter"; reportError(e, { route: "PayBooking" })`.
+- Smoke tested end-to-end: forced `throw` + `Promise.reject` in browser → backend received both POSTs (204) → emails delivered to support@turanelitelimo.com.
+
+### Google Ads env vars surfaced
+- Added empty placeholders `REACT_APP_GADS_CONVERSION_ID=` and `REACT_APP_GADS_CONVERSION_LABEL=` to `/app/frontend/.env` so they appear in the Emergent deployment env vars panel for the user to fill in.

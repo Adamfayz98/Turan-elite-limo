@@ -2128,6 +2128,88 @@ async def admin_delete_driver(driver_id: str, _: dict = Depends(require_admin)):
     return {"deleted": True}
 
 
+# -------- Production error alerts (Sentry-lite via Resend) --------
+class ClientErrorReport(BaseModel):
+    message: str = Field(..., max_length=2000)
+    page_url: str = Field(..., max_length=500)
+    user_agent: str = Field("", max_length=500)
+    stack: Optional[str] = Field(None, max_length=8000)
+    context: Optional[dict] = None  # arbitrary debug info (booking_id, route, etc.)
+
+
+# In-process dedupe + rate-limit (resets on backend restart, fine for this volume)
+_error_alert_state = {
+    "seen": {},        # fingerprint -> last_alert_iso
+    "minute_count": 0,
+    "minute_started": None,
+}
+_ERROR_DEDUPE_WINDOW_SECS = 300   # 5 min
+_ERROR_MAX_PER_MINUTE = 5
+
+
+def _error_fingerprint(message: str, page_url: str) -> str:
+    """Coarse dedupe key — first 120 chars of message + path of URL."""
+    from urllib.parse import urlparse
+    try:
+        path = urlparse(page_url).path or "/"
+    except Exception:
+        path = "/"
+    return f"{(message or '')[:120]}|{path}"
+
+
+@api_router.post("/errors/report")
+async def report_client_error(payload: ClientErrorReport):
+    """
+    Public endpoint — production JS errors POST here. We dedupe by message+path
+    over 5 min and cap at 5 emails/min so an error loop can't spam the inbox.
+    Always returns 204 so the reporter is fire-and-forget.
+    """
+    from email_service import render_admin_error_alert_email, send_email, SUPPORT_EMAIL
+
+    now = datetime.now(timezone.utc)
+
+    # Per-minute rate-limit
+    started = _error_alert_state["minute_started"]
+    if started is None or (now - started).total_seconds() >= 60:
+        _error_alert_state["minute_started"] = now
+        _error_alert_state["minute_count"] = 0
+    if _error_alert_state["minute_count"] >= _ERROR_MAX_PER_MINUTE:
+        return Response(status_code=204)
+
+    # Dedupe
+    fp = _error_fingerprint(payload.message, payload.page_url)
+    last = _error_alert_state["seen"].get(fp)
+    if last:
+        try:
+            last_dt = datetime.fromisoformat(last)
+            if (now - last_dt).total_seconds() < _ERROR_DEDUPE_WINDOW_SECS:
+                return Response(status_code=204)
+        except Exception:
+            pass
+    _error_alert_state["seen"][fp] = now.isoformat()
+    _error_alert_state["minute_count"] += 1
+
+    # Prune dedupe map if it grows
+    if len(_error_alert_state["seen"]) > 500:
+        _error_alert_state["seen"].clear()
+
+    html = render_admin_error_alert_email(
+        message=payload.message,
+        page_url=payload.page_url,
+        user_agent=payload.user_agent,
+        stack=payload.stack,
+        context=payload.context,
+        occurred_at_iso=now.isoformat(),
+    )
+    subject = f"[TuranEliteLimo] JS error: {(payload.message or '')[:80]}"
+    try:
+        await send_email(to=SUPPORT_EMAIL, subject=subject, html=html)
+    except Exception as e:
+        logger.warning(f"Couldn't send admin error alert: {e}")
+
+    return Response(status_code=204)
+
+
 SITE_BASE_URL = os.environ.get("SITE_BASE_URL", "https://turanelitelimo.com").rstrip("/")
 
 

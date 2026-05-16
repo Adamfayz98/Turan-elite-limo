@@ -1068,3 +1068,65 @@ def render_chauffeur_assigned_email(booking: dict, manage_url: Optional[str] = N
 </body></html>
 """
 
+
+def render_admin_error_alert_email(
+    *,
+    message: str,
+    page_url: str,
+    user_agent: str,
+    stack: Optional[str] = None,
+    context: Optional[dict] = None,
+    occurred_at_iso: Optional[str] = None,
+) -> str:
+    """Lightweight HTML alert for production JS errors. Sent to admin via Resend."""
+    when = occurred_at_iso or datetime.now(timezone.utc).isoformat()
+    ctx_rows = ""
+    if context:
+        for k, v in context.items():
+            try:
+                v_str = json.dumps(v) if not isinstance(v, str) else v
+            except Exception:
+                v_str = str(v)
+            ctx_rows += (
+                f'<tr><td style="padding:6px 12px;color:#999;font-size:11px;border-bottom:1px solid #1f1f1f;">{k}</td>'
+                f'<td style="padding:6px 12px;color:#eee;font-size:11px;border-bottom:1px solid #1f1f1f;font-family:monospace;">{v_str[:300]}</td></tr>'
+            )
+    stack_html = ""
+    if stack:
+        safe = (stack[:4000] or "").replace("<", "&lt;").replace(">", "&gt;")
+        stack_html = (
+            '<div style="margin-top:18px;background:#0a0a0a;border:1px solid #1f1f1f;border-radius:8px;padding:14px;">'
+            '<div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.2em;margin-bottom:8px;">Stack</div>'
+            f'<pre style="margin:0;color:#ccc;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;font-family:Menlo,Consolas,monospace;">{safe}</pre>'
+            '</div>'
+        )
+    safe_msg = (message[:500] or "(no message)").replace("<", "&lt;").replace(">", "&gt;")
+    safe_url = (page_url or "")[:300].replace("<", "&lt;").replace(">", "&gt;")
+    safe_ua = (user_agent or "")[:300].replace("<", "&lt;").replace(">", "&gt;")
+    return f"""<!doctype html>
+<html><body style="margin:0;background:#050505;color:#eee;font-family:-apple-system,Segoe UI,Roboto,sans-serif;">
+<table cellpadding=0 cellspacing=0 width="100%" style="background:#050505;padding:32px 0;">
+  <tr><td align="center">
+    <table cellpadding=0 cellspacing=0 width="600" style="background:#111;border:1px solid #1f1f1f;border-radius:12px;overflow:hidden;">
+      <tr><td style="padding:24px 28px;background:#1a0e0e;border-bottom:1px solid #3a1f1f;">
+        <div style="color:#f87171;font-size:11px;text-transform:uppercase;letter-spacing:.25em;">Production error</div>
+        <div style="color:#fff;font-size:18px;margin-top:6px;font-weight:600;">A customer hit a JS error on your site</div>
+      </td></tr>
+      <tr><td style="padding:24px 28px;">
+        <div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.2em;margin-bottom:6px;">Message</div>
+        <div style="color:#fca5a5;font-size:14px;font-family:Menlo,Consolas,monospace;background:#0a0a0a;border:1px solid #2a1a1a;border-radius:6px;padding:10px 12px;">{safe_msg}</div>
+        <table cellpadding=0 cellspacing=0 width="100%" style="margin-top:18px;border-collapse:collapse;">
+          <tr><td style="padding:6px 12px;color:#999;font-size:11px;border-bottom:1px solid #1f1f1f;width:120px;">When</td><td style="padding:6px 12px;color:#eee;font-size:11px;border-bottom:1px solid #1f1f1f;">{when}</td></tr>
+          <tr><td style="padding:6px 12px;color:#999;font-size:11px;border-bottom:1px solid #1f1f1f;">Page</td><td style="padding:6px 12px;color:#D4AF37;font-size:11px;border-bottom:1px solid #1f1f1f;"><a href="{safe_url}" style="color:#D4AF37;text-decoration:none;">{safe_url}</a></td></tr>
+          <tr><td style="padding:6px 12px;color:#999;font-size:11px;border-bottom:1px solid #1f1f1f;">Browser</td><td style="padding:6px 12px;color:#eee;font-size:11px;border-bottom:1px solid #1f1f1f;font-family:monospace;">{safe_ua}</td></tr>
+          {ctx_rows}
+        </table>
+        {stack_html}
+        <div style="margin-top:24px;color:#666;font-size:11px;line-height:1.6;">
+          You'll only get one alert per unique error every 5 minutes. If you receive a flood of these, something's seriously wrong — call your developer.
+        </div>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>"""
