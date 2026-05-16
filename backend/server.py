@@ -2044,8 +2044,9 @@ async def admin_update_announcement(
     if not update:
         raise HTTPException(status_code=400, detail="No fields to update")
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
-    if "title" in update:
-        update["slug"] = _slugify(update["title"])
+    # NOTE: slug is intentionally NOT regenerated on title edits — it would
+    # break already-shared /news/<old-slug> URLs and previously-published
+    # sitemap entries. Admin can delete + recreate if the URL needs to change.
     r = await db.announcements.update_one({"id": aid}, {"$set": update})
     if not r.matched_count:
         raise HTTPException(status_code=404, detail="Announcement not found")

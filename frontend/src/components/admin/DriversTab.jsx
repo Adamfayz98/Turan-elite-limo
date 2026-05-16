@@ -133,7 +133,13 @@ export default function DriversTab() {
               <div className="flex items-center gap-1 flex-shrink-0">
                 <button
                   type="button"
-                  onClick={() => setEditing({ ...EMPTY, ...d })}
+                  onClick={() => setEditing({
+                    ...EMPTY,
+                    ...d,
+                    email: d.email || "",
+                    plate: d.plate || "",
+                    vehicle: d.vehicle || "",
+                  })}
                   data-testid={`edit-driver-${d.id}`}
                   className="p-2 rounded-lg text-white/55 hover:text-[#D4AF37] hover:bg-white/5"
                 >

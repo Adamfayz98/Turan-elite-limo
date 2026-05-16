@@ -417,3 +417,50 @@ User reported on production that:
 - (P2) Vehicle inspection photo uploads on driver portal
 - (Nice-to-have) Split `AdminMarkExternalChargeRequest` into 3 focused payloads for cleaner OpenAPI docs
 - (Nice-to-have) Add DialogDescription to wait-time / mid-trip-stop dialogs for a11y
+
+## Session Update — Feb 2026 (Round 6) — Announcements + Driver Roster + Google Ads stub
+
+### What shipped
+
+**1. Public Announcements / News (P0)**
+- New `Announcement` model + collection. Fields: `title, body, cta_label, cta_url, show_in_banner, show_on_homepage, active, starts_at, ends_at, slug, id, created_at, updated_at`.
+- Admin CRUD endpoints: `GET/POST/PATCH/DELETE /api/admin/announcements` (Bearer required).
+- Public endpoints: `GET /api/announcements` → `{banner: [...latest active], homepage: [...up to 10 active]}` and `GET /api/announcements/<slug>` → 404 if not visible.
+- `_announcement_active_now(a)` enforces `active=true AND today within optional [starts_at, ends_at]`.
+- Slug stability: auto-generated kebab-case from title on create, **NOT** regenerated on title PATCH — protects already-published `/news/<slug>` URLs and sitemap entries.
+- **Dynamic sitemap** at `GET /api/sitemap.xml` — emits homepage + every active announcement at `<SITE_BASE_URL>/news/<slug>` with lastmod from updated_at. `SITE_BASE_URL` env var defaults to `https://turanelitelimo.com`.
+- `robots.txt` updated to point search engines at both static `/sitemap.xml` and dynamic `/api/sitemap.xml`.
+
+**Frontend**:
+- `AnnouncementBanner.jsx` — sticky banner under PromoBanner, dismissible per session, publishes `--announcement-banner-h` + `--top-banners-h` CSS vars so navbar auto-stacks.
+- `AnnouncementsSection.jsx` — "Latest news" homepage section (2-col card grid, up to 10).
+- `Announcement.jsx` — `/news/:slug` detail page with dynamic `document.title`, meta description, and JSON-LD `Article` schema for Google rich snippets.
+- `AnnouncementsTab.jsx` — admin CRUD UI with start/end date pickers, switches for banner/homepage/active, one-tap "Copy for Google Business Profile" helper.
+- Wired into `Home.jsx` (banner + section) and `AdminDashboard.jsx` (new tab `data-testid='tab-announcements'`).
+
+**2. Pre-saved Driver Roster (P2)**
+- New `Driver` model + `drivers` collection. Fields: `id, name, phone, email, plate, vehicle, active, created_at, updated_at`.
+- Admin CRUD: `GET/POST/PATCH/DELETE /api/admin/drivers` (Bearer required). Pydantic validates `name` + `phone` as required.
+- `DriversTab.jsx` — admin CRUD UI with active toggle.
+- `AssignDriverDialog.jsx` — added "Pick from roster" Select (`data-testid='driver-roster-select'`) at top of dialog. Choosing a saved driver prefills all 5 fields. "Enter manually" option clears the form.
+- Wired into AdminDashboard as new tab `data-testid='tab-drivers'`.
+
+**3. Google Ads Conversion Tracking stub (P2)**
+- `GoogleAdsConversion.jsx` — env-gated component, mounted on PayBooking. Reads `REACT_APP_GADS_CONVERSION_ID` + `REACT_APP_GADS_CONVERSION_LABEL`. No-op when unset (current state). When set: lazy-loads `gtag.js`, fires `event:conversion` with `value=quote_amount, currency:USD, transaction_id=confirmation_number` once per transaction (sessionStorage de-duped).
+
+### Testing — iter-26 100% PASS
+- Backend pytest 27/27 PASS at `/app/backend/tests/test_iteration26_announcements_drivers_sitemap.py`.
+- Frontend Playwright: AnnouncementBanner renders, /news/<slug> SEO+JSON-LD verified, AdminDashboard tabs present, both CRUD round-trips work, GoogleAdsConversion confirmed no-op with env vars unset.
+- Post-test fixes applied: (a) `DriversTab` edit dialog coerces null optional fields to `""` (silences React Input null warning); (b) `admin_update_announcement` no longer regenerates slug on title edits (preserves SEO URL stability).
+
+### Notes for production
+- After redeploy, open Admin Dashboard → Announcements → "+ New" to publish your first promo. The banner stack above the navbar handles height automatically.
+- To enable Google Ads conversion tracking: add `REACT_APP_GADS_CONVERSION_ID` (e.g. `AW-1234567890`) + `REACT_APP_GADS_CONVERSION_LABEL` to the Emergent deployment env vars, then redeploy. No code changes required.
+- Submit `https://turanelitelimo.com/api/sitemap.xml` to Google Search Console so it picks up new announcements automatically.
+
+### Carry-over backlog
+- (P2) Modularize server.py (~4290 lines) — user has explicitly opted to defer
+- (P2) Refund-fee policy decision (last-minute cancel fee + Stripe processing cut)
+- (P2) Vehicle inspection photo uploads on driver portal
+- (P2 UX) Surface 'Assign driver' as a top-row action on confirmed-booking rows (currently inside the row-detail modal)
+- ⏸ Twilio toll-free SMS verification — blocked on user dashboard action
