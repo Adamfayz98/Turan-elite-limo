@@ -12,6 +12,8 @@ import Testimonials from "@/components/Testimonials";
 import ContactForm from "@/components/ContactForm";
 import Footer from "@/components/Footer";
 import PromoBanner from "@/components/PromoBanner";
+import AnnouncementBanner from "@/components/AnnouncementBanner";
+import AnnouncementsSection from "@/components/AnnouncementsSection";
 import SeoStructuredData from "@/components/SeoStructuredData";
 
 export default function Home() {
@@ -19,6 +21,7 @@ export default function Home() {
     <main data-testid="home-page" className="bg-[#050505] text-white">
       <SeoStructuredData />
       <PromoBanner />
+      <AnnouncementBanner />
       <Navbar />
       <Hero />
       <HowItWorks />
@@ -29,6 +32,7 @@ export default function Home() {
       <Coverage />
       <Events />
       <ThingsToDo />
+      <AnnouncementsSection />
       <Testimonials />
       <ContactForm />
       <Footer />

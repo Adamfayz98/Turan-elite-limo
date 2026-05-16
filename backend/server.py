@@ -1922,6 +1922,146 @@ class PromoValidateRequest(BaseModel):
     email: Optional[EmailStr] = None
 
 
+
+# ---------- ANNOUNCEMENTS ----------
+# Sitewide news/promo messages — published by admin, shown in a sticky banner
+# (short headline only) and the dedicated "Latest news" homepage section (full body).
+class AnnouncementBase(BaseModel):
+    title: str = Field(..., min_length=2, max_length=120)
+    body: Optional[str] = Field(None, max_length=2000)  # markdown-ish plain text shown on homepage section
+    cta_label: Optional[str] = Field(None, max_length=40)
+    cta_url: Optional[str] = Field(None, max_length=300)
+    show_in_banner: bool = True   # show in the sticky top banner (truncated)
+    show_on_homepage: bool = True  # render in the homepage section
+    active: bool = True
+    starts_at: Optional[str] = None  # ISO date — optional schedule start
+    ends_at: Optional[str] = None    # ISO date — optional schedule end
+
+
+class AnnouncementCreate(AnnouncementBase):
+    pass
+
+
+class AnnouncementUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=2, max_length=120)
+    body: Optional[str] = Field(None, max_length=2000)
+    cta_label: Optional[str] = Field(None, max_length=40)
+    cta_url: Optional[str] = Field(None, max_length=300)
+    show_in_banner: Optional[bool] = None
+    show_on_homepage: Optional[bool] = None
+    active: Optional[bool] = None
+    starts_at: Optional[str] = None
+    ends_at: Optional[str] = None
+
+
+class Announcement(AnnouncementBase):
+    id: str
+    slug: str
+    created_at: str
+    updated_at: Optional[str] = None
+
+
+def _slugify(s: str) -> str:
+    import re
+    s = re.sub(r"[^a-zA-Z0-9\s-]", "", s or "").strip().lower()
+    s = re.sub(r"\s+", "-", s)
+    return s[:60] or "news"
+
+
+def _announcement_active_now(a: dict) -> bool:
+    """Public visibility = active flag AND within optional start/end window."""
+    if not a.get("active"):
+        return False
+    today = datetime.now(timezone.utc).date().isoformat()
+    sa = (a.get("starts_at") or "").strip()
+    ea = (a.get("ends_at") or "").strip()
+    if sa and today < sa:
+        return False
+    if ea and today > ea:
+        return False
+    return True
+
+
+@api_router.get("/announcements")
+async def list_announcements_public():
+    """Public feed of currently-active announcements for the homepage + banner."""
+    out = []
+    async for a in db.announcements.find({"active": True}, {"_id": 0}).sort("created_at", -1):
+        if _announcement_active_now(a):
+            out.append(a)
+    return {
+        "banner": [a for a in out if a.get("show_in_banner")][:1],  # only show the latest one in the banner
+        "homepage": [a for a in out if a.get("show_on_homepage")][:10],
+    }
+
+
+@api_router.get("/announcements/{slug}")
+async def get_announcement_by_slug(slug: str):
+    """Indexable detail page. Returns 404 if not visible."""
+    a = await db.announcements.find_one({"slug": slug}, {"_id": 0})
+    if not a or not _announcement_active_now(a):
+        raise HTTPException(status_code=404, detail="Announcement not found")
+    return a
+
+
+@api_router.get("/admin/announcements")
+async def admin_list_announcements(_: dict = Depends(require_admin)):
+    items = []
+    async for a in db.announcements.find({}, {"_id": 0}).sort("created_at", -1):
+        items.append(a)
+    return items
+
+
+@api_router.post("/admin/announcements", response_model=Announcement)
+async def admin_create_announcement(
+    payload: AnnouncementCreate, _: dict = Depends(require_admin)
+):
+    aid = str(uuid.uuid4())
+    base_slug = _slugify(payload.title)
+    slug = base_slug
+    n = 2
+    while await db.announcements.find_one({"slug": slug}, {"_id": 0}):
+        slug = f"{base_slug}-{n}"
+        n += 1
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        **payload.model_dump(),
+        "id": aid,
+        "slug": slug,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.announcements.insert_one(doc.copy())
+    return Announcement(**{k: v for k, v in doc.items() if k != "_id"})
+
+
+@api_router.patch("/admin/announcements/{aid}", response_model=Announcement)
+async def admin_update_announcement(
+    aid: str, payload: AnnouncementUpdate, _: dict = Depends(require_admin)
+):
+    update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    if "title" in update:
+        update["slug"] = _slugify(update["title"])
+    r = await db.announcements.update_one({"id": aid}, {"$set": update})
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+    a = await db.announcements.find_one({"id": aid}, {"_id": 0})
+    return Announcement(**a)
+
+
+@api_router.delete("/admin/announcements/{aid}")
+async def admin_delete_announcement(aid: str, _: dict = Depends(require_admin)):
+    r = await db.announcements.delete_one({"id": aid})
+    if not r.deleted_count:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+    return {"deleted": True}
+
+
+
+
 def _normalize_promo_code(raw: str) -> str:
     return (raw or "").strip().upper()
 
