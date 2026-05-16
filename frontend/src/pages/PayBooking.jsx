@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
+import GoogleAdsConversion from "@/components/GoogleAdsConversion";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
 export default function PayBooking() {
@@ -142,6 +143,7 @@ export default function PayBooking() {
 
   return (
     <main data-testid="pay-page" className="min-h-screen bg-[#050505] text-white">
+      <GoogleAdsConversion booking={booking} />
       <header className="px-6 md:px-10 h-20 flex items-center border-b border-white/10">
         <Link to="/" className="flex items-center gap-2.5">
           <Logo size={32} className="text-[#D4AF37]" />
