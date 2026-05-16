@@ -37,6 +37,7 @@ from email_service import (
 import sms_service
 import reviews_service
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
+from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -2058,6 +2059,105 @@ async def admin_delete_announcement(aid: str, _: dict = Depends(require_admin)):
     if not r.deleted_count:
         raise HTTPException(status_code=404, detail="Announcement not found")
     return {"deleted": True}
+
+
+# -------- Driver Roster (admin saved drivers) --------
+class DriverBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    phone: str = Field(..., min_length=5, max_length=30)
+    email: Optional[str] = Field(None, max_length=120)
+    plate: Optional[str] = Field(None, max_length=20)
+    vehicle: Optional[str] = Field(None, max_length=80)
+    active: bool = True
+
+
+class DriverCreate(DriverBase):
+    pass
+
+
+class DriverUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=80)
+    phone: Optional[str] = Field(None, min_length=5, max_length=30)
+    email: Optional[str] = Field(None, max_length=120)
+    plate: Optional[str] = Field(None, max_length=20)
+    vehicle: Optional[str] = Field(None, max_length=80)
+    active: Optional[bool] = None
+
+
+class Driver(DriverBase):
+    id: str
+    created_at: str
+    updated_at: Optional[str] = None
+
+
+@api_router.get("/admin/drivers")
+async def admin_list_drivers(_: dict = Depends(require_admin)):
+    items = []
+    async for d in db.drivers.find({}, {"_id": 0}).sort([("active", -1), ("name", 1)]):
+        items.append(d)
+    return items
+
+
+@api_router.post("/admin/drivers", response_model=Driver)
+async def admin_create_driver(payload: DriverCreate, _: dict = Depends(require_admin)):
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {**payload.model_dump(), "id": str(uuid.uuid4()), "created_at": now, "updated_at": now}
+    await db.drivers.insert_one(doc.copy())
+    return Driver(**{k: v for k, v in doc.items() if k != "_id"})
+
+
+@api_router.patch("/admin/drivers/{driver_id}", response_model=Driver)
+async def admin_update_driver(driver_id: str, payload: DriverUpdate, _: dict = Depends(require_admin)):
+    update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    r = await db.drivers.update_one({"id": driver_id}, {"$set": update})
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    d = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+    return Driver(**d)
+
+
+@api_router.delete("/admin/drivers/{driver_id}")
+async def admin_delete_driver(driver_id: str, _: dict = Depends(require_admin)):
+    r = await db.drivers.delete_one({"id": driver_id})
+    if not r.deleted_count:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    return {"deleted": True}
+
+
+SITE_BASE_URL = os.environ.get("SITE_BASE_URL", "https://turanelitelimo.com").rstrip("/")
+
+
+@api_router.get("/sitemap.xml")
+async def dynamic_sitemap():
+    """Dynamic sitemap: homepage + all currently-active announcements at /news/<slug>."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    urls = [
+        {"loc": f"{SITE_BASE_URL}/", "changefreq": "weekly", "priority": "1.0", "lastmod": today},
+    ]
+    async for a in db.announcements.find({"active": True}, {"_id": 0}).sort("created_at", -1):
+        if not _announcement_active_now(a):
+            continue
+        last = (a.get("updated_at") or a.get("created_at") or "")[:10] or today
+        urls.append({
+            "loc": f"{SITE_BASE_URL}/news/{a['slug']}",
+            "changefreq": "weekly",
+            "priority": "0.7",
+            "lastmod": last,
+        })
+    xml_parts = ['<?xml version="1.0" encoding="UTF-8"?>',
+                 '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for u in urls:
+        xml_parts.append("  <url>")
+        xml_parts.append(f"    <loc>{u['loc']}</loc>")
+        xml_parts.append(f"    <lastmod>{u['lastmod']}</lastmod>")
+        xml_parts.append(f"    <changefreq>{u['changefreq']}</changefreq>")
+        xml_parts.append(f"    <priority>{u['priority']}</priority>")
+        xml_parts.append("  </url>")
+    xml_parts.append("</urlset>")
+    return Response(content="\n".join(xml_parts), media_type="application/xml")
 
 
 

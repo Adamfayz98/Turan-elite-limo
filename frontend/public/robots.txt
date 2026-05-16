@@ -16,3 +16,4 @@ User-agent: CCBot
 Disallow: /
 
 Sitemap: https://turanelitelimo.com/sitemap.xml
+Sitemap: https://turanelitelimo.com/api/sitemap.xml

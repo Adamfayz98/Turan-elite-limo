@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { UserPlus, Loader2, Copy, Check, MessageSquare, X } from "lucide-react";
 
@@ -12,6 +12,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -46,6 +53,8 @@ export default function AssignDriverDialog({ booking, onAssigned }) {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [driverUrl, setDriverUrl] = useState(booking.driver_token ? `${window.location.origin}/driver/${booking.driver_token}` : null);
+  const [roster, setRoster] = useState([]);
+  const [selectedDriverId, setSelectedDriverId] = useState("");
   const [form, setForm] = useState({
     driver_name: booking.driver_name || "",
     driver_phone: booking.driver_phone || "",
@@ -56,6 +65,36 @@ export default function AssignDriverDialog({ booking, onAssigned }) {
   });
 
   const isReassign = !!booking.driver_token;
+
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const { data } = await api.get("/admin/drivers");
+        setRoster((data || []).filter((d) => d.active));
+      } catch {
+        /* roster is optional */
+      }
+    })();
+  }, [open]);
+
+  const pickFromRoster = (id) => {
+    setSelectedDriverId(id);
+    if (id === "manual") {
+      setForm((f) => ({ ...f, driver_name: "", driver_phone: "", driver_email: "", driver_plate: "", driver_vehicle: "" }));
+      return;
+    }
+    const d = roster.find((r) => r.id === id);
+    if (!d) return;
+    setForm((f) => ({
+      ...f,
+      driver_name: d.name || "",
+      driver_phone: d.phone || "",
+      driver_email: d.email || "",
+      driver_plate: d.plate || "",
+      driver_vehicle: d.vehicle || "",
+    }));
+  };
 
   const submit = async () => {
     if (!form.driver_name.trim()) return toast.error("Driver name required");
@@ -121,6 +160,34 @@ export default function AssignDriverDialog({ booking, onAssigned }) {
         </DialogHeader>
 
         <div className="space-y-3">
+          {roster.length > 0 && (
+            <div>
+              <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                Pick from roster
+              </Label>
+              <Select value={selectedDriverId} onValueChange={pickFromRoster}>
+                <SelectTrigger
+                  data-testid="driver-roster-select"
+                  className={cn(inputCls, "mt-1 h-10")}
+                >
+                  <SelectValue placeholder={`Choose a saved driver (${roster.length} available)`} />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0E0E0E] border-[#27272A] text-white">
+                  {roster.map((d) => (
+                    <SelectItem key={d.id} value={d.id} data-testid={`roster-option-${d.id}`}>
+                      {d.name} · {d.phone}{d.vehicle ? ` · ${d.vehicle}` : ""}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="manual" data-testid="roster-option-manual">
+                    ✎ Enter manually
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-white/40 mt-1">
+                Manage your roster in the Drivers tab.
+              </p>
+            </div>
+          )}
           <div>
             <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
               Driver name <span className="text-[#D4AF37]">*</span>
