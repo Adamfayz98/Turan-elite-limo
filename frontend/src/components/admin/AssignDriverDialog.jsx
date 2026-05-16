@@ -72,8 +72,8 @@ export default function AssignDriverDialog({ booking, onAssigned }) {
       try {
         const { data } = await api.get("/admin/drivers");
         setRoster((data || []).filter((d) => d.active));
-      } catch {
-        /* roster is optional */
+      } catch (e) {
+        console.warn("[AssignDriverDialog] couldn't load driver roster (manual entry still works):", e);
       }
     })();
   }, [open]);

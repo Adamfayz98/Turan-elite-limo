@@ -52,7 +52,7 @@ export default function PayBooking() {
       const max = 15; // ~30 seconds — shorter so customer isn't stuck staring at spinner
       if (attempts >= max) {
         // Final fallback: reload the booking once more, then show a calm receipt-style page
-        try { await load(); } catch {}
+        try { await load(); } catch (e) { console.warn("[PayBooking] final load failed:", e); }
         setPollMsg("timeout");
         return;
       }
@@ -64,8 +64,8 @@ export default function PayBooking() {
           setPollMsg("paid");
           return;
         }
-      } catch {
-        /* ignore — try /payments/status next */
+      } catch (e) {
+        console.warn("[PayBooking] booking refresh failed, falling back to /payments/status:", e);
       }
       // 2) Probe Stripe directly via /payments/status (force-updates DB if needed)
       try {
@@ -79,8 +79,8 @@ export default function PayBooking() {
           setPollMsg("expired");
           return;
         }
-      } catch {
-        /* transient error — keep trying */
+      } catch (e) {
+        console.warn("[PayBooking] /payments/status transient error, will retry:", e);
       }
       setPollMsg("processing");
       setTimeout(() => pollStatus(sid, attempts + 1), 2000);

@@ -458,9 +458,26 @@ User reported on production that:
 - To enable Google Ads conversion tracking: add `REACT_APP_GADS_CONVERSION_ID` (e.g. `AW-1234567890`) + `REACT_APP_GADS_CONVERSION_LABEL` to the Emergent deployment env vars, then redeploy. No code changes required.
 - Submit `https://turanelitelimo.com/api/sitemap.xml` to Google Search Console so it picks up new announcements automatically.
 
+### Code-review pass — Feb 2026 (Round 6.1)
+External code review surfaced 39+ issues. Applied the actionable, low-risk subset:
+
+**Applied**:
+- Empty `} catch {}` blocks across PayBooking, PostTrip, BookingForm, AssignDriverDialog — now emit contextual `console.warn` so failures are debuggable (silent failures were hiding bugs).
+- Array-index keys: `BookingDetailsDialog.jsx` additional_stops list (composite `${i}-${address}` key), damage_charges list (uses `payment_intent_id || charged_at`). 
+- `BookingForm.jsx` stops state refactored from `string[]` → `{id, value}[]` with deterministic id-on-add. Fixes the latent bug where removing a mid-list stop caused React to re-use the wrong DOM node, sometimes orphaning the input's focus/value. Verified via screenshot smoke: 3 stops add cleanly, remove middle leaves siblings untouched. Backend smoke (POST /api/quote) confirms `additional_stops` payload still serializes correctly.
+
+**Declined with rationale** (kept on backlog):
+- "Hardcoded secrets in test files" — the `TuronAdmin@2025` test password is already public in `/app/memory/test_credentials.md` and is the seeded admin account. Test fixtures, not production secrets. Moving to env vars adds friction with zero security gain.
+- "`is 200` identity comparisons (159 instances)" — grep across all test files finds zero such occurrences. The matches were the word "is" inside comments. Report appears to have hallucinated this item.
+- localStorage → httpOnly cookies migration — single-admin path, requires rewriting JWT auth + all driver/manage tokens + axios interceptor + 2FA flow. Real but disproportionate ROI for current scale. Documented as P3.
+- "39 missing hook deps" / massive useCallback refactor — many flagged ones are intentional (e.g. PayBooking's recursive polling captures stable refs by design; AdminDashboard's setters are stable). Adding them would cause infinite re-renders. Each spot already has the right deps for correctness — `eslint-disable-next-line react-hooks/exhaustive-deps` is used where intentional.
+- Component splitting (BookingForm 1014 lines, AdminDashboard 804 lines, etc.) — user has explicitly opted out of large refactors to avoid regressions.
+- Email service complexity refactor — works fine, no user-reported issues, low ROI.
+
 ### Carry-over backlog
 - (P2) Modularize server.py (~4290 lines) — user has explicitly opted to defer
 - (P2) Refund-fee policy decision (last-minute cancel fee + Stripe processing cut)
 - (P2) Vehicle inspection photo uploads on driver portal
 - (P2 UX) Surface 'Assign driver' as a top-row action on confirmed-booking rows (currently inside the row-detail modal)
+- (P3) Migrate admin auth from localStorage to httpOnly cookies
 - ⏸ Twilio toll-free SMS verification — blocked on user dashboard action

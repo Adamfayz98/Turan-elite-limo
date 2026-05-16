@@ -96,7 +96,12 @@ export default function BookingForm() {
   const [options, setOptions] = useState({ vehicle_types: [], service_types: [] });
   const [date, setDate] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [stops, setStops] = useState([]);
+  const [stops, setStops] = useState([]); // [{id, value}]
+  const stopIdRef = useRef(0);
+  const newStopId = () => {
+    stopIdRef.current += 1;
+    return `s${stopIdRef.current}`;
+  };
   const [quote, setQuote] = useState(null);
   const [quoting, setQuoting] = useState(false);
   const quoteTimer = useRef(null);
@@ -141,7 +146,7 @@ export default function BookingForm() {
     quoteTimer.current = setTimeout(async () => {
       setQuoting(true);
       try {
-        const cleanStops = stops.map((s) => s.trim()).filter(Boolean);
+        const cleanStops = stops.map((s) => s.value.trim()).filter(Boolean);
         const { data } = await api.post("/quote", {
           pickup_location: pickup || "n/a",
           dropoff_location: dropoff || "n/a",
@@ -153,7 +158,8 @@ export default function BookingForm() {
           additional_stops: cleanStops,
         });
         setQuote(data);
-      } catch {
+      } catch (e) {
+        console.warn("[BookingForm] live quote failed:", e);
         setQuote(null);
       } finally {
         setQuoting(false);
@@ -162,10 +168,10 @@ export default function BookingForm() {
     return () => quoteTimer.current && clearTimeout(quoteTimer.current);
   }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours, form.meet_and_greet, date, stops]);
 
-  const addStop = () => setStops((s) => [...s, ""]);
-  const removeStop = (idx) => setStops((s) => s.filter((_, i) => i !== idx));
-  const updateStop = (idx, v) =>
-    setStops((s) => s.map((x, i) => (i === idx ? v : x)));
+  const addStop = () => setStops((s) => [...s, { id: newStopId(), value: "" }]);
+  const removeStop = (id) => setStops((s) => s.filter((x) => x.id !== id));
+  const updateStop = (id, v) =>
+    setStops((s) => s.map((x) => (x.id === id ? { ...x, value: v } : x)));
 
   const currentVehiclePrice = () => {
     const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
@@ -195,7 +201,8 @@ export default function BookingForm() {
         setPromoApplied(null);
         setPromoStatus({ checking: false, error: data.reason || "Invalid code" });
       }
-    } catch {
+    } catch (e) {
+      console.warn("[BookingForm] promo validate failed:", e);
       setPromoApplied(null);
       setPromoStatus({ checking: false, error: "Could not validate code, try again" });
     }
@@ -223,8 +230,8 @@ export default function BookingForm() {
           } else {
             clearPromo();
           }
-        } catch {
-          /* ignore */
+        } catch (e) {
+          console.warn("[BookingForm] promo re-validate failed:", e);
         }
       })();
     }
@@ -254,7 +261,7 @@ export default function BookingForm() {
         ...form,
         passengers: Number(form.passengers) || 1,
         luggage_count: Number(form.luggage_count) || 0,
-        additional_stops: stops.map((s) => s.trim()).filter(Boolean),
+        additional_stops: stops.map((s) => s.value.trim()).filter(Boolean),
         return_location: form.return_trip ? form.return_location : "",
         pickup_date: format(date, "yyyy-MM-dd"),
         meet_and_greet: form.service_type === "Airport Transfer" && !!form.meet_and_greet,
@@ -346,20 +353,20 @@ export default function BookingForm() {
             </div>
 
             {stops.map((stop, i) => (
-              <div key={i} className="md:col-span-2">
+              <div key={stop.id} className="md:col-span-2">
                 <div className="flex gap-2 items-end">
                   <div className="flex-1">
                     <PlacesAutocompleteInput
                       label={`Additional stop #${i + 1}`}
                       testId={`booking-stop-${i}`}
-                      value={stop}
-                      onChange={(v) => updateStop(i, v)}
+                      value={stop.value}
+                      onChange={(v) => updateStop(stop.id, v)}
                       placeholder="123 Market St, San Francisco"
                     />
                   </div>
                   <Button
                     type="button"
-                    onClick={() => removeStop(i)}
+                    onClick={() => removeStop(stop.id)}
                     variant="outline"
                     size="icon"
                     data-testid={`booking-stop-remove-${i}`}

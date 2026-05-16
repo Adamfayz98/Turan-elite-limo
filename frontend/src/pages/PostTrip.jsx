@@ -61,8 +61,8 @@ export default function PostTrip() {
           await load();
           return;
         }
-      } catch {
-        /* keep trying */
+      } catch (e) {
+        console.warn("[PostTrip] tip status poll error, will retry:", e);
       }
       attempts += 1;
       if (attempts < 10) setTimeout(tick, 1500);

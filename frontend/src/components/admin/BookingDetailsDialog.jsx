@@ -381,7 +381,9 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
               label="Stops"
               value={
                 <ul className="list-disc pl-5 mt-0.5">
-                  {b.additional_stops.map((s, i) => <li key={i}>{s}</li>)}
+                  {b.additional_stops.map((s, i) => (
+                    <li key={`${i}-${(s || "").slice(0, 30)}`}>{s}</li>
+                  ))}
                 </ul>
               }
             />
@@ -670,7 +672,7 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
             <div className="space-y-1.5 mb-3">
               {damageCharges.map((d, i) => (
                 <div
-                  key={i}
+                  key={d.payment_intent_id || d.charged_at || `damage-${i}`}
                   className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.04] p-2.5 text-xs text-white/80 flex items-start gap-2"
                 >
                   <DollarSign className="w-3.5 h-3.5 mt-0.5 text-emerald-300 flex-shrink-0" />
