@@ -3068,19 +3068,6 @@ async def get_payment_status(session_id: str, request: Request):
                         html=pending_html,
                         bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
                     )
-                    # Admin SMS — "PAID" alert so you know it's a real booking, not a tire-kicker
-                    try:
-                        cn_short = updated.get("confirmation_number") or updated["id"][:8]
-                        paid_sms = (
-                            f"PAID ${amount:.0f} #{cn_short}\n"
-                            f"{updated.get('full_name','')} · {updated.get('phone','')}\n"
-                            f"{updated.get('pickup_date','')} {updated.get('pickup_time','')}\n"
-                            f"Pick: {updated.get('pickup_location','')[:60]}\n"
-                            f"Action: confirm chauffeur in admin"
-                        )
-                        await send_admin_sms(paid_sms)
-                    except Exception as e:
-                        logger.warning(f"Admin SMS for paid booking failed: {e}")
                     await db.bookings.update_one(
                         {"id": txn["booking_id"]},
                         {"$set": {"paid_email_sent": True}},
