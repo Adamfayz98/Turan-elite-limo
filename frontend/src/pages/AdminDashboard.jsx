@@ -68,6 +68,7 @@ import SurgeCalendarTab from "@/components/admin/SurgeCalendarTab";
 import PromosTab from "@/components/admin/PromosTab";
 import AnnouncementsTab from "@/components/admin/AnnouncementsTab";
 import DriversTab from "@/components/admin/DriversTab";
+import QuoteRequestsTab from "@/components/admin/QuoteRequestsTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
 const STATUS_COLOR = {
@@ -401,6 +402,9 @@ export default function AdminDashboard() {
             </TabsTrigger>
             <TabsTrigger value="drivers" data-testid="tab-drivers" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Drivers
+            </TabsTrigger>
+            <TabsTrigger value="quotes" data-testid="tab-quotes" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Quote Requests
             </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Settings
@@ -793,6 +797,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="drivers" className="mt-6">
             <DriversTab />
+          </TabsContent>
+
+          <TabsContent value="quotes" className="mt-6">
+            <QuoteRequestsTab />
           </TabsContent>
 
           <TabsContent value="settings" className="mt-6">

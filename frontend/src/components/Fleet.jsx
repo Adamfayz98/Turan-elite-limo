@@ -1,52 +1,17 @@
 import { Users, Sparkles, Briefcase } from "lucide-react";
+import { FLEET as SHARED_FLEET } from "@/lib/fleet";
 
-const FLEET = [
-  {
-    name: "Executive Sedan",
-    model: "Cadillac XTS",
-    pax: "1–3",
-    bags: "3",
-    note: "The standard for daily executive transport. Discreet, smooth, on time.",
-    img: "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
-    span: "lg:col-span-2 lg:row-span-2",
-  },
-  {
-    name: "S-Class",
-    model: "Mercedes-Benz S-Class",
-    pax: "1–3",
-    bags: "3",
-    note: "First-class flagship. Hush-quiet cabin, executive rear seating.",
-    img: "https://images.unsplash.com/photo-1609521247503-8de40462e427?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
-    span: "lg:col-span-1 lg:row-span-1",
-  },
-  {
-    name: "Luxury SUV",
-    model: "Cadillac Escalade",
-    pax: "1–6",
-    bags: "6",
-    note: "Captain's chairs, cavernous trunk, redefined comfort.",
-    img: "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&q=85&w=1600&ixlib=rb-4.1.0",
-    span: "lg:col-span-1 lg:row-span-1",
-  },
-  {
-    name: "Stretch Limousine",
-    model: "Hummer Stretch",
-    pax: "12–14",
-    bags: "4",
-    note: "Mood lighting, premium bar, the showstopper for weddings & nightlife.",
-    img: "https://images.unsplash.com/photo-1742794147227-b3df1a5ae19c?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
-    span: "lg:col-span-2 lg:row-span-1",
-  },
-  {
-    name: "Sprinter Van",
-    model: "Mercedes Jet Sprinter",
-    pax: "10–14",
-    bags: "14",
-    note: "Group travel without sacrifice. Wi-Fi, USB, leather lounge seating.",
-    img: "https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?crop=entropy&cs=srgb&fm=jpg&q=85&w=1600&ixlib=rb-4.1.0",
-    span: "lg:col-span-1 lg:row-span-1",
-  },
-];
+// Homepage showcase uses the shared fleet list but applies a custom mosaic
+// span layout per card so the grid stays editorial-looking.
+const SPAN_BY_NAME = {
+  "Executive Sedan": "lg:col-span-2 lg:row-span-2",
+  "First Class": "lg:col-span-1 lg:row-span-1",
+  "Luxury SUV": "lg:col-span-1 lg:row-span-1",
+  "Stretch Limousine": "lg:col-span-2 lg:row-span-1",
+  "Sprinter Van": "lg:col-span-1 lg:row-span-1",
+  "Party Bus": "lg:col-span-3 lg:row-span-1",
+};
+const FLEET = SHARED_FLEET.map((v) => ({ ...v, span: SPAN_BY_NAME[v.name] || "" }));
 
 export default function Fleet() {
   return (

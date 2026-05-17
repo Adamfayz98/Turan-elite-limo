@@ -99,7 +99,7 @@ async def require_admin(creds: Optional[HTTPAuthorizationCredentials] = Depends(
 # ---------- Models ----------
 VEHICLE_TYPES = [
     "Executive Sedan",
-    "S-Class",
+    "First Class",
     "Luxury SUV",
     "Stretch Limousine",
     "Sprinter Van",
@@ -109,7 +109,7 @@ VEHICLE_TYPES = [
 # Default pricing seeded into MongoDB on first startup (admins can edit live).
 DEFAULT_VEHICLE_PRICING = {
     "Executive Sedan":    {"base": 75.0,  "per_mile": 3.50, "minimum": 85.0,  "hourly_rate": 95.0,  "wait_minute_rate": 1.00, "call_only": False},
-    "S-Class":            {"base": 95.0,  "per_mile": 4.50, "minimum": 115.0, "hourly_rate": 125.0, "wait_minute_rate": 1.25, "call_only": False},
+    "First Class":        {"base": 95.0,  "per_mile": 4.50, "minimum": 115.0, "hourly_rate": 125.0, "wait_minute_rate": 1.25, "call_only": False},
     "Luxury SUV":         {"base": 115.0, "per_mile": 4.75, "minimum": 135.0, "hourly_rate": 145.0, "wait_minute_rate": 1.50, "call_only": False},
     "Stretch Limousine":  {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.00, "call_only": True},
     "Sprinter Van":       {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.00, "call_only": True},
@@ -2142,6 +2142,132 @@ async def admin_delete_driver(driver_id: str, _: dict = Depends(require_admin)):
     r = await db.drivers.delete_one({"id": driver_id})
     if not r.deleted_count:
         raise HTTPException(status_code=404, detail="Driver not found")
+    return {"deleted": True}
+
+
+# -------- Quote Requests (for call-only vehicles: Party Bus / Stretch / Sprinter) --------
+class QuoteRequestCreate(BaseModel):
+    full_name: str = Field(..., min_length=1, max_length=80)
+    phone: str = Field(..., min_length=5, max_length=30)
+    email: Optional[str] = Field(None, max_length=120)
+    vehicle_type: str = Field(..., max_length=40)
+    pickup_date: Optional[str] = Field(None, max_length=20)
+    pickup_time: Optional[str] = Field(None, max_length=10)
+    pickup_location: Optional[str] = Field(None, max_length=300)
+    dropoff_location: Optional[str] = Field(None, max_length=300)
+    passengers: Optional[int] = Field(None, ge=1, le=60)
+    occasion: Optional[str] = Field(None, max_length=80)
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+@api_router.post("/quote-requests")
+async def submit_quote_request(payload: QuoteRequestCreate, request: Request):
+    """Customer-facing endpoint. Creates a quote_request row + alerts admin via
+    email and SMS gateway. Returns the request id so the UI can show success."""
+    doc = payload.model_dump()
+    doc["id"] = str(uuid.uuid4())
+    doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    doc["status"] = "new"
+    await db.quote_requests.insert_one(doc.copy())
+
+    # Admin SMS — single short text so it lands cleanly on iOS Messages
+    try:
+        line_pickup = (doc.get("pickup_location") or "(no pickup)")[:60]
+        line_drop = (doc.get("dropoff_location") or "(no drop)")[:60]
+        sms_text = (
+            f"QUOTE REQUEST · {doc['vehicle_type']}\n"
+            f"{doc['full_name']} · {doc['phone']}\n"
+            f"{doc.get('pickup_date','') or 'no date'} {doc.get('pickup_time','') or ''}\n"
+            f"Pick: {line_pickup}\n"
+            f"Drop: {line_drop}\n"
+            f"Pax: {doc.get('passengers','?')} · {doc.get('occasion','')}"
+        )
+        await send_admin_sms(sms_text)
+    except Exception as e:
+        logger.warning(f"Quote-request SMS failed: {e}")
+
+    # Admin email — simple readable HTML
+    if SUPPORT_EMAIL:
+        try:
+            origin = _frontend_origin_from_request(request)
+            admin_url = f"{origin}/admin"
+            email_html = _render_quote_request_admin_email(doc, admin_url)
+            subj = f"💬 Quote request · {doc['vehicle_type']} · {doc['full_name']}"
+            await send_email(to=SUPPORT_EMAIL, subject=subj, html=email_html)
+        except Exception as e:
+            logger.warning(f"Quote-request admin email failed: {e}")
+
+    return {"id": doc["id"], "ok": True}
+
+
+def _render_quote_request_admin_email(doc: dict, admin_url: str) -> str:
+    def row(label, value):
+        if not value:
+            return ""
+        v = str(value).replace("<", "&lt;").replace(">", "&gt;")
+        return f'<tr><td style="padding:8px 14px;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.15em;border-bottom:1px solid #1f1f1f;width:140px;">{label}</td><td style="padding:8px 14px;color:#eee;font-size:13px;border-bottom:1px solid #1f1f1f;">{v}</td></tr>'
+
+    rows = "".join([
+        row("Customer", doc.get("full_name")),
+        row("Phone", doc.get("phone")),
+        row("Email", doc.get("email")),
+        row("Vehicle", doc.get("vehicle_type")),
+        row("Date / Time", f"{doc.get('pickup_date','')} {doc.get('pickup_time','')}".strip()),
+        row("Pickup", doc.get("pickup_location")),
+        row("Dropoff", doc.get("dropoff_location")),
+        row("Passengers", doc.get("passengers")),
+        row("Occasion", doc.get("occasion")),
+        row("Notes", doc.get("notes")),
+    ])
+    return f"""<!doctype html>
+<html><body style="margin:0;background:#050505;color:#eee;font-family:-apple-system,Segoe UI,Roboto,sans-serif;">
+<table cellpadding=0 cellspacing=0 width="100%" style="background:#050505;padding:32px 0;">
+  <tr><td align="center">
+    <table cellpadding=0 cellspacing=0 width="640" style="background:#111;border:1px solid #1f1f1f;border-radius:12px;overflow:hidden;">
+      <tr><td style="padding:22px 28px;background:#1a1410;border-bottom:1px solid #2a1f1f;">
+        <div style="color:#D4AF37;font-size:11px;text-transform:uppercase;letter-spacing:.25em;">Quote request</div>
+        <div style="color:#fff;font-size:18px;margin-top:6px;font-weight:600;">A customer wants a custom quote</div>
+      </td></tr>
+      <tr><td style="padding:0;">
+        <table cellpadding=0 cellspacing=0 width="100%" style="border-collapse:collapse;">{rows}</table>
+      </td></tr>
+      <tr><td style="padding:22px 28px;background:#0a0a0a;">
+        <a href="{admin_url}" style="display:inline-block;padding:10px 22px;background:#D4AF37;color:#000;text-decoration:none;border-radius:999px;font-weight:600;font-size:13px;">Open Admin Dashboard →</a>
+        <div style="color:#666;font-size:11px;margin-top:14px;line-height:1.6;">Reply directly to the customer's phone or email. Send them a Stripe link from the dashboard when ready.</div>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>"""
+
+
+@api_router.get("/admin/quote-requests")
+async def admin_list_quote_requests(_: dict = Depends(require_admin)):
+    items = []
+    async for d in db.quote_requests.find({}, {"_id": 0}).sort("created_at", -1).limit(200):
+        items.append(d)
+    return items
+
+
+@api_router.patch("/admin/quote-requests/{rid}")
+async def admin_update_quote_request(rid: str, payload: dict, _: dict = Depends(require_admin)):
+    update = {}
+    if "status" in payload and payload["status"] in {"new", "contacted", "won", "lost"}:
+        update["status"] = payload["status"]
+        update["status_updated_at"] = datetime.now(timezone.utc).isoformat()
+    if not update:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    r = await db.quote_requests.update_one({"id": rid}, {"$set": update})
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True}
+
+
+@api_router.delete("/admin/quote-requests/{rid}")
+async def admin_delete_quote_request(rid: str, _: dict = Depends(require_admin)):
+    r = await db.quote_requests.delete_one({"id": rid})
+    if not r.deleted_count:
+        raise HTTPException(status_code=404, detail="Not found")
     return {"deleted": True}
 
 
