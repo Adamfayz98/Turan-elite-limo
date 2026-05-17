@@ -2844,7 +2844,10 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
         booking["confirmation_number"] = booking_updates["confirmation_number"]
 
     origin = payload.origin_url.rstrip("/")
-    success_url = f"{origin}/pay/{payload.booking_id}?session_id={{CHECKOUT_SESSION_ID}}"
+    # Stable thank-you URL — same path for every successful booking so Google
+    # Ads / Meta / TikTok can use URL-match conversion goals. Booking ID + session
+    # ID move into query params (the success page reads them to render the receipt).
+    success_url = f"{origin}/thank-you?bid={payload.booking_id}&session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{origin}/pay/{payload.booking_id}"
 
     # IMPORTANT: We create the Stripe Checkout session via direct REST so we can pass

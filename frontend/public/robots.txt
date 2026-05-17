@@ -3,6 +3,7 @@ Allow: /
 Disallow: /admin
 Disallow: /admin/login
 Disallow: /pay/
+Disallow: /thank-you
 Disallow: /api/
 
 # Block AI scrapers from training on the site (optional — remove if you want them to)

@@ -19,8 +19,10 @@ import GoogleAdsConversion from "@/components/GoogleAdsConversion";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
 export default function PayBooking() {
-  const { bookingId } = useParams();
+  const { bookingId: bookingIdParam } = useParams();
   const [params] = useSearchParams();
+  // Support both /pay/:bookingId and /thank-you?bid=... (stable post-payment URL)
+  const bookingId = bookingIdParam || params.get("bid");
   const sessionId = params.get("session_id");
 
   const [booking, setBooking] = useState(null);
@@ -30,6 +32,13 @@ export default function PayBooking() {
   const polledRef = useRef(false);
 
   const load = useCallback(async () => {
+    if (!bookingId) {
+      // No booking ID in URL — likely a direct visit to /thank-you with no
+      // params (Google Ads URL probe, bookmark, etc.). Skip the API call and
+      // let the page render the friendly empty state without a noisy toast.
+      setLoading(false);
+      return;
+    }
     try {
       const { data } = await api.get(`/bookings/${bookingId}/public`);
       setBooking(data);
@@ -120,11 +129,21 @@ export default function PayBooking() {
   }
 
   if (!booking) {
+    // Differentiate between "no booking ID at all" (direct visit to /thank-you)
+    // vs "booking ID was provided but not found".
+    const directVisit = !bookingId;
     return (
-      <div className="min-h-screen bg-[#050505] flex items-center justify-center text-white">
-        <div className="text-center">
-          <h1 className="font-serif text-3xl">Booking not found</h1>
-          <Link to="/" className="text-[#D4AF37] mt-4 inline-block">
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center text-white px-6">
+        <div className="text-center max-w-md">
+          <h1 className="font-serif text-3xl">
+            {directVisit ? "Looking for your reservation?" : "Booking not found"}
+          </h1>
+          <p className="text-white/55 text-sm mt-3 leading-relaxed">
+            {directVisit
+              ? "This page is shown right after a successful payment. Head back to the main site to make a reservation or manage an existing one."
+              : "We couldn't find that reservation. The link may have expired or been mistyped."}
+          </p>
+          <Link to="/" className="text-[#D4AF37] mt-6 inline-block hover:underline">
             ← Back to TuranEliteLimo
           </Link>
         </div>

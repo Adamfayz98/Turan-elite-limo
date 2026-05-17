@@ -24,6 +24,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/pay/:bookingId" element={<PayBooking />} />
+          <Route path="/thank-you" element={<PayBooking />} />
           <Route path="/manage/:token" element={<ManageBooking />} />
           <Route path="/driver/:token" element={<DriverPortal />} />
           <Route path="/post-trip/:token" element={<PostTrip />} />

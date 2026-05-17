@@ -491,5 +491,12 @@ External code review surfaced 39+ issues. Applied the actionable, low-risk subse
 - Manual reporting also available: `import { reportError } from "@/lib/errorReporter"; reportError(e, { route: "PayBooking" })`.
 - Smoke tested end-to-end: forced `throw` + `Promise.reject` in browser → backend received both POSTs (204) → emails delivered to support@turanelitelimo.com.
 
-### Google Ads env vars surfaced
-- Added empty placeholders `REACT_APP_GADS_CONVERSION_ID=` and `REACT_APP_GADS_CONVERSION_LABEL=` to `/app/frontend/.env` so they appear in the Emergent deployment env vars panel for the user to fill in.
+### Stable /thank-you URL for ad conversion tracking — Feb 2026 (Round 6.3)
+- New route `/thank-you` mounted in `App.js`. Reuses `PayBooking.jsx` (same receipt logic) but reads booking ID from `?bid=` query param instead of route path.
+- Changed Stripe `success_url` in `server.py:2848` from `/pay/{id}?session_id={CHECKOUT_SESSION_ID}` to `/thank-you?bid={id}&session_id={CHECKOUT_SESSION_ID}`. Every successful payment now lands on the same path `/thank-you` regardless of which booking it was — exactly what Google Ads / Meta / TikTok need for URL-match conversion goals.
+- Verified end-to-end: created a real Stripe Checkout session via the live API and confirmed `success_url=https://www.turanelitelimo.com/thank-you?bid=...&session_id={CHECKOUT_SESSION_ID}`.
+- `/pay/:bookingId` route is preserved — confirmation/manage emails still link there for re-visits and post-payment receipt access.
+- `cancel_url` still points to `/pay/:id` so customers who abandon mid-checkout return to a recoverable state.
+- Friendly empty state for direct visits to `/thank-you` without params (Google Ads URL probes, bookmarks): renders "Looking for your reservation?" instead of error toast.
+- Added `Disallow: /thank-you` to `robots.txt` so the receipt page never gets indexed.
+- Existing `GoogleAdsConversion` gtag conversion event still fires on payment_status="paid" — so both URL-match AND gtag tracking work simultaneously.
