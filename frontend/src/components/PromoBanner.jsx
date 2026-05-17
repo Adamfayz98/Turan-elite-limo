@@ -80,7 +80,7 @@ export default function PromoBanner() {
       data-testid="promo-banner"
       role="region"
       aria-label="Promotional offer"
-      className="relative z-[60] bg-gradient-to-r from-[#D4AF37] via-[#E5C24A] to-[#D4AF37] text-black"
+      className="sticky top-0 z-[60] bg-gradient-to-r from-[#D4AF37] via-[#E5C24A] to-[#D4AF37] text-black"
     >
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-2.5 flex items-center justify-center gap-3 text-sm md:text-[15px] font-medium">
         <Gift className="w-4 h-4 flex-shrink-0" aria-hidden="true" />

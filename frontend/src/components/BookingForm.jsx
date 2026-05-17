@@ -939,9 +939,9 @@ export default function BookingForm() {
             </div>
           </div>
 
-          {/* Promo Code (only visible once a real price is shown) */}
-          {currentVehiclePrice() !== null && (
-            <div data-testid="promo-section" className="mt-4 rounded-xl border border-[#1F1F1F] bg-[#0A0A0A] p-4">
+          {/* Promo Code — always visible so customers can type their code early.
+              Apply still requires a vehicle to be selected (guarded in applyPromo). */}
+          <div data-testid="promo-section" className="mt-4 rounded-xl border border-[#1F1F1F] bg-[#0A0A0A] p-4">
               {promoApplied ? (
                 <div className="flex flex-wrap items-center gap-3 justify-between">
                   <div className="flex items-center gap-3">
@@ -1002,7 +1002,6 @@ export default function BookingForm() {
                 </>
               )}
             </div>
-          )}
 
           {/* Cancellation policy chip — collapsed by default, expandable */}
           <div className="mt-4">
