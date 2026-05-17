@@ -16,7 +16,34 @@ resend.api_key = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "support@turanelitelimo.com")
 SUPPORT_PHONE = os.environ.get("SUPPORT_PHONE", "(650) 410-0687")
+ADMIN_SMS_GATEWAY = os.environ.get("ADMIN_SMS_GATEWAY", "").strip()
 COMPANY_NAME = "TuranEliteLimo"
+
+
+async def send_admin_sms(text: str) -> Optional[str]:
+    """
+    Sends a plain-text SMS to ADMIN_SMS_GATEWAY (carrier email-to-SMS bridge,
+    e.g. 4152999587@tmomail.net). Carriers strip HTML and cap at ~160 chars per
+    segment, so we keep it short and plain. Fire-and-forget — never raises.
+    """
+    if not resend.api_key or not ADMIN_SMS_GATEWAY:
+        return None
+    # Trim to ~300 chars (2 segments of safety) — most carriers concat.
+    text = (text or "").strip()
+    if len(text) > 300:
+        text = text[:297] + "..."
+    params = {
+        "from": f"TEL <{SENDER_EMAIL}>",
+        "to": [ADMIN_SMS_GATEWAY],
+        "subject": "",   # empty subject — carriers prepend their own anyway
+        "text": text,    # plain text only; carriers strip HTML
+    }
+    try:
+        r = await asyncio.to_thread(resend.Emails.send, params)
+        return r.get("id") if isinstance(r, dict) else None
+    except Exception as e:
+        logger.warning(f"Admin SMS via gateway failed: {e}")
+        return None
 
 
 async def send_email(

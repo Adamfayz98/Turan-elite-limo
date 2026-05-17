@@ -32,6 +32,7 @@ from email_service import (
     render_review_request_email,
     render_admin_new_request_email,
     render_wait_time_charge_email,
+    send_admin_sms,
     SUPPORT_EMAIL,
 )
 import sms_service
@@ -396,6 +397,22 @@ async def create_booking(payload: BookingCreate, request: Request):
             await send_email(to=SUPPORT_EMAIL, subject=subject, html=html)
         except Exception as e:
             logger.warning(f"Admin new-request email failed: {e}")
+
+    # ----- Admin SMS alert via carrier email-to-SMS gateway (fire-and-forget) -----
+    try:
+        cn_short = doc.get("confirmation_number") or doc["id"][:8]
+        # Plain text, < 300 chars. Phone numbers + addresses auto-link in iOS Messages.
+        sms_text = (
+            f"NEW BOOKING #{cn_short}\n"
+            f"{doc.get('full_name','')} · {doc.get('phone','')}\n"
+            f"{doc.get('pickup_date','')} {doc.get('pickup_time','')}\n"
+            f"Pick: {doc.get('pickup_location','')[:60]}\n"
+            f"Drop: {doc.get('dropoff_location','')[:60]}\n"
+            f"{doc.get('vehicle_type','')} · ${doc.get('quote_amount',0):.0f}"
+        )
+        await send_admin_sms(sms_text)
+    except Exception as e:
+        logger.warning(f"Admin SMS for new booking failed: {e}")
 
     # NOTE: No customer email is sent here. The customer will be redirected to Stripe immediately
     # after this booking is created. The "Payment received, confirming chauffeur" email
@@ -3051,6 +3068,19 @@ async def get_payment_status(session_id: str, request: Request):
                         html=pending_html,
                         bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
                     )
+                    # Admin SMS — "PAID" alert so you know it's a real booking, not a tire-kicker
+                    try:
+                        cn_short = updated.get("confirmation_number") or updated["id"][:8]
+                        paid_sms = (
+                            f"PAID ${amount:.0f} #{cn_short}\n"
+                            f"{updated.get('full_name','')} · {updated.get('phone','')}\n"
+                            f"{updated.get('pickup_date','')} {updated.get('pickup_time','')}\n"
+                            f"Pick: {updated.get('pickup_location','')[:60]}\n"
+                            f"Action: confirm chauffeur in admin"
+                        )
+                        await send_admin_sms(paid_sms)
+                    except Exception as e:
+                        logger.warning(f"Admin SMS for paid booking failed: {e}")
                     await db.bookings.update_one(
                         {"id": txn["booking_id"]},
                         {"$set": {"paid_email_sent": True}},
