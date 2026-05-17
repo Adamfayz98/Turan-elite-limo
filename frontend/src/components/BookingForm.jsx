@@ -192,6 +192,7 @@ export default function BookingForm() {
         code,
         amount: price,
         email: form.email || null,
+        vehicle_type: form.vehicle_type || null,
       });
       if (data.ok) {
         setPromoApplied(data);
@@ -224,11 +225,16 @@ export default function BookingForm() {
             code: promoApplied.code,
             amount: currentVehiclePrice(),
             email: form.email || null,
+            vehicle_type: form.vehicle_type || null,
           });
           if (data.ok) {
             setPromoApplied(data);
           } else {
+            // Vehicle changed and promo no longer applies — auto-clear with a soft toast
             clearPromo();
+            toast(data.reason || "Promo removed — doesn't apply to this vehicle", {
+              description: "You can apply a different code if you'd like.",
+            });
           }
         } catch (e) {
           console.warn("[BookingForm] promo re-validate failed:", e);

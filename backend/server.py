@@ -1909,6 +1909,7 @@ class PromoBase(BaseModel):
     first_ride_only: bool = False
     active: bool = True
     show_on_banner: bool = False  # whether to advertise this code as a sitewide banner
+    allowed_vehicle_types: List[str] = Field(default_factory=list)  # empty = all vehicles eligible
 
 
 class PromoCreate(PromoBase):
@@ -1925,6 +1926,7 @@ class PromoUpdate(BaseModel):
     first_ride_only: Optional[bool] = None
     active: Optional[bool] = None
     show_on_banner: Optional[bool] = None
+    allowed_vehicle_types: Optional[List[str]] = None
 
 
 class Promo(PromoBase):
@@ -1938,6 +1940,7 @@ class PromoValidateRequest(BaseModel):
     code: str = Field(..., min_length=1, max_length=40)
     amount: float = Field(..., gt=0)
     email: Optional[EmailStr] = None
+    vehicle_type: Optional[str] = Field(None, max_length=40)
 
 
 
@@ -2393,7 +2396,7 @@ def _normalize_promo_code(raw: str) -> str:
 
 
 async def _validate_promo_for_booking(
-    code: str, amount: float, email: Optional[str]
+    code: str, amount: float, email: Optional[str], vehicle_type: Optional[str] = None,
 ) -> dict:
     """Server-side promo validation used at quote-validate AND checkout time.
     Returns {ok: bool, code, discount, reason, type, value, final_amount}."""
@@ -2417,6 +2420,14 @@ async def _validate_promo_for_booking(
     uses = int(promo.get("uses") or 0)
     if max_uses is not None and uses >= int(max_uses):
         return {"ok": False, "reason": "This code has reached its usage limit"}
+    # Vehicle-type restriction (admin can limit a promo to specific vehicles)
+    allowed_vehicles = promo.get("allowed_vehicle_types") or []
+    if allowed_vehicles and vehicle_type and vehicle_type not in allowed_vehicles:
+        pretty = " / ".join(allowed_vehicles)
+        return {
+            "ok": False,
+            "reason": f"This code only works for {pretty}",
+        }
     min_ride = float(promo.get("min_ride_amount") or 0)
     if amount < min_ride:
         return {
@@ -2452,7 +2463,9 @@ async def _validate_promo_for_booking(
 @api_router.post("/promos/validate")
 async def public_validate_promo(payload: PromoValidateRequest):
     """Public endpoint — booking form uses this for live "Apply code" feedback."""
-    result = await _validate_promo_for_booking(payload.code, payload.amount, payload.email)
+    result = await _validate_promo_for_booking(
+        payload.code, payload.amount, payload.email, payload.vehicle_type,
+    )
     return result
 
 
@@ -2961,7 +2974,9 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
     applied_promo = None
     code_raw = (booking.get("promo_code") or "").strip()
     if code_raw:
-        promo = await _validate_promo_for_booking(code_raw, original_amount, booking.get("email"))
+        promo = await _validate_promo_for_booking(
+            code_raw, original_amount, booking.get("email"), booking.get("vehicle_type"),
+        )
         if promo.get("ok"):
             discount_amount = round(promo["discount"], 2)
             amount = round(original_amount - discount_amount, 2)

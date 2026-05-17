@@ -47,7 +47,17 @@ const blank = () => ({
   first_ride_only: false,
   active: true,
   show_on_banner: false,
+  allowed_vehicle_types: [],
 });
+
+const VEHICLE_TYPES = [
+  "Executive Sedan",
+  "First Class",
+  "Luxury SUV",
+  "Stretch Limousine",
+  "Sprinter Van",
+  "Party Bus",
+];
 
 export default function PromosTab() {
   const [promos, setPromos] = useState([]);
@@ -82,6 +92,7 @@ export default function PromosTab() {
       first_ride_only: !!editing.first_ride_only,
       active: !!editing.active,
       show_on_banner: !!editing.show_on_banner,
+      allowed_vehicle_types: Array.isArray(editing.allowed_vehicle_types) ? editing.allowed_vehicle_types : [],
     };
     if (!payload.code || payload.code.length < 2) {
       toast.error("Code must be at least 2 characters");
@@ -203,6 +214,14 @@ export default function PromosTab() {
                   {p.show_on_banner && (
                     <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-[#D4AF37]/15 text-[#D4AF37] uppercase tracking-wider">
                       On banner
+                    </span>
+                  )}
+                  {Array.isArray(p.allowed_vehicle_types) && p.allowed_vehicle_types.length > 0 && (
+                    <span
+                      className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 uppercase tracking-wider"
+                      title={p.allowed_vehicle_types.join(" · ")}
+                    >
+                      {p.allowed_vehicle_types.length === 1 ? p.allowed_vehicle_types[0] : `${p.allowed_vehicle_types.length} vehicles`}
                     </span>
                   )}
                   {p.min_ride_amount > 0 && (
@@ -423,6 +442,55 @@ export default function PromosTab() {
                   className="data-[state=checked]:bg-emerald-500"
                 />
               </label>
+
+              <div className="pt-3 border-t border-[#1F1F1F]">
+                <div className="flex items-baseline justify-between mb-2">
+                  <div className="text-sm text-white">Limit to vehicles</div>
+                  <div className="text-[10px] text-white/45">
+                    {Array.isArray(editing.allowed_vehicle_types) && editing.allowed_vehicle_types.length > 0
+                      ? `${editing.allowed_vehicle_types.length} selected`
+                      : "All vehicles eligible"}
+                  </div>
+                </div>
+                <p className="text-xs text-white/45 mb-3">
+                  Leave all unchecked = the code works on every vehicle. Check specific ones to restrict.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {VEHICLE_TYPES.map((vt) => {
+                    const sel = (editing.allowed_vehicle_types || []).includes(vt);
+                    return (
+                      <button
+                        key={vt}
+                        type="button"
+                        data-testid={`promo-vehicle-${vt.replace(/\s+/g, "-").toLowerCase()}`}
+                        onClick={() => {
+                          const cur = editing.allowed_vehicle_types || [];
+                          const next = sel ? cur.filter((x) => x !== vt) : [...cur, vt];
+                          setEditing({ ...editing, allowed_vehicle_types: next });
+                        }}
+                        className={
+                          "px-3 py-2 rounded-lg text-xs text-left border transition-colors " +
+                          (sel
+                            ? "bg-[#D4AF37]/15 border-[#D4AF37] text-[#D4AF37]"
+                            : "bg-[#0E0E0E] border-[#27272A] text-white/65 hover:border-[#D4AF37]/40 hover:text-white")
+                        }
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <span
+                            className={
+                              "w-3.5 h-3.5 rounded-sm border flex items-center justify-center " +
+                              (sel ? "bg-[#D4AF37] border-[#D4AF37]" : "border-white/30")
+                            }
+                          >
+                            {sel && <span className="text-black text-[10px]">✓</span>}
+                          </span>
+                          {vt}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-[#1F1F1F]">
                 <Button
