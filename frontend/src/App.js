@@ -11,6 +11,7 @@ import ManageBooking from "@/pages/ManageBooking";
 import DriverPortal from "@/pages/DriverPortal";
 import PostTrip from "@/pages/PostTrip";
 import Announcement from "@/pages/Announcement";
+import GoogleSiteTag from "@/components/GoogleSiteTag";
 
 function App() {
   useEffect(() => {
@@ -20,6 +21,7 @@ function App() {
 
   return (
     <div className="App dark bg-[#050505] text-white min-h-screen">
+      <GoogleSiteTag />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Home />} />
