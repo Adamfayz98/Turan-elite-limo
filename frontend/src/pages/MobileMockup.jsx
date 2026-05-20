@@ -36,6 +36,8 @@ const SUV = "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=e
 const FIRST_CLASS = "https://images.unsplash.com/photo-1609521247503-8de40462e427?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0";
 const STRETCH = "https://images.unsplash.com/photo-1742794147227-b3df1a5ae19c?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0";
 const DRIVER_PHOTO = "https://images.unsplash.com/photo-1603122101829-e56305b0a5f7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjaGF1ZmZldXIlMjBzdWl0fGVufDB8fHx8MTc3OTI0NTI4NXww&ixlib=rb-4.1.0&q=85";
+const LOGO_MARK = "/logo-mark.png";
+const LOGO_FULL = "/logo-full.png";
 
 // ---------- Phone frame wrapper ----------
 function PhoneFrame({ title, label, children }) {
@@ -122,12 +124,13 @@ function S_RolePicker() {
     <div className="absolute inset-0 bg-black">
       <img src={ABSTRACT_GOLD} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" />
       <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/30 to-black/95" />
-      <div className="relative h-full flex flex-col items-center px-6 pt-16 pb-8">
+      <div className="relative h-full flex flex-col items-center px-6 pt-14 pb-8">
+        <img src={LOGO_MARK} alt="TuranEliteLimo" className="w-14 h-14 object-contain mb-3 drop-shadow-[0_0_20px_rgba(212,175,55,0.4)]" />
         <div className="flex items-center gap-2 mb-2">
-          <Sparkles size={14} color={C.gold} />
-          <span className="text-[10px] uppercase tracking-[0.3em] text-[#D4AF37]">Bay Area · NorCal</span>
+          <Sparkles size={12} color={C.gold} />
+          <span className="text-[9px] uppercase tracking-[0.3em] text-[#D4AF37]">Bay Area · NorCal</span>
         </div>
-        <h1 className="font-serif text-[28px] leading-[1.1] text-white text-center mt-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+        <h1 className="font-serif text-[24px] leading-[1.15] text-white text-center mt-1" style={{ fontFamily: "'Playfair Display', serif" }}>
           Welcome to<br /><span className="italic text-[#D4AF37]">TuranEliteLimo</span>
         </h1>
         <p className="text-white/55 text-[12px] text-center mt-3 leading-relaxed max-w-[220px]">
@@ -170,7 +173,10 @@ function S_RolePicker() {
 function S_RiderAuth() {
   return (
     <div className="absolute inset-0 bg-[#050505] flex flex-col px-6 pt-14 pb-6">
-      <button className="text-white/50 text-[12px] mb-6 flex items-center gap-1"><ChevronLeft size={14} /> Back</button>
+      <div className="flex items-center justify-between mb-5">
+        <button className="text-white/50 text-[12px] flex items-center gap-1"><ChevronLeft size={14} /> Back</button>
+        <img src={LOGO_MARK} alt="" className="w-7 h-7 object-contain opacity-90" />
+      </div>
       <h2 className="text-white text-[24px] leading-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
         Welcome <span className="italic text-[#D4AF37]">back.</span>
       </h2>
@@ -229,7 +235,8 @@ function S_RiderHome() {
         <button className="w-10 h-10 rounded-full bg-black/70 backdrop-blur-md border border-white/10 flex items-center justify-center">
           <Settings size={16} color="#fff" strokeWidth={1.6} />
         </button>
-        <div className="px-4 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-white/10">
+        <div className="px-3 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-white/10 flex items-center gap-1.5">
+          <img src={LOGO_MARK} alt="" className="w-4 h-4 object-contain" />
           <span className="text-[10px] uppercase tracking-[0.2em] text-[#D4AF37]">TuranElite</span>
         </div>
         <div className="w-10 h-10 rounded-full bg-[#D4AF37]/20 border border-[#D4AF37]/40 flex items-center justify-center">
@@ -417,8 +424,9 @@ function S_ActiveTrip() {
 
       {/* Top ETA pill */}
       <div className="absolute top-12 inset-x-0 z-30 flex justify-center px-5">
-        <div className="bg-black/80 backdrop-blur-md border border-[#D4AF37]/30 rounded-full px-5 py-2 flex items-center gap-2 shadow-[0_0_30px_rgba(212,175,55,0.2)]">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+        <div className="bg-black/80 backdrop-blur-md border border-[#D4AF37]/30 rounded-full pl-2 pr-5 py-1.5 flex items-center gap-2 shadow-[0_0_30px_rgba(212,175,55,0.2)]">
+          <img src={LOGO_MARK} alt="" className="w-6 h-6 object-contain" />
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-white text-[11px]">Driver arriving in</span>
           <span className="text-[#D4AF37] text-[14px] font-semibold">4 min</span>
         </div>
@@ -557,10 +565,13 @@ function S_RiderProfile() {
       <div className="relative h-44 overflow-hidden">
         <img src={ABSTRACT_GOLD} className="absolute inset-0 w-full h-full object-cover opacity-50" />
         <div className="absolute inset-0 bg-gradient-to-b from-black/40 to-[#050505]" />
+        <img src={LOGO_MARK} alt="" className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 object-contain opacity-[0.08]" />
         <div className="relative h-full flex flex-col items-center justify-end pb-5">
           <div className="w-20 h-20 rounded-full bg-[#D4AF37] flex items-center justify-center text-black text-[26px] font-semibold mb-2 shadow-[0_0_30px_rgba(212,175,55,0.4)]" style={{ fontFamily: "'Playfair Display', serif" }}>T</div>
           <p className="text-white text-[15px] font-medium">Turan Aliyev</p>
-          <p className="text-white/45 text-[11px]">Elite Member · 12 rides</p>
+          <p className="text-white/45 text-[11px] flex items-center gap-1.5">
+            <Crown size={10} color={C.gold} /> Elite Member · 12 rides
+          </p>
         </div>
       </div>
 
@@ -595,7 +606,10 @@ function S_DriverAuth() {
   return (
     <div className="absolute inset-0 bg-[#050505] flex flex-col">
       <div className="px-6 pt-14 pb-6">
-        <button className="text-white/50 text-[12px] mb-5 flex items-center gap-1"><ChevronLeft size={14} /> Back</button>
+        <div className="flex items-center justify-between mb-5">
+          <button className="text-white/50 text-[12px] flex items-center gap-1"><ChevronLeft size={14} /> Back</button>
+          <img src={LOGO_MARK} alt="" className="w-7 h-7 object-contain opacity-90" />
+        </div>
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/30 mb-3">
           <Briefcase size={11} color={C.gold} />
           <span className="text-[10px] uppercase tracking-[0.2em] text-[#D4AF37]">Chauffeur Portal</span>
@@ -798,7 +812,9 @@ function S_DriverProfile() {
             <Star size={11} color={C.gold} fill={C.gold} />
             <span className="text-[#D4AF37] text-[11px] font-medium">4.97</span>
             <span className="text-white/40 text-[10px]">·</span>
-            <span className="text-white/55 text-[11px]">Chauffeur since 2021</span>
+            <span className="text-white/55 text-[11px] flex items-center gap-1">
+              <img src={LOGO_MARK} alt="" className="w-3 h-3 object-contain" /> TuranElite Chauffeur since 2021
+            </span>
           </div>
         </div>
       </div>
