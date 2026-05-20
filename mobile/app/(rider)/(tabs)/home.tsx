@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { Calendar, Clock, ArrowRight, Settings, User as UserIcon, MapPin, Sparkles } from "lucide-react-native";
 import Button from "@/components/Button";
 import AddressPicker from "@/components/AddressPicker";
+import DateTimeModal from "@/components/DateTimeModal";
 import { colors, radius } from "@/theme";
 import { useAuth } from "@/store/auth";
 import { useBooking } from "@/store/booking";
@@ -19,16 +20,22 @@ export default function RiderHome() {
 
   const [pickup, setPickup] = useState(trip.pickup);
   const [dropoff, setDropoff] = useState(trip.dropoff);
+  const [datetime, setDatetime] = useState<string>(trip.datetime || "");
   const [picker, setPicker] = useState<null | "pickup" | "dropoff">(null);
+  const [dtOpen, setDtOpen] = useState(false);
 
   const firstName = user?.name?.split(" ")[0] || "there";
 
   const onContinue = () => {
     if (!pickup.trim() || !dropoff.trim()) return;
-    const when = trip.datetime || new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const when = datetime || new Date(Date.now() + 60 * 60 * 1000).toISOString();
     setTrip({ pickup: pickup.trim(), dropoff: dropoff.trim(), datetime: when });
     router.push("/(rider)/vehicle");
   };
+
+  const dt = datetime ? new Date(datetime) : null;
+  const dateLabel = dt ? dt.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "Pick date";
+  const timeLabel = dt ? dt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "Pick time";
 
   return (
     <View style={s.root}>
@@ -38,7 +45,7 @@ export default function RiderHome() {
       <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
         {/* Top bar */}
         <View style={s.topBar}>
-          <Pressable testID="home-settings" style={s.iconBtn}>
+          <Pressable testID="home-settings" onPress={() => router.push("/profile")} style={s.iconBtn}>
             <Settings size={16} color="#fff" strokeWidth={1.6} />
           </Pressable>
           <View style={s.brandPill}>
@@ -77,13 +84,13 @@ export default function RiderHome() {
             </View>
 
             <View style={s.chipsRow}>
-              <Pressable testID="home-chip-date" style={s.chip}>
+              <Pressable testID="home-chip-date" onPress={() => setDtOpen(true)} style={s.chip}>
                 <Calendar size={13} color={colors.gold} strokeWidth={1.6} />
-                <Text style={s.chipTxt}>Tomorrow</Text>
+                <Text style={s.chipTxt}>{dateLabel}</Text>
               </Pressable>
-              <Pressable testID="home-chip-time" style={s.chip}>
+              <Pressable testID="home-chip-time" onPress={() => setDtOpen(true)} style={s.chip}>
                 <Clock size={13} color={colors.gold} strokeWidth={1.6} />
-                <Text style={s.chipTxt}>9:30 AM</Text>
+                <Text style={s.chipTxt}>{timeLabel}</Text>
               </Pressable>
             </View>
 
@@ -113,6 +120,12 @@ export default function RiderHome() {
         label="Drop-off"
         onClose={() => setPicker(null)}
         onSelect={(v) => setDropoff(v)}
+      />
+      <DateTimeModal
+        visible={dtOpen}
+        initial={datetime}
+        onClose={() => setDtOpen(false)}
+        onConfirm={(iso) => setDatetime(iso)}
       />
     </View>
   );

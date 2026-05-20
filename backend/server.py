@@ -1120,6 +1120,14 @@ async def assign_driver(booking_id: str, payload: DriverAssignRequest, request: 
         raise HTTPException(status_code=404, detail="Booking not found")
 
     token = b.get("driver_token") or _generate_driver_token()
+
+    # If the driver's phone matches a pre-registered driver (mobile app user), link by ID
+    # so the mobile chauffeur app can pull this trip in /api/driver-auth/trips.
+    linked_driver = await db.drivers.find_one(
+        {"phone": payload.driver_phone.strip()},
+        {"_id": 0, "id": 1},
+    )
+
     update_doc = {
         "driver_name": payload.driver_name.strip(),
         "driver_phone": payload.driver_phone.strip(),
@@ -1130,6 +1138,8 @@ async def assign_driver(booking_id: str, payload: DriverAssignRequest, request: 
         "trip_status": b.get("trip_status") or "assigned",
         "trip_status_updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if linked_driver:
+        update_doc["driver_id"] = linked_driver["id"]
     await db.bookings.update_one({"id": booking_id}, {"$set": update_doc})
 
     # SMS the driver with the dispatch link
@@ -4867,6 +4877,69 @@ async def admin_drivers_live(claims: dict = Depends(require_admin)):
             "is_online": age < 120,
         })
     return out
+
+
+# ============================================================================
+# Customer trip rating + Admin driver assignment
+# ============================================================================
+
+class CustomerRatingSubmit(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    comment: Optional[str] = Field(None, max_length=600)
+
+
+@api_router.post("/customer/bookings/{booking_id}/rate")
+async def customer_rate_trip(booking_id: str, payload: CustomerRatingSubmit, claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    b = await db.bookings.find_one({"id": booking_id, "customer_id": cid}, {"_id": 0, "id": 1, "driver_id": 1, "rating": 1})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if b.get("rating"):
+        raise HTTPException(status_code=409, detail="You've already rated this trip.")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.bookings.update_one(
+        {"id": booking_id},
+        {"$set": {"rating": payload.rating, "rating_comment": payload.comment or "", "rated_at": now}},
+    )
+    did = b.get("driver_id")
+    if did:
+        pipeline = [{"$match": {"driver_id": did, "rating": {"$exists": True}}},
+                    {"$group": {"_id": None, "avg": {"$avg": "$rating"}, "count": {"$sum": 1}}}]
+        agg = await db.bookings.aggregate(pipeline).to_list(1)
+        if agg:
+            await db.drivers.update_one(
+                {"id": did},
+                {"$set": {"avg_rating": round(float(agg[0]["avg"]), 2), "ratings_count": int(agg[0]["count"])}},
+            )
+    return {"ok": True, "rating": payload.rating}
+
+
+class AdminAssignDriverRequest(BaseModel):
+    booking_id: str
+    driver_id: str
+
+
+@api_router.post("/admin/bookings/assign-driver")
+async def admin_assign_driver(payload: AdminAssignDriverRequest, claims: dict = Depends(require_admin)):
+    d = await db.drivers.find_one({"id": payload.driver_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    b = await db.bookings.find_one({"id": payload.booking_id}, {"_id": 0, "id": 1})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    await db.bookings.update_one(
+        {"id": payload.booking_id},
+        {"$set": {
+            "driver_id": d["id"],
+            "driver_name": d.get("name"),
+            "driver_phone": d.get("phone"),
+            "driver_plate": d.get("plate"),
+            "driver_vehicle": d.get("vehicle"),
+            "trip_status": "assigned",
+            "assigned_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"ok": True}
 
 
 # Register router

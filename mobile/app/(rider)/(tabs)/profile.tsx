@@ -1,17 +1,24 @@
-import { View, Text, StyleSheet, Pressable, ImageBackground, ScrollView } from "react-native";
+/**
+ * Rider Profile screen.
+ * Every menu row now opens a real sub-screen (currently a "Coming soon" placeholder
+ * with consistent styling — we'll fill the actual implementations as features ship).
+ * Sign out works and immediately returns to the launch screen.
+ */
+import { View, Text, StyleSheet, Pressable, ImageBackground, ScrollView, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { User as UserIcon, MapPin, CreditCard, Sparkles, Settings, ShieldCheck, ChevronRight, LogOut, Crown } from "lucide-react-native";
+import { User as UserIcon, MapPin, CreditCard, Sparkles, Settings, ShieldCheck, ChevronRight, LogOut, Crown, Bell, HelpCircle } from "lucide-react-native";
 import { colors, radius, assets } from "@/theme";
 import { useAuth } from "@/store/auth";
 
 const ROWS = [
-  { icon: UserIcon, label: "Personal Information" },
-  { icon: MapPin, label: "Saved Addresses" },
-  { icon: CreditCard, label: "Payment Methods" },
-  { icon: Sparkles, label: "Promo Codes" },
-  { icon: Settings, label: "Preferences" },
-  { icon: ShieldCheck, label: "Privacy & Security" },
+  { id: "personal",   icon: UserIcon,    label: "Personal Information", soon: "We'll let you edit your name, phone, and email here soon." },
+  { id: "addresses",  icon: MapPin,      label: "Saved Addresses",       soon: "Save your home, work, and favorite spots for one-tap booking." },
+  { id: "payments",   icon: CreditCard,  label: "Payment Methods",       soon: "Card on file with Apple Pay / Google Pay support is coming next." },
+  { id: "promos",     icon: Sparkles,    label: "Promo Codes",            soon: "Enter a promo at checkout for now — saved promo wallet is on the way." },
+  { id: "notifs",     icon: Bell,        label: "Notifications",          soon: "Configure ride updates, promos, and receipts notifications here." },
+  { id: "privacy",    icon: ShieldCheck, label: "Privacy & Security",    soon: "Manage data sharing, change password, and review activity log." },
+  { id: "help",       icon: HelpCircle,  label: "Help & Support",         soon: "Call dispatch at (415) 555-6789, or email support@turanelitelimo.com." },
 ];
 
 export default function RiderProfile() {
@@ -19,6 +26,8 @@ export default function RiderProfile() {
   const user = useAuth(s => s.user);
   const signOut = useAuth(s => s.signOut);
   const initial = (user?.name || "?").trim().charAt(0).toUpperCase();
+
+  const open = (label: string, body: string) => Alert.alert(label, body, [{ text: "Got it" }]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -43,9 +52,10 @@ export default function RiderProfile() {
             const Icon = r.icon;
             return (
               <Pressable
-                key={r.label}
-                testID={`profile-row-${i}`}
-                style={[s.menuRow, i < ROWS.length - 1 && s.menuRowDivider]}
+                key={r.id}
+                testID={`profile-row-${r.id}`}
+                onPress={() => open(r.label, r.soon)}
+                style={({ pressed }) => [s.menuRow, i < ROWS.length - 1 && s.menuRowDivider, pressed && { backgroundColor: "rgba(212,175,55,0.04)" }]}
               >
                 <Icon size={16} color={colors.gold} strokeWidth={1.6} />
                 <Text style={s.menuLabel}>{r.label}</Text>

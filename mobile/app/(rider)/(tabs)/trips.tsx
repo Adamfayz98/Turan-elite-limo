@@ -100,8 +100,20 @@ export default function RiderTrips() {
                       <Text style={s.vehicle}>{t.vehicle_type}</Text>
                     </View>
                   </View>
-                  <Pressable testID={`trip-${t.id}-track`} onPress={() => router.push(`/(rider)/active?bid=${t.id}`)} style={s.rebook}>
-                    <Text style={s.rebookTxt}>Track live</Text>
+                  <Pressable
+                    testID={`trip-${t.id}-action`}
+                    onPress={() => {
+                      if ((t.status || "").toLowerCase() === "completed") {
+                        router.push(`/(rider)/rate?bid=${t.id}`);
+                      } else {
+                        router.push(`/(rider)/active?bid=${t.id}`);
+                      }
+                    }}
+                    style={s.rebook}
+                  >
+                    <Text style={s.rebookTxt}>
+                      {(t.status || "").toLowerCase() === "completed" ? "Rate this trip" : "Track live"}
+                    </Text>
                     <ArrowRight size={11} color={colors.gold} />
                   </Pressable>
                 </View>

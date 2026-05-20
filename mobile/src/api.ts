@@ -209,6 +209,11 @@ export async function customerGetDriverLocation(bookingId: string) {
   return data;
 }
 
+export async function customerRateTrip(bookingId: string, rating: number, comment?: string) {
+  const { data } = await api.post(`/api/customer/bookings/${bookingId}/rate`, { rating, comment });
+  return data;
+}
+
 export async function logout() {
   await setToken(null);
 }

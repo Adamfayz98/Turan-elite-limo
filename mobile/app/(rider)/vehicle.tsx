@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, ActivityIndicator, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { ChevronLeft, Users, ArrowRight } from "lucide-react-native";
+import { ChevronLeft, Users, ArrowRight, Phone } from "lucide-react-native";
 import Button from "@/components/Button";
 import { colors, radius } from "@/theme";
 import { useBooking } from "@/store/booking";
@@ -69,6 +69,7 @@ export default function VehiclePicker() {
   };
 
   const selectedQ = quotes.find(q => q.vehicle_type === selected);
+  const callDispatch = () => Linking.openURL("tel:+14155556789");
 
   return (
     <SafeAreaView style={s.safe}>
@@ -176,5 +177,7 @@ const s = StyleSheet.create({
   cardMetaTxt: { color: "rgba(255,255,255,0.55)", fontSize: 10 },
   muted: { color: "rgba(255,255,255,0.45)", fontSize: 10 },
   selectedTag: { color: colors.gold, fontSize: 9, letterSpacing: 1.5, fontWeight: "700", borderColor: "rgba(212,175,55,0.4)", borderWidth: 1, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+  callBtn: { marginTop: 10, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.gold },
+  callBtnTxt: { color: "#000", fontSize: 12, fontWeight: "600" },
   ctaBar: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 28, backgroundColor: "rgba(5,5,5,0.92)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
 });
