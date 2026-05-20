@@ -49,7 +49,7 @@ export default function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-6 md:px-10 h-20 flex items-center justify-between">
         <a href="#top" data-testid="logo-link" className="flex items-center group">
-          <Logo variant="full" height={44} />
+          <Logo variant="full" height={64} />
         </a>
 
         <div className="hidden lg:flex items-center gap-8">
