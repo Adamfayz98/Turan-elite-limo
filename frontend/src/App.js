@@ -11,6 +11,7 @@ import ManageBooking from "@/pages/ManageBooking";
 import DriverPortal from "@/pages/DriverPortal";
 import PostTrip from "@/pages/PostTrip";
 import Announcement from "@/pages/Announcement";
+import MobileMockup from "@/pages/MobileMockup";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
 
 function App() {
@@ -31,6 +32,7 @@ function App() {
           <Route path="/driver/:token" element={<DriverPortal />} />
           <Route path="/post-trip/:token" element={<PostTrip />} />
           <Route path="/news/:slug" element={<Announcement />} />
+          <Route path="/preview/mobile" element={<MobileMockup />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
