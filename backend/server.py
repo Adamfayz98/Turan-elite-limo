@@ -4549,10 +4549,12 @@ async def customer_book_and_pay(
 
     # Deep-link back into the native app (registered via app.json scheme + universal links).
     # Stripe interpolates {CHECKOUT_SESSION_ID} into the success_url at redirect time.
-    # On native iOS/Android Expo Go will receive this deep link via Linking.
-    # On web preview, we fall back to a regular https URL because browsers won't open custom schemes.
-    is_web = "web" in (payload.notes or "").lower() or False
-    if is_web:
+    # On native iOS/Android Expo Go the app handles the deep link via Linking.
+    # On web (browser preview at /m/), custom schemes don't work — fall back to a regular https URL.
+    ua = (request.headers.get("user-agent") or "").lower()
+    # ExpoGo, React Native and the native Expo client all identify themselves; a real browser doesn't.
+    is_native_app = "expo" in ua or "reactnative" in ua or "okhttp" in ua or "darwin" in ua
+    if not is_native_app:
         web_origin = str(request.base_url).rstrip("/")
         success_url = f"{web_origin}/m/?booking_id={bid}&session_id={{CHECKOUT_SESSION_ID}}"
         cancel_url = f"{web_origin}/m/"
@@ -4677,6 +4679,60 @@ async def customer_booking_detail(booking_id: str, claims: dict = Depends(requir
         "paid_amount": b.get("paid_amount"),
         "driver_name": b.get("driver_name"),
         "driver_phone": b.get("driver_phone"),
+    }
+
+
+@api_router.post("/customer/bookings/{booking_id}/cancel")
+async def customer_jwt_cancel_booking(
+    booking_id: str,
+    payload: ManageCancelRequest,
+    claims: dict = Depends(require_customer),
+):
+    """JWT-authenticated cancel for the mobile app. Same business rules as
+    the token-based /api/bookings/manage/{token}/cancel endpoint:
+      - Unpaid: cancelled immediately.
+      - Paid:   flagged 'cancellation_requested' for admin refund review.
+    """
+    cid = claims.get("customer_id")
+    b = await db.bookings.find_one({"id": booking_id, "customer_id": cid}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if b.get("status") == "completed":
+        raise HTTPException(status_code=400, detail="This ride is already completed.")
+    if b.get("status") == "cancelled":
+        return {"ok": True, "status": "cancelled", "already_cancelled": True}
+
+    is_paid = b.get("payment_status") == "paid"
+    update_doc = {
+        "cancellation_requested": True,
+        "cancellation_reason": (payload.reason or "")[:500],
+        "cancellation_requested_at": datetime.now(timezone.utc).isoformat(),
+        "cancellation_source": "mobile_app",
+    }
+    if not is_paid:
+        update_doc["status"] = "cancelled"
+    await db.bookings.update_one({"id": b["id"]}, {"$set": update_doc})
+
+    admin_to = sms_service.admin_phone()
+    if admin_to:
+        merged = {**b, **update_doc}
+        try:
+            await sms_service.send_sms(
+                admin_to, sms_service.render_cancellation_sms(merged, requested=is_paid)
+            )
+        except Exception as e:
+            logger.warning(f"Admin cancellation SMS failed (mobile): {e}")
+
+    if is_paid:
+        return {
+            "ok": True,
+            "status": "cancellation_requested",
+            "message": "We've received your cancellation. Our team will review it and contact you about a refund within 24 hours.",
+        }
+    return {
+        "ok": True,
+        "status": "cancelled",
+        "message": "Your reservation has been cancelled. We hope to chauffeur you another time.",
     }
 
 
@@ -5022,10 +5078,24 @@ async def customer_driver_location(booking_id: str, claims: dict = Depends(requi
     b = await db.bookings.find_one({"id": booking_id, "customer_id": cid}, {
         "_id": 0, "id": 1, "driver_id": 1, "driver_name": 1, "driver_phone": 1, "driver_plate": 1, "driver_vehicle": 1,
         "driver_latitude": 1, "driver_longitude": 1, "driver_heading": 1, "driver_location_updated_at": 1,
-        "pickup_location": 1, "dropoff_location": 1, "trip_status": 1, "status": 1,
+        "pickup_location": 1, "dropoff_location": 1, "pickup_coord": 1, "dropoff_coord": 1, "trip_status": 1, "status": 1,
     })
     if not b:
         raise HTTPException(status_code=404, detail="Trip not found")
+
+    # Lazy-cache pickup/dropoff coords onto the booking so the rider map can show
+    # the pickup pin + route polyline without a geocode call on every poll.
+    pickup_coord = b.get("pickup_coord")
+    if not pickup_coord and b.get("pickup_location"):
+        pickup_coord = await _geocode(b["pickup_location"])
+        if pickup_coord:
+            await db.bookings.update_one({"id": b["id"]}, {"$set": {"pickup_coord": pickup_coord}})
+    dropoff_coord = b.get("dropoff_coord")
+    if not dropoff_coord and b.get("dropoff_location"):
+        dropoff_coord = await _geocode(b["dropoff_location"])
+        if dropoff_coord:
+            await db.bookings.update_one({"id": b["id"]}, {"$set": {"dropoff_coord": dropoff_coord}})
+
     return {
         "booking_id": b["id"],
         "status": b.get("status"),
@@ -5043,6 +5113,8 @@ async def customer_driver_location(booking_id: str, claims: dict = Depends(requi
         },
         "pickup_location": b.get("pickup_location"),
         "dropoff_location": b.get("dropoff_location"),
+        "pickup_coord": pickup_coord,
+        "dropoff_coord": dropoff_coord,
     }
 
 

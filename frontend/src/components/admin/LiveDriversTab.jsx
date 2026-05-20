@@ -52,10 +52,12 @@ function loadGoogleMaps(apiKey) {
 }
 
 export default function LiveDriversTab() {
-  const apiKey = process.env.REACT_APP_GOOGLE_MAPS_BROWSER_KEY || "";
+  const apiKey = process.env.REACT_APP_GOOGLE_MAPS_BROWSER_KEY || process.env.REACT_APP_GOOGLE_MAPS_API_KEY || "";
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  const [mapErr, setMapErr] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
   const [focusId, setFocusId] = useState(null);
   const mapElRef = useRef(null);
   const mapRef = useRef(null);
@@ -82,6 +84,10 @@ export default function LiveDriversTab() {
   // Initialize map once
   useEffect(() => {
     if (!mapElRef.current || mapRef.current) return;
+    if (!apiKey) {
+      setMapErr("Google Maps API key missing — set REACT_APP_GOOGLE_MAPS_BROWSER_KEY in frontend/.env");
+      return;
+    }
     let cancelled = false;
     loadGoogleMaps(apiKey).then((maps) => {
       if (cancelled || !mapElRef.current) return;
@@ -94,7 +100,10 @@ export default function LiveDriversTab() {
         styles: DARK_STYLE,
         backgroundColor: "#050505",
       });
-    }).catch(() => {});
+      setMapReady(true);
+    }).catch((e) => {
+      setMapErr(e?.message || "Could not load Google Maps. Check the API key referer restrictions.");
+    });
     return () => { cancelled = true; };
   }, [apiKey]);
 
@@ -181,8 +190,24 @@ export default function LiveDriversTab() {
       </div>
 
       {err && <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-red-400 text-sm">{err}</div>}
+      {mapErr && <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-amber-300 text-sm">⚠️ {mapErr}</div>}
 
-      <div ref={mapElRef} data-testid="admin-live-map" className="w-full rounded-xl overflow-hidden border border-white/10" style={{ height: 520, background: "#050505" }} />
+      <div className="relative w-full rounded-xl overflow-hidden border border-white/10" style={{ height: 520, background: "#050505" }}>
+        <div ref={mapElRef} data-testid="admin-live-map" className="w-full h-full" />
+        {!mapReady && !mapErr && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="w-6 h-6 animate-spin text-[#D4AF37]" />
+              <p className="text-white/45 text-xs">Loading map…</p>
+            </div>
+          </div>
+        )}
+        {mapReady && drivers.filter(d => d.latitude != null).length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <p className="text-white/35 text-xs max-w-xs text-center">No drivers have shared their location yet. They&#39;ll appear here when they accept a trip.</p>
+          </div>
+        )}
+      </div>
 
       <div className="rounded-xl border border-white/8 bg-[#0C0C0C] overflow-hidden">
         <table className="w-full">

@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, ActivityIndicator, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Sparkles, ArrowRight, LogIn } from "lucide-react-native";
 import { colors, radius } from "@/theme";
-import { fetchMyTrips } from "@/api";
+import { fetchMyTrips, customerCancelBooking } from "@/api";
 import { useAuth } from "@/store/auth";
 
 interface Trip {
@@ -46,6 +46,27 @@ export default function RiderTrips() {
 
   useEffect(() => { load(); }, [load]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+
+  const confirmCancel = (id: string, isPaid: boolean) => {
+    const title = isPaid ? "Request cancellation?" : "Cancel this reservation?";
+    const msg = isPaid
+      ? "We'll review your request and contact you about a refund within 24 hours. The cancellation tier policy applies — see Policies on the welcome screen."
+      : "Your reservation will be cancelled immediately. No charge has been made yet.";
+    Alert.alert(title, msg, [
+      { text: "Keep reservation", style: "cancel" },
+      { text: isPaid ? "Request cancellation" : "Yes, cancel", style: "destructive", onPress: () => doCancel(id) },
+    ]);
+  };
+
+  const doCancel = async (id: string) => {
+    try {
+      const res = await customerCancelBooking(id, "");
+      await load();
+      Alert.alert(res?.status === "cancellation_requested" ? "Request sent" : "Cancelled", res?.message || "");
+    } catch (e: any) {
+      Alert.alert("Could not cancel", e?.response?.data?.detail || "Try again.");
+    }
+  };
 
   // Guest view — prompt sign-in
   if (!user) {
@@ -120,22 +141,34 @@ export default function RiderTrips() {
                       <Text style={s.vehicle}>{t.vehicle_type}</Text>
                     </View>
                   </View>
-                  <Pressable
-                    testID={`trip-${t.id}-action`}
-                    onPress={() => {
-                      if ((t.status || "").toLowerCase() === "completed") {
-                        router.push(`/(rider)/rate?bid=${t.id}`);
-                      } else {
-                        router.push(`/(rider)/active?bid=${t.id}`);
-                      }
-                    }}
-                    style={s.rebook}
-                  >
-                    <Text style={s.rebookTxt}>
-                      {(t.status || "").toLowerCase() === "completed" ? "Rate this trip" : "Track live"}
-                    </Text>
-                    <ArrowRight size={11} color={colors.gold} />
-                  </Pressable>
+                  <View style={s.actionRow}>
+                    {(t.status || "").toLowerCase() !== "completed" && (t.status || "").toLowerCase() !== "cancelled" && (
+                      <Pressable
+                        testID={`trip-${t.id}-cancel`}
+                        onPress={() => confirmCancel(t.id, t.payment_status === "paid")}
+                        hitSlop={6}
+                        style={s.cancelBtn}
+                      >
+                        <Text style={s.cancelTxt}>Cancel</Text>
+                      </Pressable>
+                    )}
+                    <Pressable
+                      testID={`trip-${t.id}-action`}
+                      onPress={() => {
+                        if ((t.status || "").toLowerCase() === "completed") {
+                          router.push(`/(rider)/rate?bid=${t.id}`);
+                        } else {
+                          router.push(`/(rider)/active?bid=${t.id}`);
+                        }
+                      }}
+                      style={s.rebook}
+                    >
+                      <Text style={s.rebookTxt}>
+                        {(t.status || "").toLowerCase() === "completed" ? "Rate this trip" : "Track live"}
+                      </Text>
+                      <ArrowRight size={11} color={colors.gold} />
+                    </Pressable>
+                  </View>
                 </View>
               );
             })}
@@ -175,8 +208,11 @@ const s = StyleSheet.create({
   addr: { color: "#fff", fontSize: 12 },
   price: { color: colors.gold, fontSize: 15, fontWeight: "700" },
   vehicle: { color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 2 },
-  rebook: { borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)", marginTop: 12, paddingTop: 10, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 5 },
-  rebookTxt: { color: colors.gold, fontSize: 11 },
+  rebook: { flex: 1, borderTopWidth: 0, marginTop: 0, paddingTop: 0, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 5, paddingVertical: 10, borderRadius: 999, backgroundColor: "rgba(212,175,55,0.08)", borderWidth: 1, borderColor: "rgba(212,175,55,0.3)" },
+  rebookTxt: { color: colors.gold, fontSize: 11, fontWeight: "500" },
+  actionRow: { flexDirection: "row", gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
+  cancelBtn: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1, borderColor: "rgba(244,63,94,0.4)", backgroundColor: "rgba(244,63,94,0.05)" },
+  cancelTxt: { color: "#f87171", fontSize: 11, fontWeight: "500" },
 
   guestRoot: { flex: 1, padding: 32, alignItems: "center", justifyContent: "center" },
   guestBtn: { marginTop: 22, flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 13, paddingHorizontal: 22, borderRadius: 999, backgroundColor: colors.gold },

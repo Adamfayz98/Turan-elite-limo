@@ -55,6 +55,7 @@ export default function RiderActiveTrip() {
           <InteractiveMap
             driver={{ lat: driver.latitude, lng: driver.longitude, heading: driver.heading }}
             pickup={pickup}
+            showRoute={!!pickup}
             height="100%"
           />
         ) : (

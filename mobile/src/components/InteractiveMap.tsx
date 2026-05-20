@@ -22,6 +22,7 @@ type Props = {
   drivers?: DriverMarker[];          // admin multi-driver mode
   pickup?: LatLng | null;
   dropoff?: LatLng | null;
+  showRoute?: boolean;                // draw dashed line driver -> pickup (rider live tracking)
   height?: number | string;
   focusDriverId?: string | null;     // when set, the map pans+zooms to that driver
   style?: any;
@@ -71,7 +72,7 @@ function buildHtml(apiKey: string) {
 <script>
   var DRIVER_ICON_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(${JSON.stringify(CAR_SVG)});
   var DARK_STYLE = ${JSON.stringify(DARK_MAP_STYLE)};
-  var map, driverMarkers = {}, pickupMarker = null, dropoffMarker = null;
+  var map, driverMarkers = {}, pickupMarker = null, dropoffMarker = null, routeLine = null;
   var lastBoundsKey = '';
   var focusDriverId = null;
 
@@ -163,6 +164,30 @@ function buildHtml(apiKey: string) {
       } else { dropoffMarker.setPosition(pos); }
     } else if (dropoffMarker) { dropoffMarker.setMap(null); dropoffMarker = null; }
 
+    // Route line from driver -> pickup (dashed gold). Updates as driver moves.
+    if (payload.showRoute && drivers.length === 1 && payload.pickup) {
+      var d = drivers[0];
+      var path = [
+        new google.maps.LatLng(d.lat, d.lng),
+        new google.maps.LatLng(payload.pickup.lat, payload.pickup.lng),
+      ];
+      if (routeLine) {
+        routeLine.setPath(path);
+      } else {
+        routeLine = new google.maps.Polyline({
+          path: path,
+          map: map,
+          strokeOpacity: 0,
+          icons: [{
+            icon: { path: 'M 0,-1 0,1', strokeColor: '#D4AF37', strokeOpacity: 0.85, scale: 3 },
+            offset: '0',
+            repeat: '14px',
+          }],
+          zIndex: 400,
+        });
+      }
+    } else if (routeLine) { routeLine.setMap(null); routeLine = null; }
+
     // Fit bounds (only auto-fit when not focused on a specific driver)
     if (!focusDriverId) {
       var bounds = new google.maps.LatLngBounds();
@@ -213,6 +238,7 @@ export default function InteractiveMap({
   drivers,
   pickup,
   dropoff,
+  showRoute = false,
   height = 320,
   focusDriverId,
   style,
@@ -239,8 +265,8 @@ export default function InteractiveMap({
   // Send updates when markers change (debounced by deps)
   useEffect(() => {
     if (!isReady.current) return;
-    post({ type: "update", drivers: allDrivers, pickup, dropoff });
-  }, [JSON.stringify(allDrivers), JSON.stringify(pickup), JSON.stringify(dropoff)]);
+    post({ type: "update", drivers: allDrivers, pickup, dropoff, showRoute });
+  }, [JSON.stringify(allDrivers), JSON.stringify(pickup), JSON.stringify(dropoff), showRoute]);
 
   // Send focus instruction when admin clicks a driver row
   useEffect(() => {
@@ -258,7 +284,7 @@ export default function InteractiveMap({
           style={{ width: "100%", height: "100%", border: "none", background: "#050505" }}
           onLoad={() => {
             isReady.current = true;
-            post({ type: "update", drivers: allDrivers, pickup, dropoff });
+            post({ type: "update", drivers: allDrivers, pickup, dropoff, showRoute });
             if (focusDriverId) post({ type: "focus_driver", id: focusDriverId });
           }}
         />
@@ -281,7 +307,7 @@ export default function InteractiveMap({
             const data = JSON.parse(e.nativeEvent.data);
             if (data.type === "ready") {
               isReady.current = true;
-              post({ type: "update", drivers: allDrivers, pickup, dropoff });
+              post({ type: "update", drivers: allDrivers, pickup, dropoff, showRoute });
               if (focusDriverId) post({ type: "focus_driver", id: focusDriverId });
             }
           } catch {}

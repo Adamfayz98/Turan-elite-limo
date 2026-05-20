@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 29 backend additions tested end-to-end against the preview URL. All 17/17 pytest cases pass. Covered: (1) new JWT customer cancel endpoint POST /api/customer/bookings/{id}/cancel — 401 without auth, 404 for missing/other-customer bookings, immediate cancel for unpaid, cancellation_requested flag (status stays 'confirmed') for paid, 400 for completed, idempotent for already-cancelled; (2) UA-based success_url detection in /api/customer/book-and-pay — browser (Mozilla), Expo, and okhttp UAs all return a valid Stripe checkout_url; (3) /api/customer/bookings/{id}/driver-location now returns pickup_coord/dropoff_coord keys and lazy-caches them on the booking doc; (4) regression: token-based /api/bookings/manage/{token}/cancel still works; (5) regression: forgot-password is generic-ok regardless of email, reset-password full token flow works and tokens are single-use.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/bookings/manage/{token}/cancel (token-based)",
+        "issue": "Does NOT set cancellation_source on the booking doc (the new JWT endpoint correctly sets cancellation_source='mobile_app'). If admin dashboards filter cancellations by source, the legacy token-cancelled bookings will fall into an 'unknown' bucket. Consider setting cancellation_source='web_manage_link' in manage_cancel_booking for symmetry."
+      },
+      {
+        "endpoint": "GET /api/customer/bookings/{booking_id}/driver-location",
+        "issue": "If _geocode fails, pickup_coord/dropoff_coord remain None and are NOT cached as a negative result, so every subsequent poll will re-attempt the Google geocode (quota burn). Consider caching a sentinel like {\"lat\": None, \"lng\": None, \"failed_at\": ts} so retries are throttled."
+      },
+      {
+        "endpoint": "POST /api/customer/book-and-pay (UA detection)",
+        "issue": "Heuristic 'expo|reactnative|okhttp|darwin' in UA will misclassify desktop Safari on macOS (UA contains 'darwin' via 'AppleWebKit/...Mac OS X') in some rare crawler/test scenarios. In practice mainstream Safari/Chrome don't include literal 'darwin' in their UA, so this is low-risk — but a fingerprint header like 'X-App-Platform: native' set by the RN client would be more deterministic than UA sniffing."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration29_jwt_cancel_and_ua.py",
+    "/app/test_reports/pytest/iteration29_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Set cancellation_source on the legacy token-based cancel for symmetry with the new JWT endpoint.",
+    "(Optional) Cache a negative-geocode sentinel on the booking to throttle retries when Google geocoding fails.",
+    "(Optional, low-risk) Replace UA sniffing with an explicit X-App-Platform header from the RN client; current heuristic works but is fragile."
+  ],
+  "critical_code_review_comments": [
+    "New JWT cancel endpoint correctly mirrors the business rules of the token-based one (lines 4685-4736): unpaid -> status='cancelled'; paid -> cancellation_requested=True only. Verified both branches via DB inspection — paid booking's status stays 'confirmed' after cancel call, exactly as required for admin refund review.",
+    "Ownership check is enforced by filtering on {id, customer_id: cid} in find_one — verified that another customer's booking returns 404 (test_cancel_other_customers_booking_returns_404).",
+    "UA detection logic at line 4556 ('expo' or 'reactnative' or 'okhttp' or 'darwin' in ua.lower()) is invoked correctly. Browser UA produces https success_url; Expo/okhttp UAs produce turanelitelimo:// deep link. Stripe accepts both without 400, confirming Stripe is happy with custom-scheme success_url URLs (which it is, as long as it's a valid URI — Stripe only requires HTTPS for the merchant-facing success page if you use Payment Links, not Checkout Sessions in test mode).",
+    "driver-location now selects pickup_coord/dropoff_coord in the projection (line 5081), falls back to lazy _geocode + update (lines 5088-5097), and includes both keys in the response (lines 5116-5117). Verified caching: pre-seeded coords are echoed back unchanged.",
+    "Idempotency for already-cancelled bookings returns ok=True + already_cancelled=True (line 4703) — good. The 'completed' check happens BEFORE the 'cancelled' check, so a completed-then-cancelled booking (theoretically impossible) would 400 first.",
+    "server.py is now 5503 lines — modular split into routers remains a worthwhile refactor but not blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration29_jwt_cancel_and_ua.py (new)",
+    "/app/memory/test_credentials.md (added rider.test@turanelitelimo.com)"
+  ],
+  "success_rate": {"backend": "100% (17/17 passing)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "rider.test@turanelitelimo.com / RiderPass123! was auto-created via /api/customer/signup on first run; test_credentials.md updated. driver.test@turanelitelimo.com / DriverPass123! re-used from previous iterations (not exercised in this iteration's tests).",
+  "seed_data_creation": "Per-test bookings inserted directly into Mongo via the created_booking fixture (full_name='TEST Rider', confirmation_number prefix TEST-), each torn down at the end of its test. Three short-lived bookings created by /api/customer/book-and-pay (one per UA test) are deleted via a cleanup helper. Two password_reset_tokens inserted by test_reset_password_full_flow are deleted in the finally block, and the rider password is restored to RiderPass123! before the fixture exits.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_iteration29_jwt_cancel_and_ua.py -v. All 17 tests are green. The file uses a session-scoped rider_token fixture (auto-signs-up or logs in rider.test@turanelitelimo.com / RiderPass123!) and a function-scoped created_booking fixture that inserts a minimal booking doc into MongoDB directly (bypasses Stripe). UA tests DO create real Stripe checkout sessions via STRIPE_API_KEY from backend/.env — these consume one Stripe test API call each, so re-run sparingly. Booking ownership is enforced via customer_id filter, so the JWT cancel endpoint is safe from cross-tenant access.",
+  "rca of the issue": "Not a bug fix iteration — purely additive backend changes. All three additions behave per spec. The User-Agent based deep-link detection (line 4554-4565) correctly addresses the user's reported Chrome-preview issue: a real browser UA now lands on /m/?booking_id=... after payment instead of a broken turanelitelimo:// scheme. The new JWT cancel endpoint gives the mobile app a clean cancel flow without needing the manage_token from the confirmation email. The pickup_coord/dropoff_coord caching reduces geocode calls during rider map polling."
+}

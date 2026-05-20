@@ -214,6 +214,11 @@ export async function customerRateTrip(bookingId: string, rating: number, commen
   return data;
 }
 
+export async function customerCancelBooking(bookingId: string, reason?: string) {
+  const { data } = await api.post(`/api/customer/bookings/${bookingId}/cancel`, { reason: reason || "" });
+  return data;
+}
+
 export async function customerForgotPassword(email: string) {
   const { data } = await api.post(`/api/customer/forgot-password`, { email });
   return data;

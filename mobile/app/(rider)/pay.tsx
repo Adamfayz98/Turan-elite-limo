@@ -20,6 +20,10 @@ export default function PayScreen() {
   const [promoApplied, setPromoApplied] = useState<{ code: string; discount: number; description: string } | null>(null);
   const [promoError, setPromoError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [waitConsent, setWaitConsent] = useState(false);
+  const [damageConsent, setDamageConsent] = useState(false);
+  const [cancelConsent, setCancelConsent] = useState(false);
+  const allConsentsGiven = waitConsent && damageConsent && cancelConsent;
 
   // Guests must sign in or create an account before paying.
   if (!user) {
@@ -74,6 +78,10 @@ export default function PayScreen() {
   const clearPromo = () => { setPromoApplied(null); setPromo(""); setPromoError(null); };
 
   const onPay = async () => {
+    if (!allConsentsGiven) {
+      Alert.alert("Please review the policies", "You must agree to the wait-time, vehicle care, and cancellation policies before paying.");
+      return;
+    }
     if (!trip.vehicleType || !trip.quoteAmount) {
       Alert.alert("Missing trip details", "Go back and select a vehicle first.");
       return;
@@ -223,6 +231,41 @@ export default function PayScreen() {
             <Text style={s.totalValue}>${total.toFixed(2)}</Text>
           </View>
         </View>
+
+        {/* Consent — required to proceed */}
+        <View style={s.consentBlock}>
+          <Text style={s.consentLabel}>BEFORE YOU PAY</Text>
+          <ConsentRow
+            testID="pay-consent-wait"
+            value={waitConsent}
+            onChange={setWaitConsent}
+            text={
+              <>
+                I agree the <Text style={s.cBold}>wait-time policy</Text> may apply: airports get a 45-min grace, other rides 15 min. Beyond that, a per-minute wait fee is auto-charged to the card on file.
+              </>
+            }
+          />
+          <ConsentRow
+            testID="pay-consent-damage"
+            value={damageConsent}
+            onChange={setDamageConsent}
+            text={
+              <>
+                I agree to the <Text style={s.cBold}>vehicle care policy</Text>: damages, soiling, or extra cleaning may be charged at actual cost. Each charge is itemized and emailed.
+              </>
+            }
+          />
+          <ConsentRow
+            testID="pay-consent-cancel"
+            value={cancelConsent}
+            onChange={setCancelConsent}
+            text={
+              <>
+                I agree to the <Text style={s.cBold}>cancellation tier policy</Text>: free up to 24h before pickup, 50% fee inside 24h, non-refundable inside 2h of pickup.
+              </>
+            }
+          />
+        </View>
       </ScrollView>
 
       <View style={s.ctaBar}>
@@ -234,13 +277,26 @@ export default function PayScreen() {
           testID="pay-card"
           onPress={onPay}
           loading={submitting}
+          disabled={!allConsentsGiven}
           icon={<CreditCard size={14} color="#000" />}
           style={{ marginTop: 10 }}
         >
-          {submitting ? "Opening Stripe…" : `Pay $${total.toFixed(2)} with Card`}
+          {submitting ? "Opening Stripe…" : !allConsentsGiven ? "Agree to policies to continue" : `Pay $${total.toFixed(2)} with Card`}
         </Button>
       </View>
     </SafeAreaView>
+  );
+}
+
+/** Single consent row — small custom checkbox + tappable label. */
+function ConsentRow({ value, onChange, text, testID }: { value: boolean; onChange: (v: boolean) => void; text: any; testID?: string; }) {
+  return (
+    <Pressable testID={testID} onPress={() => onChange(!value)} style={s.consentRow}>
+      <View style={[s.checkbox, value && s.checkboxChecked]}>
+        {value && <Check size={11} color="#000" strokeWidth={3} />}
+      </View>
+      <Text style={s.consentTxt}>{text}</Text>
+    </Pressable>
   );
 }
 
@@ -284,6 +340,15 @@ const s = StyleSheet.create({
   ctaBar: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 30, backgroundColor: "rgba(5,5,5,0.95)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
   applePay: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, backgroundColor: "#fff", paddingVertical: 14, borderRadius: 999, opacity: 0.6 },
   appleTxt: { color: "#000", fontSize: 12, fontWeight: "500" },
+
+  // Consent
+  consentBlock: { marginTop: 4, padding: 16, borderRadius: radius.xl, borderWidth: 1, borderColor: "rgba(212,175,55,0.25)", backgroundColor: "rgba(212,175,55,0.03)" },
+  consentLabel: { color: colors.gold, fontSize: 9, letterSpacing: 2.5, fontWeight: "600", marginBottom: 12 },
+  consentRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 8 },
+  checkbox: { width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: "rgba(255,255,255,0.3)", alignItems: "center", justifyContent: "center", marginTop: 1 },
+  checkboxChecked: { backgroundColor: colors.gold, borderColor: colors.gold },
+  consentTxt: { flex: 1, color: "rgba(255,255,255,0.8)", fontSize: 11, lineHeight: 17 },
+  cBold: { color: colors.gold, fontWeight: "600" },
 
   // Sign-in gate (for guests who tried to checkout)
   gateRoot: { flex: 1, backgroundColor: colors.bg, justifyContent: "center", alignItems: "center", paddingHorizontal: 28 },
