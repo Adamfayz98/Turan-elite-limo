@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "TuranEliteLimo",
+    "slug": "turanelitelimo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "turanelitelimo",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050505"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.turanelitelimo.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Allow TuranEliteLimo to use your location to show your pickup point and track your chauffeur during a ride.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Drivers need background location so passengers can see live ETA updates throughout the trip.",
+        "NSCameraUsageDescription": "Drivers can upload a profile photo.",
+        "NSPhotoLibraryUsageDescription": "Drivers can choose a profile photo from their library."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#050505"
+      },
+      "package": "com.turanelitelimo.app",
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "CAMERA"]
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png",
+      "output": "single"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true,
+      "baseUrl": "/m"
+    }
+  }
+}
