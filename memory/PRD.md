@@ -256,6 +256,22 @@ Mobile (`mobile/app`):
 **Testing:**
 - iteration_29.json — 17/17 backend tests passed. 0 critical. 3 minor polish suggestions (non-blocking, deferred).
 
+## Session — Feb 20, 2026 (fork) — 4th batch (Modify Trip)
+
+**Backend:**
+- NEW: `POST /api/customer/bookings/{id}/modify` (JWT customer). Customer can change pickup time, pickup/dropoff address, vehicle type, passenger count, or notes on UNPAID reservations. Paid bookings return 409 with "call dispatch" message.
+- NEW: `CustomerModifyBookingRequest` model (all fields optional).
+- Re-quotes the trip automatically when pickup/dropoff/vehicle/time changes (fixed: must `pop('quote_amount')` from merged doc or `_compute_quote_amount` short-circuits).
+- Clears `pickup_coord`/`dropoff_coord` geocode cache when address changes.
+
+**Mobile:**
+- NEW: `/(rider)/modify.tsx` — full modify trip screen with AddressPicker + DateTimeModal + vehicle/passenger/notes fields. Read-only for paid trips (shows call-dispatch CTA).
+- WIRED: trip cards in `(rider)/(tabs)/trips.tsx` now show **Modify** button (only for unpaid non-completed trips) next to the Cancel button.
+
+**Testing:**
+- iteration_30.json — 18 tests, 1 CRITICAL bug found (quote short-circuit).
+- iteration_31.json — 23/23 passed after one-line fix. Zero critical issues. 4 minor items deferred (notes diff check, quote_recompute_failed flag, modification lead-time guard, response field naming).
+
 ## Recurrence/Known Issues
 - None as of this session.
 - The Expo tunnel URL (`exp://...exp.direct`) rotates whenever the Metro server restarts. Next session must restart tunnel and provide a fresh QR.
