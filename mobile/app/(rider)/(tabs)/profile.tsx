@@ -29,6 +29,27 @@ export default function RiderProfile() {
 
   const open = (label: string, body: string) => Alert.alert(label, body, [{ text: "Got it" }]);
 
+  // Guest view — prompt sign-in
+  if (!user) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <ImageBackground source={{ uri: assets.abstractGold }} style={s.hero} resizeMode="cover" imageStyle={{ opacity: 0.5 }}>
+          <View style={s.heroDim} />
+          <SafeAreaView style={s.heroInner}>
+            <View style={s.avatar}><Crown size={20} color={colors.gold} /></View>
+            <Text style={s.name}>Guest</Text>
+            <Text style={s.metaTxt}>Sign in to manage your profile</Text>
+          </SafeAreaView>
+        </ImageBackground>
+        <View style={{ padding: 24, alignItems: "center" }}>
+          <Pressable testID="profile-guest-signin" onPress={() => router.push("/(rider)/auth")} style={s.signoutGold}>
+            <Text style={s.signoutGoldTxt}>Sign in / Create account</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ImageBackground source={{ uri: assets.abstractGold }} style={s.hero} resizeMode="cover" imageStyle={{ opacity: 0.5 }}>
@@ -93,4 +114,6 @@ const s = StyleSheet.create({
   menuLabel: { flex: 1, color: "#fff", fontSize: 13 },
   signout: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 16, paddingVertical: 14, borderRadius: radius.xl, borderWidth: 1, borderColor: "rgba(239,68,68,0.3)" },
   signoutTxt: { color: colors.error, fontSize: 12, fontWeight: "500" },
+  signoutGold: { paddingVertical: 14, paddingHorizontal: 26, borderRadius: 999, backgroundColor: colors.gold, marginTop: 18 },
+  signoutGoldTxt: { color: "#000", fontSize: 13, fontWeight: "600" },
 });

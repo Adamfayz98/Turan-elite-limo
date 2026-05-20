@@ -2,9 +2,10 @@ import { useEffect, useState, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Sparkles, ArrowRight } from "lucide-react-native";
+import { Sparkles, ArrowRight, LogIn } from "lucide-react-native";
 import { colors, radius } from "@/theme";
 import { fetchMyTrips } from "@/api";
+import { useAuth } from "@/store/auth";
 
 interface Trip {
   id: string;
@@ -29,20 +30,39 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
 
 export default function RiderTrips() {
   const router = useRouter();
+  const user = useAuth(s => s.user);
   const [trips, setTrips] = useState<Trip[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
+    if (!user) { setTrips([]); return; }
     try {
       const data = await fetchMyTrips();
       setTrips(data);
     } catch {
       setTrips([]);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => { load(); }, [load]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+
+  // Guest view — prompt sign-in
+  if (!user) {
+    return (
+      <SafeAreaView style={s.safe}>
+        <View style={s.guestRoot}>
+          <View style={s.emptyIcon}><LogIn size={20} color={colors.gold} /></View>
+          <Text style={s.emptyTitle}>Sign in to see your trips</Text>
+          <Text style={s.emptySub}>Once you've booked your first ride, your reservations and receipts will appear here.</Text>
+          <Pressable testID="trips-guest-signin" onPress={() => router.push("/(rider)/auth")} style={s.guestBtn}>
+            <Text style={s.guestBtnTxt}>Sign in / Create account</Text>
+            <ArrowRight size={13} color="#000" />
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={s.safe}>
@@ -157,4 +177,8 @@ const s = StyleSheet.create({
   vehicle: { color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 2 },
   rebook: { borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)", marginTop: 12, paddingTop: 10, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 5 },
   rebookTxt: { color: colors.gold, fontSize: 11 },
+
+  guestRoot: { flex: 1, padding: 32, alignItems: "center", justifyContent: "center" },
+  guestBtn: { marginTop: 22, flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 13, paddingHorizontal: 22, borderRadius: 999, backgroundColor: colors.gold },
+  guestBtnTxt: { color: "#000", fontSize: 13, fontWeight: "600" },
 });

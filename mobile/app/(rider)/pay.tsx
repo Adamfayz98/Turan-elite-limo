@@ -7,14 +7,37 @@ import * as WebBrowser from "expo-web-browser";
 import Button from "@/components/Button";
 import { colors, radius } from "@/theme";
 import { useBooking } from "@/store/booking";
+import { useAuth } from "@/store/auth";
 import { bookAndPay } from "@/api";
 
 export default function PayScreen() {
   const router = useRouter();
   const trip = useBooking(s => s.trip);
   const resetTrip = useBooking(s => s.resetTrip);
+  const user = useAuth(s => s.user);
   const [promo, setPromo] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Guests must sign in or create an account before paying.
+  if (!user) {
+    return (
+      <SafeAreaView style={s.gateRoot}>
+        <View style={s.gateCard}>
+          <Sparkles size={20} color={colors.gold} />
+          <Text style={s.gateH1}>One more step</Text>
+          <Text style={s.gateSub}>
+            Sign in or create an account to confirm your reservation. We need your name and email to send your trip details and chauffeur confirmation.
+          </Text>
+          <Pressable testID="pay-gate-signin" onPress={() => router.push("/(rider)/auth")} style={s.gateBtn}>
+            <Text style={s.gateBtnTxt}>Sign in / Create account</Text>
+          </Pressable>
+          <Pressable testID="pay-gate-back" onPress={() => router.back()} hitSlop={8} style={{ marginTop: 14 }}>
+            <Text style={s.gateLink}>← Back to quote</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const baseFare = trip.quoteAmount || 0;
   const serviceFee = +(baseFare * 0.02).toFixed(2);
@@ -180,4 +203,13 @@ const s = StyleSheet.create({
   ctaBar: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 30, backgroundColor: "rgba(5,5,5,0.95)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
   applePay: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, backgroundColor: "#fff", paddingVertical: 14, borderRadius: 999, opacity: 0.6 },
   appleTxt: { color: "#000", fontSize: 12, fontWeight: "500" },
+
+  // Sign-in gate (for guests who tried to checkout)
+  gateRoot: { flex: 1, backgroundColor: colors.bg, justifyContent: "center", alignItems: "center", paddingHorizontal: 28 },
+  gateCard: { width: "100%", padding: 26, borderRadius: 20, borderWidth: 1, borderColor: "rgba(212,175,55,0.25)", backgroundColor: colors.surface, alignItems: "center" },
+  gateH1: { color: "#fff", fontSize: 22, fontWeight: "500", marginTop: 12, textAlign: "center" },
+  gateSub: { color: "rgba(255,255,255,0.6)", fontSize: 13, lineHeight: 19, textAlign: "center", marginTop: 10 },
+  gateBtn: { marginTop: 22, paddingVertical: 14, paddingHorizontal: 26, borderRadius: 999, backgroundColor: colors.gold, width: "100%", alignItems: "center" },
+  gateBtnTxt: { color: "#000", fontSize: 14, fontWeight: "600" },
+  gateLink: { color: "rgba(255,255,255,0.55)", fontSize: 12 },
 });

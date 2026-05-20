@@ -1,13 +1,10 @@
-import { Tabs, Redirect } from "expo-router";
+import { Tabs } from "expo-router";
 import { Home as HomeIcon, History, User } from "lucide-react-native";
 import { colors } from "@/theme";
-import { useAuth } from "@/store/auth";
 
 export default function RiderTabsLayout() {
-  const user = useAuth(s => s.user);
-  const hydrated = useAuth(s => s.hydrated);
-  if (hydrated && !user) return <Redirect href="/(rider)/auth" />;
-
+  // Guests can browse the booking screen and see live quotes.
+  // Auth is enforced at the /pay step (see pay.tsx).
   return (
     <Tabs
       screenOptions={{

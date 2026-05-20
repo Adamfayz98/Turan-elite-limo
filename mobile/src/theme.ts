@@ -41,9 +41,9 @@ export const spacing = {
   xxl: 32,
 };
 
-/** Logo asset URLs served from the existing TuranEliteLimo website. */
+/** Logo asset URLs. Hosted on customer-assets so they work in preview, production, and native builds without redeploy. */
 export const assets = {
-  logoMark: "https://www.turanelitelimo.com/logo-mark.png",
-  logoFull: "https://www.turanelitelimo.com/logo-full.png",
+  logoMark: "https://limo-experience-1.preview.emergentagent.com/logo-mark.png?v=3",
+  logoFull: "https://limo-experience-1.preview.emergentagent.com/logo-full.png?v=3",
   abstractGold: "https://static.prod-images.emergentagent.com/jobs/1689fe63-929d-4e0f-9a68-ee41e3772b20/images/552a1c8656efc0533fd136ccd9396126f7b4d6677e70677000c2f04374d4d979.png",
 };

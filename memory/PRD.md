@@ -201,22 +201,37 @@ preview only. Mobile-related backend endpoints WILL go to production on the next
 
 ## Session — Feb 20, 2026 (fork)
 **Fixed:**
-- Compile-error overlay bug ("X" popup that wouldn't dismiss) — root cause: `LiveDriversTab.jsx` imported `api` as default but module only has named exports. Switched to `import { api } from "@/lib/api"`.
-- Fleet images replaced — Stretch Limousine (white limo, web+mobile), Party Bus (LED interior, web+mobile, the palm-trees photo was egregious), Sprinter Van (mobile now matches web's user-uploaded photo).
-- Admin Live Map tab was orphaned — TabsTrigger never added. Now visible.
+- Compile-error overlay bug ("X" popup) — `LiveDriversTab.jsx` `api` import fixed.
+- Fleet images: Stretch Limo, Sprinter Van, Party Bus (web + mobile).
+- Admin Live Map tab orphaned — added to TabsList.
 
-**Added — Mobile pre-auth marketing welcome screen (`/app/mobile/app/index.tsx`):**
-- Hero ("Arrive in unspoken luxury") with rating, 24/7, insurance stats
-- Fleet horizontal carousel (6 vehicles)
+**Mobile pre-auth welcome screen v2 (`/app/mobile/app/index.tsx`):**
+- Hero with logo, phone button, "Sign In" pill (top-right)
+- Hero CTAs: "See pricing — no sign-up needed" (primary) + "Already have an account? Sign in" (secondary)
+- Replaced "Six vehicles. One standard." → **"A class for every journey"** with network-implying subtitle
+- Fleet horizontal carousel (6 vehicle types)
 - Services grid (Airport / Corporate / Weddings / Hourly / Wine / Nightlife)
-- Coverage section (3 airports + 12 cities)
+- Coverage (3 airports + 12 cities)
 - 3 testimonial reviews
-- Final CTA → Sign in / Book + small Driver link
-- Auth-aware: redirects to `/home` if user already logged in
-- Rationale: cold app-store downloaders see what TuranEliteLimo offers before hitting a login wall
+- **Policies & Trust section (NEW)** — collapsible cards: Cancellation, Wait Time & Damages, Privacy, Terms
+- Footer with **website link (turanelitelimo.com)** + phone + Driver sign-in
+- **Sticky bottom "Book a Ride" CTA bar** (always visible during scroll)
+- Auth-aware: logged-in users skip welcome and go to `/home`
 
-**Pending user verification (mobile, M4 fixes from previous session):**
-- Date/Time picker modal
-- Settings menu wiring
-- Rating screen after trip
-- Call for Quote on call-only vehicles
+**Guest browsing flow (NEW):**
+- `(tabs)/_layout.tsx` no longer redirects unauth users — guests can browse the home tab and get live quotes.
+- `pay.tsx` shows a "One more step — sign in to confirm" gate for guests.
+- `trips.tsx` and `profile.tsx` show "Sign in to see your X" prompts for guests.
+
+**Logo replaced (web + mobile):**
+- New logo: gold ring + howling wolf + constellation stars, with "TuranEliteLimo" wordmark.
+- `/app/frontend/public/logo-mark.png` — clean 512x512 wolf-in-ring icon (cropped from user's full lockup, no wordmark spillover).
+- `/app/frontend/public/logo-full.png` — full lockup (icon + wordmark).
+- `/app/frontend/public/logo-mark-1024.png` — high-res variant for App Store icon prep.
+- Mobile `theme.ts` `assets.logoMark/logoFull` now point to the preview URLs with cache-busting (`?v=3`).
+
+**Confirmed (no code change needed):**
+- Mobile app ↔ Admin pricing: fully connected via `/api/customer/quote` → MongoDB `PRICING_CONFIG`. Admin Pricing tab writes propagate live to mobile.
+
+**Pending user verification:**
+- Test on Expo Go (or web preview at `/m/`): new welcome screen, guest booking flow, logo correctness on real device.
