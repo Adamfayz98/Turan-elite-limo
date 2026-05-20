@@ -6,11 +6,38 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
 import { colors, assets } from "@/theme";
+import { driverLogin, driverSetPassword } from "@/api";
+import { useDriverAuth } from "@/store/driver";
 
 export default function DriverAuth() {
   const router = useRouter();
+  const setSession = useDriverAuth(s => s.setSession);
+  const [mode, setMode] = useState<"login" | "first-time">("login");
   const [id, setId] = useState("");
   const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onSubmit = async () => {
+    if (!id.trim() || !password.trim()) {
+      setError("Please enter both fields.");
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      const data = mode === "login"
+        ? await driverLogin({ email: id.trim().toLowerCase(), password })
+        : await driverSetPassword({ email: id.trim().toLowerCase(), password });
+      await setSession(data.token, data.driver);
+      router.replace("/driver-trips");
+    } catch (e: any) {
+      const raw = e?.response?.data?.detail;
+      setError(typeof raw === "string" ? raw : "Something went wrong. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <View style={s.root}>
@@ -37,15 +64,26 @@ export default function DriverAuth() {
             </View>
 
             <Text style={s.h1}>
-              Behind the <Text style={s.h1Italic}>wheel.</Text>
+              {mode === "login" ? "Behind the " : "First time? "}<Text style={s.h1Italic}>{mode === "login" ? "wheel." : "Set password."}</Text>
             </Text>
-            <Text style={s.sub}>Sign in to view your assigned trips.</Text>
+            <Text style={s.sub}>
+              {mode === "login" ? "Sign in to view your assigned trips." : "Use the email dispatch gave you."}
+            </Text>
 
-            <View style={{ gap: 14, marginTop: 22 }}>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 16 }}>
+              <Pressable testID="driver-auth-tab-login" onPress={() => setMode("login")} style={[s2.tab, mode === "login" && s2.tabActive]}>
+                <Text style={[s2.tabTxt, mode === "login" && s2.tabTxtActive]}>SIGN IN</Text>
+              </Pressable>
+              <Pressable testID="driver-auth-tab-firsttime" onPress={() => setMode("first-time")} style={[s2.tab, mode === "first-time" && s2.tabActive]}>
+                <Text style={[s2.tabTxt, mode === "first-time" && s2.tabTxtActive]}>FIRST TIME</Text>
+              </Pressable>
+            </View>
+
+            <View style={{ gap: 14, marginTop: 18 }}>
               <Input
                 testID="driver-auth-id"
-                label="Driver ID or Email"
-                placeholder="marcus.t@turanlimo.com"
+                label="Driver Email"
+                placeholder="you@turanelitelimo.com"
                 autoCapitalize="none"
                 keyboardType="email-address"
                 value={id}
@@ -54,13 +92,14 @@ export default function DriverAuth() {
               />
               <Input
                 testID="driver-auth-password"
-                label="Password"
+                label={mode === "first-time" ? "Set a Password" : "Password"}
                 placeholder="••••••••"
                 secureTextEntry
                 value={password}
                 onChangeText={setPassword}
                 icon={<Lock size={14} color="rgba(255,255,255,0.4)" />}
               />
+              {error && <Text style={s2.error}>{error}</Text>}
             </View>
 
             <View style={s.notice}>
@@ -73,13 +112,12 @@ export default function DriverAuth() {
 
             <Button
               testID="driver-auth-submit"
-              onPress={() => {
-                /* Wired in Milestone 3 */
-              }}
+              loading={submitting}
+              onPress={onSubmit}
               icon={<ArrowRight size={14} color="#000" />}
               style={{ marginTop: 20 }}
             >
-              Sign In to Drive
+              {mode === "login" ? "Sign In to Drive" : "Set Password & Sign In"}
             </Button>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -116,4 +154,12 @@ const s = StyleSheet.create({
   sub: { color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 6 },
   notice: { flexDirection: "row", gap: 10, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: "rgba(245,158,11,0.2)", backgroundColor: "rgba(245,158,11,0.05)", marginTop: 18 },
   noticeTxt: { flex: 1, color: "rgba(255,255,255,0.65)", fontSize: 11, lineHeight: 17 },
+});
+
+const s2 = StyleSheet.create({
+  tab: { flex: 1, paddingVertical: 10, borderRadius: 999, alignItems: "center" },
+  tabActive: { backgroundColor: colors.gold },
+  tabTxt: { color: "rgba(255,255,255,0.55)", fontSize: 11, letterSpacing: 1.5, fontWeight: "600" },
+  tabTxtActive: { color: "#000" },
+  error: { color: colors.error, fontSize: 12, marginTop: 4 },
 });

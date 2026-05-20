@@ -105,6 +105,81 @@ export async function getMe() {
   return data;
 }
 
+export async function bookAndPay(payload: {
+  pickup_location: string;
+  dropoff_location: string;
+  pickup_datetime: string;
+  vehicle_type: string;
+  quote_amount: number;
+  passenger_count?: number;
+  promo_code?: string;
+  notes?: string;
+}) {
+  const { data } = await api.post("/api/customer/book-and-pay", {
+    passenger_count: 1,
+    ...payload,
+  });
+  return data as { booking_id: string; checkout_url: string; session_id: string };
+}
+
+export async function fetchMyTrips() {
+  const { data } = await api.get("/api/customer/trips");
+  return data as Array<{
+    id: string;
+    confirmation_number?: string;
+    pickup_date: string;
+    pickup_time: string;
+    pickup_location: string;
+    dropoff_location: string;
+    vehicle_type: string;
+    quote_amount?: number;
+    status: string;
+    payment_status?: string;
+    trip_status?: string;
+    created_at?: string;
+  }>;
+}
+
+export async function fetchBookingDetail(bookingId: string) {
+  const { data } = await api.get(`/api/customer/bookings/${bookingId}`);
+  return data;
+}
+
+/* ============== Driver endpoints ============== */
+import { DriverTokenStore } from "@/store/driver";
+
+const driverApi = axios.create({ baseURL: BASE_URL, timeout: 20000 });
+driverApi.interceptors.request.use(async (config) => {
+  const t = await DriverTokenStore.get();
+  if (t) config.headers.Authorization = `Bearer ${t}`;
+  return config;
+});
+
+export async function driverLogin(payload: { email: string; password: string }) {
+  const { data } = await driverApi.post("/api/driver-auth/login", payload);
+  return data as { token: string; driver: any };
+}
+
+export async function driverSetPassword(payload: { email: string; password: string }) {
+  const { data } = await driverApi.post("/api/driver-auth/set-password", payload);
+  return data as { token: string; driver: any };
+}
+
+export async function driverGetMe() {
+  const { data } = await driverApi.get("/api/driver-auth/me");
+  return data;
+}
+
+export async function driverGetTrips() {
+  const { data } = await driverApi.get("/api/driver-auth/trips");
+  return data as Array<any>;
+}
+
+export async function driverGetStats() {
+  const { data } = await driverApi.get("/api/driver-auth/stats");
+  return data as { trips_this_week: number; trips_all_time: number; earnings_this_week: number; rating: number };
+}
+
 export async function logout() {
   await setToken(null);
 }

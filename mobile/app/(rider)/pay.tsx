@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Linking, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, CreditCard, Sparkles, Apple, Check } from "lucide-react-native";
+import * as WebBrowser from "expo-web-browser";
 import Button from "@/components/Button";
 import { colors, radius } from "@/theme";
 import { useBooking } from "@/store/booking";
+import { bookAndPay } from "@/api";
 
 export default function PayScreen() {
   const router = useRouter();
@@ -19,16 +21,49 @@ export default function PayScreen() {
   const total = +(baseFare + serviceFee).toFixed(2);
 
   const onPay = async () => {
+    if (!trip.vehicleType || !trip.quoteAmount) {
+      Alert.alert("Missing trip details", "Go back and select a vehicle first.");
+      return;
+    }
     setSubmitting(true);
-    // Milestone 2 placeholder — real Stripe checkout wiring lands in Milestone 3.
-    setTimeout(() => {
+    try {
+      const { checkout_url, booking_id } = await bookAndPay({
+        pickup_location: trip.pickup,
+        dropoff_location: trip.dropoff,
+        pickup_datetime: trip.datetime,
+        vehicle_type: trip.vehicleType,
+        quote_amount: trip.quoteAmount,
+        passenger_count: trip.passengerCount,
+        promo_code: promo || undefined,
+      });
+      // Open Stripe Checkout. On native, this is an in-app browser tab that returns
+      // via deep link configured on the backend (turanelitelimo://thank-you?...).
+      // On web preview, fall back to a normal redirect.
+      if (Platform.OS === "web") {
+        window.location.href = checkout_url;
+      } else {
+        const result = await WebBrowser.openAuthSessionAsync(
+          checkout_url,
+          "turanelitelimo://thank-you",
+          { showInRecents: true }
+        );
+        if (result.type === "success" && result.url) {
+          // Deep link returned — parse & route to confirmation
+          const m = result.url.match(/booking_id=([^&]+)/);
+          const bid = m ? m[1] : booking_id;
+          router.replace(`/(rider)/thank-you?bid=${bid}`);
+          return;
+        }
+        // User dismissed without paying — go back to home
+        router.replace("/home");
+      }
+    } catch (e: any) {
+      const raw = e?.response?.data?.detail;
+      const msg = typeof raw === "string" ? raw : "Could not start checkout. Please try again.";
+      Alert.alert("Payment error", msg);
+    } finally {
       setSubmitting(false);
-      Alert.alert(
-        "Coming soon",
-        "Live Stripe checkout from inside the mobile app will be wired up in the next milestone. Your booking has been saved as a draft.",
-        [{ text: "OK", onPress: () => { resetTrip(); router.replace("/(rider)/home"); } }]
-      );
-    }, 800);
+    }
   };
 
   return (
@@ -106,11 +141,10 @@ export default function PayScreen() {
           testID="pay-card"
           onPress={onPay}
           loading={submitting}
-          variant="outline"
-          icon={<CreditCard size={14} color={colors.gold} />}
+          icon={<CreditCard size={14} color="#000" />}
           style={{ marginTop: 10 }}
         >
-          Pay with Card
+          {submitting ? "Opening Stripe…" : `Pay $${total.toFixed(2)} with Card`}
         </Button>
       </View>
     </SafeAreaView>

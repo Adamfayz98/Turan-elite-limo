@@ -4372,6 +4372,223 @@ async def customer_me(claims: dict = Depends(require_customer)):
     return _customer_to_profile(user)
 
 
+# ----- Customer trip flow (mobile) -----
+
+class CustomerBookingCreate(BaseModel):
+    pickup_location: str = Field(..., min_length=2)
+    dropoff_location: str = Field(..., min_length=2)
+    pickup_datetime: str  # ISO 8601
+    vehicle_type: str
+    quote_amount: float = Field(..., gt=0)
+    passenger_count: int = Field(1, ge=1, le=60)
+    promo_code: Optional[str] = None
+    notes: Optional[str] = ""
+
+
+class CustomerCheckoutResponse(BaseModel):
+    booking_id: str
+    checkout_url: str
+    session_id: str
+
+
+@api_router.post("/customer/book-and-pay", response_model=CustomerCheckoutResponse)
+async def customer_book_and_pay(
+    payload: CustomerBookingCreate,
+    request: Request,
+    claims: dict = Depends(require_customer),
+):
+    """Mobile-only single-call endpoint: creates a booking + Stripe Checkout session
+       configured with a deep-link return URL into the native app."""
+    cid = claims.get("customer_id")
+    user = await db.customers.find_one({"id": cid}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if payload.vehicle_type not in VEHICLE_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid vehicle_type")
+
+    # Parse pickup datetime
+    try:
+        dt = datetime.fromisoformat(payload.pickup_datetime.replace("Z", "+00:00"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid pickup_datetime")
+    pickup_date = dt.date().isoformat()
+    pickup_time = dt.strftime("%H:%M")
+
+    bid = str(uuid.uuid4())
+    doc = {
+        "id": bid,
+        "customer_id": cid,
+        "full_name": user["name"],
+        "email": user["email"],
+        "phone": user.get("phone") or "",
+        "service_type": "A to B Transfer",
+        "pickup_date": pickup_date,
+        "pickup_time": pickup_time,
+        "pickup_location": payload.pickup_location,
+        "dropoff_location": payload.dropoff_location,
+        "passengers": payload.passenger_count,
+        "luggage_count": 0,
+        "child_seat": False,
+        "additional_stops": [],
+        "return_trip": False,
+        "return_location": "",
+        "vehicle_type": payload.vehicle_type,
+        "notes": payload.notes or "",
+        "promo_code": payload.promo_code,
+        "wait_time_consent": True,  # Mobile flow shows policy at signup time
+        "quote_amount": float(payload.quote_amount),
+        "status": "pending",
+        "payment_status": "unpaid",
+        "manage_token": _generate_manage_token(),
+        "source": "mobile_app",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.bookings.insert_one(doc)
+
+    # Create Stripe Checkout session with native-app deep link
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+
+    settings = await _load_settings()
+    fee_pct = float(settings.service_fee_percent or 0)
+    fee = round(float(payload.quote_amount) * fee_pct / 100.0, 2)
+    total = round(float(payload.quote_amount) + fee, 2)
+    amount_cents = int(round(total * 100))
+
+    # Deep-link back into the native app (registered via app.json scheme + universal links).
+    # Stripe interpolates {CHECKOUT_SESSION_ID} into the success_url at redirect time.
+    # On native iOS/Android Expo Go will receive this deep link via Linking.
+    # On web preview, we fall back to a regular https URL because browsers won't open custom schemes.
+    is_web = "web" in (payload.notes or "").lower() or False
+    if is_web:
+        web_origin = str(request.base_url).rstrip("/")
+        success_url = f"{web_origin}/m/?booking_id={bid}&session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{web_origin}/m/"
+    else:
+        success_url = (
+            f"turanelitelimo://thank-you?booking_id={bid}&session_id={{CHECKOUT_SESSION_ID}}"
+        )
+        cancel_url = f"turanelitelimo://pay-cancelled?booking_id={bid}"
+
+    form = [
+        ("mode", "payment"),
+        ("success_url", success_url),
+        ("cancel_url", cancel_url),
+        ("line_items[0][quantity]", "1"),
+        ("line_items[0][price_data][currency]", settings.currency),
+        ("line_items[0][price_data][unit_amount]", str(amount_cents)),
+        ("line_items[0][price_data][product_data][name]",
+            f"{payload.vehicle_type} · {payload.pickup_location[:40]} → {payload.dropoff_location[:40]}"),
+        ("customer_email", user["email"]),
+        ("metadata[booking_id]", bid),
+        ("metadata[customer_id]", cid),
+        ("metadata[source]", "mobile_app"),
+    ]
+    async with httpx.AsyncClient(timeout=15.0) as cli:
+        r = await cli.post(
+            "https://api.stripe.com/v1/checkout/sessions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            content=urlencode(form).encode("utf-8"),
+        )
+    if r.status_code != 200:
+        logger.error(f"Stripe mobile checkout failed: {r.status_code} {r.text[:300]}")
+        raise HTTPException(status_code=502, detail="Could not start Stripe checkout")
+    sess = r.json()
+    url = sess.get("url")
+    sid = sess.get("id")
+    if not url or not sid:
+        raise HTTPException(status_code=502, detail="Stripe returned an invalid session")
+
+    await db.bookings.update_one(
+        {"id": bid},
+        {"$set": {"payment_status": "pending", "payment_session_id": sid}},
+    )
+    return CustomerCheckoutResponse(booking_id=bid, checkout_url=url, session_id=sid)
+
+
+class CustomerTripSummary(BaseModel):
+    id: str
+    confirmation_number: Optional[str] = None
+    pickup_date: str
+    pickup_time: str
+    pickup_location: str
+    dropoff_location: str
+    vehicle_type: str
+    quote_amount: Optional[float] = None
+    status: str
+    payment_status: Optional[str] = None
+    trip_status: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+@api_router.get("/customer/trips", response_model=List[CustomerTripSummary])
+async def customer_trips(claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    cursor = db.bookings.find(
+        {"customer_id": cid},
+        {"_id": 0, "id": 1, "confirmation_number": 1, "pickup_date": 1, "pickup_time": 1,
+         "pickup_location": 1, "dropoff_location": 1, "vehicle_type": 1, "quote_amount": 1,
+         "status": 1, "payment_status": 1, "trip_status": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(50)
+    rows = await cursor.to_list(50)
+    return [CustomerTripSummary(**r) for r in rows]
+
+
+@api_router.get("/customer/bookings/{booking_id}")
+async def customer_booking_detail(booking_id: str, claims: dict = Depends(require_customer)):
+    """For the deep-link return — confirm payment and show trip details."""
+    cid = claims.get("customer_id")
+    b = await db.bookings.find_one({"id": booking_id, "customer_id": cid}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    # If payment is still 'pending' but Stripe says paid, sync it.
+    if b.get("payment_status") == "pending" and b.get("payment_session_id"):
+        api_key = os.environ.get("STRIPE_API_KEY", "")
+        if api_key:
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as cli:
+                    r = await cli.get(
+                        f"https://api.stripe.com/v1/checkout/sessions/{b['payment_session_id']}",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                    )
+                if r.status_code == 200:
+                    sess = r.json()
+                    if sess.get("payment_status") == "paid":
+                        await db.bookings.update_one(
+                            {"id": booking_id},
+                            {"$set": {
+                                "payment_status": "paid",
+                                "status": "confirmed",
+                                "paid_amount": (sess.get("amount_total") or 0) / 100.0,
+                                "paid_at": datetime.now(timezone.utc).isoformat(),
+                            }},
+                        )
+                        b["payment_status"] = "paid"
+                        b["status"] = "confirmed"
+            except Exception as ex:
+                logger.warning(f"Stripe sync on detail call failed: {ex}")
+    return {
+        "id": b["id"],
+        "confirmation_number": b.get("confirmation_number"),
+        "status": b.get("status"),
+        "payment_status": b.get("payment_status"),
+        "trip_status": b.get("trip_status"),
+        "pickup_date": b.get("pickup_date"),
+        "pickup_time": b.get("pickup_time"),
+        "pickup_location": b.get("pickup_location"),
+        "dropoff_location": b.get("dropoff_location"),
+        "vehicle_type": b.get("vehicle_type"),
+        "quote_amount": b.get("quote_amount"),
+        "paid_amount": b.get("paid_amount"),
+        "driver_name": b.get("driver_name"),
+        "driver_phone": b.get("driver_phone"),
+    }
+
+
 @api_router.get("/vehicle-types")
 async def list_vehicle_types_public():
     """Read-only fleet info for the mobile rider app."""
@@ -4387,6 +4604,158 @@ async def list_vehicle_types_public():
             "hourly_rate": float(p.get("hourly_rate", 0.0)),
         })
     return out
+
+
+# ============================================================================
+# Driver auth (used by the mobile chauffeur app)
+# ============================================================================
+
+class DriverLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class DriverSetPasswordRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class DriverProfileOut(BaseModel):
+    id: str
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    plate: Optional[str] = None
+    vehicle: Optional[str] = None
+
+
+class DriverAuthResponse(BaseModel):
+    token: str
+    driver: DriverProfileOut
+
+
+def _driver_to_profile(doc: dict) -> DriverProfileOut:
+    return DriverProfileOut(
+        id=doc["id"],
+        name=doc.get("name", ""),
+        email=doc.get("email"),
+        phone=doc.get("phone"),
+        plate=doc.get("plate"),
+        vehicle=doc.get("vehicle"),
+    )
+
+
+def create_driver_token(driver_id: str, email: str) -> str:
+    payload = {
+        "sub": email,
+        "driver_id": driver_id,
+        "role": "driver",
+        "exp": datetime.now(timezone.utc) + timedelta(days=30),
+        "type": "access",
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+async def require_driver(creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)) -> dict:
+    if creds is None or not creds.credentials:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if payload.get("role") != "driver":
+        raise HTTPException(status_code=403, detail="Driver access required")
+    return payload
+
+
+@api_router.post("/driver-auth/set-password")
+async def driver_set_password(payload: DriverSetPasswordRequest):
+    """First-time driver onboarding: admin pre-creates the driver record,
+    then the driver sets their own password from the mobile app using their email."""
+    email = payload.email.lower()
+    d = await db.drivers.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="No driver account with this email. Ask dispatch to add you.")
+    if d.get("password_hash"):
+        raise HTTPException(status_code=409, detail="Password already set. Use Sign In.")
+    await db.drivers.update_one(
+        {"id": d["id"]},
+        {"$set": {"password_hash": hash_password(payload.password), "password_set_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    fresh = await db.drivers.find_one({"id": d["id"]}, {"_id": 0})
+    return DriverAuthResponse(token=create_driver_token(d["id"], email), driver=_driver_to_profile(fresh or d))
+
+
+@api_router.post("/driver-auth/login", response_model=DriverAuthResponse)
+async def driver_login(payload: DriverLoginRequest):
+    email = payload.email.lower()
+    d = await db.drivers.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}}, {"_id": 0})
+    if not d or not d.get("password_hash") or not verify_password(payload.password, d.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return DriverAuthResponse(token=create_driver_token(d["id"], email), driver=_driver_to_profile(d))
+
+
+@api_router.get("/driver-auth/me", response_model=DriverProfileOut)
+async def driver_me(claims: dict = Depends(require_driver)):
+    d = await db.drivers.find_one({"id": claims.get("driver_id")}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    return _driver_to_profile(d)
+
+
+@api_router.get("/driver-auth/trips")
+async def driver_my_trips(claims: dict = Depends(require_driver)):
+    """All trips currently assigned to this driver, sorted by pickup time."""
+    did = claims.get("driver_id")
+    cursor = db.bookings.find(
+        {"driver_id": did, "status": {"$in": ["confirmed", "pending"]}},
+        {"_id": 0},
+    ).sort([("pickup_date", 1), ("pickup_time", 1)]).limit(100)
+    rows = await cursor.to_list(100)
+    return [
+        {
+            "id": r["id"],
+            "confirmation_number": r.get("confirmation_number"),
+            "trip_status": r.get("trip_status") or "assigned",
+            "customer_name": r.get("full_name"),
+            "customer_phone": r.get("phone"),
+            "pickup_date": r.get("pickup_date"),
+            "pickup_time": r.get("pickup_time"),
+            "pickup_location": r.get("pickup_location"),
+            "dropoff_location": r.get("dropoff_location"),
+            "passengers": r.get("passengers", 1),
+            "vehicle_type": r.get("vehicle_type"),
+            "notes": r.get("notes"),
+            "quote_amount": r.get("quote_amount"),
+        }
+        for r in rows
+    ]
+
+
+@api_router.get("/driver-auth/stats")
+async def driver_my_stats(claims: dict = Depends(require_driver)):
+    """Driver dashboard stats: weekly trips, week revenue, rating placeholder."""
+    did = claims.get("driver_id")
+    # Last 7 days completed trips
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    completed = await db.bookings.count_documents({"driver_id": did, "status": "completed", "created_at": {"$gte": week_ago}})
+    # All-time
+    total = await db.bookings.count_documents({"driver_id": did, "status": "completed"})
+    # Earnings = sum of quote_amount for completed this week
+    pipeline = [
+        {"$match": {"driver_id": did, "status": "completed", "created_at": {"$gte": week_ago}}},
+        {"$group": {"_id": None, "total": {"$sum": "$quote_amount"}}},
+    ]
+    agg = await db.bookings.aggregate(pipeline).to_list(1)
+    week_earnings = agg[0]["total"] if agg else 0.0
+    return {
+        "trips_this_week": completed,
+        "trips_all_time": total,
+        "earnings_this_week": float(week_earnings or 0.0),
+        "rating": 4.97,  # Placeholder until reviews tie in
+    }
 
 
 # Register router
