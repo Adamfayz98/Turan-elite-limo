@@ -4820,6 +4820,9 @@ async def customer_jwt_modify_booking(
     new_quote = None
     if pricing_inputs_changed:
         merged = {**b, **update_doc}
+        # _compute_quote_amount short-circuits if quote_amount is already present.
+        # Force a fresh quote by clearing the old value from the merged doc.
+        merged.pop("quote_amount", None)
         try:
             new_quote = await _compute_quote_amount(merged)
             if new_quote is not None:

@@ -1,0 +1,42 @@
+{
+  "summary": "Retest of the iteration 30 HIGH-priority quote-recompute bug in POST /api/customer/bookings/{booking_id}/modify. The one-line fix `merged.pop('quote_amount', None)` before `_compute_quote_amount(merged)` (server.py:4825) is now in place. Created a new pytest file (5 new cases) that specifically asserts the recompute actually runs. All 5 new cases pass. The full iteration-30 regression suite (18 cases) was re-run and also passes — 23/23 green overall. Bug-fix verification specifics: (a) Executive Sedan booking with stale quote_amount=$120 (SFO -> Salesforce Tower) modified to dropoff = Sacramento International Airport (~85.9 mi) now returns new_quote_amount=$1.55 (different from the previous $120) and the DB doc's quote_amount is updated to $1.55. On the unpatched code this stayed at $120. (b) Same swap with vehicle_type=Luxury SUV correctly recomputes to ~$460 (directional sanity), proving the recompute path is fully functional. (c) Non-pricing changes (notes only, passengers only) still return pricing_changed=false and leave DB quote_amount untouched. NOTE: While retesting I uncovered a SEPARATE, pre-existing pricing-config issue (NOT the bug we were asked to retest) — Executive Sedan's per-mile rate appears miscalibrated in the live config. Public /api/quote returns $1.04 for an 85.9 mi SFO->SMF trip on Executive Sedan, while Luxury SUV returns $460.66 and First Class $628.71 for the same route. This is reproducible against the public quote endpoint independent of the modify endpoint, so it predates this iteration and is unrelated to the recompute fix. Reporting as a separate minor finding for the main agent's awareness.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/quote (and downstream _compute_quote_amount)",
+        "issue": "Executive Sedan per-mile pricing appears miscalibrated. Public /api/quote for SFO -> Sacramento International (85.9 mi) returns Executive Sedan = $1.04, Luxury SUV = $460.66, First Class = $628.71. The Executive Sedan figure looks 1-2 orders of magnitude too low. Likely cause: pricing_config doc has per_mile near 0 for Executive Sedan, or base+per_mile*miles falls below an unset/zero `minimum`. This is PRE-EXISTING (not caused by this iteration) and is independent of the recompute fix — surfaces because the test exercises an actual recompute. Recommend the main agent audit pricing_config.Executive Sedan { base, per_mile, minimum } via the admin endpoint."
+      },
+      {
+        "endpoint": "POST /api/customer/bookings/{booking_id}/modify",
+        "issue": "Still-open from iter 30: notes write is unconditional (not no-op-checked against existing value); minimum-lead-time not enforced; GET /api/customer/bookings/{id} projection omits notes/passengers/pickup_datetime/additional_stops. None of these block the iter-31 fix, but tracked for the next backlog pass."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration31_modify_quote_recompute.py",
+    "/app/backend/tests/test_iteration30_jwt_modify_booking.py",
+    "/app/test_reports/pytest/iteration31_results.xml"
+  ],
+  "action_items": [
+    "RESOLVED: The iter-30 HIGH bug (quote recompute short-circuit) is fixed and verified — no action needed on the modify endpoint itself.",
+    "MEDIUM (separate issue surfaced during retest): Audit Executive Sedan pricing config — per_mile and/or minimum values appear too low. Confirm via admin pricing dashboard or by inspecting the pricing_config Mongo doc. Public /api/quote returns just $1.04 for an 85.9 mi Executive Sedan transfer.",
+    "LOW (carryover from iter 30): treat notes==existing as a no-op; add notes/passengers/pickup_datetime/additional_stops to the GET /api/customer/bookings/{id} projection; emit quote_recompute_failed flag when _compute_quote_amount returns None on a pricing-impacting change."
+  ],
+  "critical_code_review_comments": [
+    "Fix at server.py:4825 (`merged.pop('quote_amount', None)`) is minimal and targeted. A cleaner long-term refactor would be to give _compute_quote_amount a `force_recompute: bool = False` parameter rather than relying on callers to pop a key, but the current fix is correct and sufficient.",
+    "_compute_quote_amount silently returns None when geocode fails, and the modify endpoint then skips updating quote_amount with no signal to the client. Consider returning a structured result like {amount, reason} so the response can include `quote_recompute_failed=True`.",
+    "The Executive-Sedan pricing anomaly suggests there is no DB-level minimum on pricing_config values. Adding a `minimum > 0` validator (or seed default) in the admin pricing upsert handler would prevent this class of misconfiguration."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration31_modify_quote_recompute.py (new — 5 retest cases including the iter-30 BUG repro)"
+  ],
+  "success_rate": {"backend": "100% (23/23 passing — 5 new + 18 regression)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "rider.test@turanelitelimo.com / RiderPass123! (reused from iter 29/30; in /app/memory/test_credentials.md)",
+  "seed_data_creation": "Per-test bookings inserted directly into MongoDB via the created_booking fixture (full_name='TEST Rider iter31', confirmation_number prefix TEST-), each torn down at the end of its test. No Stripe calls made.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The iter-30 HIGH bug is fixed and locked-down with new assertions in /app/backend/tests/test_iteration31_modify_quote_recompute.py. To re-run: REACT_APP_BACKEND_URL=<preview-url> pytest /app/backend/tests/test_iteration31_modify_quote_recompute.py /app/backend/tests/test_iteration30_jwt_modify_booking.py -v. The new test file's `test_dropoff_swap_to_long_distance_recomputes_quote` asserts new_quote != previous (the key bug-fix invariant); `test_dropoff_swap_with_luxury_suv_recomputes_to_higher_quote` adds the directional sanity check using Luxury SUV. If the main agent later patches the Executive Sedan pricing config, the iter-31 test will continue to pass (it deliberately does NOT assert a magnitude on the Executive Sedan case — only that recompute happens).",
+  "rca of the issue": "Iter-30 RCA confirmed and fix verified: _compute_quote_amount at server.py:2864 opens with `if booking.get('quote_amount'): return float(booking['quote_amount'])`. The modify endpoint built `merged = {**b, **update_doc}` which still carried the old quote_amount, so the short-circuit fired and returned stale value. Fix in iter-31 at server.py:4825 — `merged.pop('quote_amount', None)` immediately before the recompute. End-to-end verification: SFO -> Salesforce Tower booking with quote=$120 modified to dropoff=Sacramento Intl now recomputes to a different value and the DB doc is updated accordingly. Separately, the magnitude of the recomputed Executive Sedan value ($1.55) appears wrong due to a pre-existing pricing_config issue (per_mile rate for Executive Sedan), which is unrelated to this iteration's fix and is reported as a minor finding for the main agent to investigate."
+}
