@@ -404,6 +404,9 @@ export default function AdminDashboard() {
             <TabsTrigger value="drivers" data-testid="tab-drivers" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Drivers
             </TabsTrigger>
+            <TabsTrigger value="live-map" data-testid="tab-live-map" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Live Map
+            </TabsTrigger>
             <TabsTrigger value="quotes" data-testid="tab-quotes" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Quote Requests
             </TabsTrigger>

@@ -35,7 +35,7 @@ export const FLEET = [
     bags: "4",
     callOnly: true,
     note: "Mood lighting, premium bar, the showstopper for weddings & nightlife.",
-    img: "https://images.unsplash.com/photo-1742794147227-b3df1a5ae19c?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
+    img: "https://images.unsplash.com/photo-1676107648535-931375db52e2?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
   },
   {
     name: "Sprinter Van",
@@ -53,6 +53,6 @@ export const FLEET = [
     bags: "8",
     callOnly: true,
     note: "Built for celebrations. LED lighting, premium sound, dance floor, full bar.",
-    img: "https://images.unsplash.com/photo-1610641818989-c2051b5e2cfd?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
+    img: "https://images.unsplash.com/photo-1545185105-a81262517cf4?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
   },
 ];

@@ -34,7 +34,7 @@ const ABSTRACT_GOLD = "https://static.prod-images.emergentagent.com/jobs/1689fe6
 const SEDAN = "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0";
 const SUV = "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwxfHxsdXh1cnklMjBibGFjayUyMHN1diUyMGNhcnxlbnwwfHx8fDE3NzkyNDUyODV8MA&ixlib=rb-4.1.0&q=85";
 const FIRST_CLASS = "https://images.unsplash.com/photo-1609521247503-8de40462e427?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0";
-const STRETCH = "https://images.unsplash.com/photo-1742794147227-b3df1a5ae19c?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0";
+const STRETCH = "https://images.unsplash.com/photo-1676107648535-931375db52e2?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0";
 const DRIVER_PHOTO = "https://images.unsplash.com/photo-1603122101829-e56305b0a5f7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjaGF1ZmZldXIlMjBzdWl0fGVufDB8fHx8MTc3OTI0NTI4NXww&ixlib=rb-4.1.0&q=85";
 const LOGO_MARK = "/logo-mark.png";
 const LOGO_FULL = "/logo-full.png";
