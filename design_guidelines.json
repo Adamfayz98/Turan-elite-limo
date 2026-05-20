@@ -1,84 +1,177 @@
 {
-  "theme": "dark",
+  "project_name": "TuranEliteLimo Mobile App Mockups",
+  "theme": "DARK",
   "archetype": "5 (Jewel & Luxury)",
-  "colors": {
+  "global_design_principles": [
+    "Emotion First: Every screen must feel cinematic and expensive.",
+    "Contrast: True black (#050505) against warm gold (#D4AF37) for stark elegant contrast.",
+    "Zoom In: Large beautiful imagery for vehicle selection, avoid tiny unreadable car icons.",
+    "Negative Space: Use p-6 and p-8 for bottom sheets and cards to give breathing room.",
+    "No Default Vercel/Stripe look. This is a high-end service, not a SaaS."
+  ],
+  "color_system": {
     "background": "#050505",
-    "surface": "#111111",
-    "surface_elevated": "#1A1A1A",
+    "surface": "#0C0C0C",
+    "surface_elevated": "#141414",
     "primary": "#D4AF37",
-    "primary_hover": "#B3922E",
-    "text_main": "#FFFFFF",
-    "text_muted": "#A1A1AA",
-    "border": "#27272A"
+    "primary_hover": "#C9A961",
+    "secondary": "#1A1A1A",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A1A1AA",
+    "border": "rgba(255, 255, 255, 0.1)",
+    "glass": "rgba(10, 10, 10, 0.75)",
+    "glass_border": "rgba(255, 255, 255, 0.08)",
+    "success": "#10B981",
+    "error": "#EF4444"
   },
   "typography": {
-    "google_fonts_url": "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap",
-    "headings": {
-      "font_family": "'Playfair Display', serif",
-      "classes": "font-serif tracking-tight text-white"
-    },
-    "body": {
-      "font_family": "'Outfit', sans-serif",
-      "classes": "font-sans text-gray-300"
+    "display_font": "Playfair Display",
+    "body_font": "Inter",
+    "scale": {
+      "h1": "text-4xl md:text-5xl font-serif tracking-tight text-white",
+      "h2": "text-2xl md:text-3xl font-serif tracking-tight text-white",
+      "h3": "text-xl font-semibold font-sans tracking-tight text-white",
+      "body": "text-base font-sans text-white/80 leading-relaxed",
+      "label": "text-xs font-sans uppercase tracking-[0.2em] text-white/50"
     }
   },
-  "layout_and_spacing": {
-    "philosophy": "Generous spacing, architectural alignment, large negative space.",
-    "hero": "Full height (min-h-[90vh]), gradient overlay (bg-gradient-to-r from-black/90 via-black/50 to-transparent) to ensure text readability.",
-    "grid": "Bento Grid (Tetris Mode) for fleet showcase and services. gap-8 to gap-12.",
-    "section_padding": "py-24 md:py-32"
+  "spacing_and_layout": {
+    "mobile_first": true,
+    "container_padding": "p-6",
+    "bottom_sheet_radius": "rounded-t-3xl",
+    "card_radius": "rounded-2xl",
+    "button_radius": "rounded-full",
+    "bottom_nav_height": "h-20"
   },
   "components": {
-    "navigation": "Sticky, Crystal Glassmorphism (bg-black/60 backdrop-blur-xl border-b border-white/10).",
-    "cards": "Flat dark background (bg-[#111111]), 1px border (border-[#27272A]), no shadow, subtle hover lift (-translate-y-1) and border glow on hover.",
     "buttons": {
-      "primary": "bg-[#D4AF37] text-black hover:bg-[#B3922E] font-medium transition-all",
-      "secondary": "bg-transparent border border-white/20 text-white hover:bg-white/10 transition-all",
-      "ghost": "text-white/70 hover:text-white hover:bg-white/10"
+      "primary": "bg-[#D4AF37] text-black font-medium text-base rounded-full px-6 py-4 w-full shadow-[0_0_20px_rgba(212,175,55,0.2)] hover:bg-[#C9A961] transition-colors",
+      "secondary": "bg-transparent border border-[#D4AF37]/50 text-[#D4AF37] font-medium text-base rounded-full px-6 py-4 w-full hover:bg-[#D4AF37]/10 transition-colors",
+      "ghost": "text-white/70 hover:text-white underline-offset-4 hover:underline transition-colors"
     },
-    "forms": "Use Shadcn form elements. Customize inputs to have bg-[#111111] border-[#27272A] focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] text-white."
-  },
-  "media": {
-    "hero_image": "https://images.pexels.com/photos/15774577/pexels-photo-15774577.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-    "fleet": {
-      "cadillac_suv": "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxibGFjayUyMHN1diUyMGx1eHVyeXxlbnwwfHx8fDE3NzgyMzQyOTB8MA&ixlib=rb-4.1.0&q=85",
-      "rolls_royce": "https://images.unsplash.com/photo-1772990914622-4ee26e085381?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwzfHxjaGF1ZmZldXIlMjBsdXh1cnklMjBjYXJ8ZW58MHx8fHwxNzc4MjM0MjkwfDA&ixlib=rb-4.1.0&q=85",
-      "lincoln_suv": "https://images.unsplash.com/photo-1758223725140-3855ec687a16?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwzfHxibGFjayUyMHN1diUyMGx1eHVyeXxlbnwwfHx8fDE3NzgyMzQyOTB8MA&ixlib=rb-4.1.0&q=85"
+    "inputs": {
+      "text": "bg-[#0C0C0C] border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] transition-all w-full",
+      "label": "text-xs uppercase tracking-wider text-white/50 mb-2 block"
     },
-    "service_area": "https://images.unsplash.com/photo-1630603826565-fa64d258b602?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwzfHxzYW4lMjBmcmFuY2lzY28lMjBuaWdodCUyMGNpdHl8ZW58MHx8fHwxNzc4MjM0MjkwfDA&ixlib=rb-4.1.0&q=85",
-    "chauffeur_detail": "https://images.pexels.com/photos/7594130/pexels-photo-7594130.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
-  },
-  "pages_and_features": {
-    "marketing": {
-      "path": "/",
-      "sections": [
-        "Navigation Bar (Logo: Turonlimo, Links: Fleet, Services, Area, Booking)",
-        "Hero Section: Full screen, headline 'Unparalleled Luxury Transportation', sub-headline 'Serving the Bay Area & Northern California', primary CTA 'Book Now'.",
-        "Booking Section: Comprehensive Shadcn form for instant quote/booking (Date, Time, Pickup, Dropoff, Passengers, Vehicle type).",
-        "Fleet Showcase: Bento Grid displaying SUVs, Sedans, Party Buses. Focus on high-end imagery.",
-        "Services Section: Cards outlining Airport Transfers, Corporate Events, Weddings, Hourly Chauffeur.",
-        "Coverage Area: Bay Area imagery with a stylish map or text layout highlighting Northern California.",
-        "Footer: Contact info, links, elegant branding."
-      ]
+    "bottom_sheet": {
+      "wrapper": "fixed inset-x-0 bottom-0 z-50 bg-[#0C0C0C] border-t border-white/10 rounded-t-3xl p-6 shadow-2xl overflow-y-auto max-h-[85vh]",
+      "drag_handle": "w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-6"
     },
-    "admin": {
-      "path": "/admin",
-      "features": [
-        "Login Screen: Minimalist, centered card.",
-        "Dashboard Layout: Sidebar navigation (Bookings, Fleet, Settings).",
-        "Bookings Table: Shadcn DataTable showing recent requests (Customer, Date, Route, Vehicle, Status badge).",
-        "Action Menu: Approve/Reject/Complete statuses."
-      ]
+    "bottom_nav": {
+      "wrapper": "fixed inset-x-0 bottom-0 z-40 h-20 bg-black/80 backdrop-blur-xl border-t border-white/5 flex items-center justify-around px-6 pb-safe"
+    },
+    "cards": {
+      "base": "bg-[#0C0C0C] border border-white/10 rounded-2xl p-4 overflow-hidden"
     }
   },
+  "media": {
+    "hero_map_background": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/1689fe63-929d-4e0f-9a68-ee41e3772b20/images/8fadd6148d386fdf9d2dfb3d804989709c16bb90eddcf9adec5ae5aebd807148.png",
+      "description": "Dark luxury map UI of San Francisco for active tracking screens"
+    },
+    "abstract_gold_bg": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/1689fe63-929d-4e0f-9a68-ee41e3772b20/images/552a1c8656efc0533fd136ccd9396126f7b4d6677e70677000c2f04374d4d979.png",
+      "description": "Abstract elegant gold and black texture for role picker or loading screens"
+    },
+    "vehicles": {
+      "executive_sedan": "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
+      "luxury_suv": "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwxfHxsdXh1cnklMjBibGFjayUyMHN1diUyMGNhcnxlbnwwfHx8fDE3NzkyNDUyODV8MA&ixlib=rb-4.1.0&q=85",
+      "first_class": "https://images.unsplash.com/photo-1609521247503-8de40462e427?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
+      "stretch_limo": "https://images.unsplash.com/photo-1742794147227-b3df1a5ae19c?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0"
+    },
+    "driver_profile": {
+      "url": "https://images.unsplash.com/photo-1603122101829-e56305b0a5f7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjaGF1ZmZldXIlMjBzdWl0fGVufDB8fHx8MTc3OTI0NTI4NXww&ixlib=rb-4.1.0&q=85",
+      "description": "Professional chauffeur in a suit"
+    }
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "Clean, thin stroke (strokeWidth={1.5}) to match luxury feel"
+  },
+  "screens_to_build": [
+    {
+      "name": "AppLaunch_RolePicker",
+      "path": "/app/frontend/src/pages/Launch.jsx",
+      "description": "Cinematic first touch. Abstract gold bg. Two massive cards for Rider vs Driver.",
+      "data_testid_requirements": ["role-picker-rider", "role-picker-driver"]
+    },
+    {
+      "name": "Rider_Auth",
+      "path": "/app/frontend/src/pages/rider/Auth.jsx",
+      "description": "Login/Signup bottom sheet or glass card.",
+      "data_testid_requirements": ["rider-auth-email", "rider-auth-password", "rider-auth-submit"]
+    },
+    {
+      "name": "Rider_HomeBooking",
+      "path": "/app/frontend/src/pages/rider/Home.jsx",
+      "description": "Map bg. Bottom sheet asking 'Where to, Sir/Madam?'. High-end Uber UI.",
+      "data_testid_requirements": ["rider-pickup-input", "rider-dropoff-input", "rider-book-button"]
+    },
+    {
+      "name": "Rider_VehiclePicker",
+      "path": "/app/frontend/src/pages/rider/VehiclePicker.jsx",
+      "description": "Carousel or stack of large vehicle cards showing luxury fleet.",
+      "data_testid_requirements": ["vehicle-card-sedan", "vehicle-card-suv", "vehicle-select-button"]
+    },
+    {
+      "name": "Rider_QuotePay",
+      "path": "/app/frontend/src/pages/rider/QuotePay.jsx",
+      "description": "Final review. Price breakdown, Apple Pay button.",
+      "data_testid_requirements": ["quote-total-price", "pay-button"]
+    },
+    {
+      "name": "Rider_ActiveTrip",
+      "path": "/app/frontend/src/pages/rider/ActiveTrip.jsx",
+      "description": "Map bg. Moving car icon. Driver profile bottom sheet.",
+      "data_testid_requirements": ["active-trip-map", "driver-call-button", "driver-text-button"]
+    },
+    {
+      "name": "Rider_TripHistory",
+      "path": "/app/frontend/src/pages/rider/TripHistory.jsx",
+      "description": "List of past trips. Elegant list items.",
+      "data_testid_requirements": ["trip-history-list", "trip-item"]
+    },
+    {
+      "name": "Rider_Profile",
+      "path": "/app/frontend/src/pages/rider/Profile.jsx",
+      "description": "Account details. Sleek settings menu.",
+      "data_testid_requirements": ["profile-name", "profile-logout"]
+    },
+    {
+      "name": "Driver_Auth",
+      "path": "/app/frontend/src/pages/driver/Auth.jsx",
+      "description": "Driver specific login. Darker, more utilitarian but still premium.",
+      "data_testid_requirements": ["driver-auth-email", "driver-auth-password", "driver-auth-submit"]
+    },
+    {
+      "name": "Driver_TripQueue",
+      "path": "/app/frontend/src/pages/driver/TripQueue.jsx",
+      "description": "List of assignments. Status badges.",
+      "data_testid_requirements": ["trip-queue-list", "start-trip-cta"]
+    },
+    {
+      "name": "Driver_ActiveTrip",
+      "path": "/app/frontend/src/pages/driver/ActiveTrip.jsx",
+      "description": "Turn-by-turn map view wrapper. Passenger details.",
+      "data_testid_requirements": ["passenger-call", "trip-status-update-btn"]
+    },
+    {
+      "name": "Driver_ProfileStats",
+      "path": "/app/frontend/src/pages/driver/Profile.jsx",
+      "description": "Driver rating, trips completed, earnings preview.",
+      "data_testid_requirements": ["driver-rating", "driver-stats-grid"]
+    }
+  ],
   "instructions_to_main_agent": [
-    "Configure React Router to handle '/' for the marketing site and '/admin' for the dashboard.",
-    "Add 'Playfair Display' and 'Outfit' to Tailwind config (theme.extend.fontFamily) and index.html.",
-    "Force dark mode across the entire application by wrapping the app in a container with 'dark' class and 'bg-[#050505] text-white'.",
-    "Do not use default Shadcn styles verbatim. Override variables in index.css to match the colors provided in this JSON.",
-    "Use framer-motion for smooth entrance animations (fade up on scroll) for marketing sections.",
-    "All interactive and key informational elements MUST include a 'data-testid' attribute (e.g. data-testid='hero-book-button').",
-    "For the booking form, use a combination of Shadcn Form, Input, DatePicker (Popover + Calendar), and Select.",
-    "For the Admin dashboard, use a separate layout component that doesn't include the marketing navigation/footer."
+    "Use React Router to link these screens for a full prototype flow.",
+    "To simulate mobile on desktop, wrap the router content in a phone frame (e.g., max-w-[390px] h-[844px] rounded-[40px] border-[8px] border-zinc-800 overflow-hidden relative shadow-2xl mx-auto mt-10).",
+    "DO NOT use raw <input> fields. Build or use Shadcn Input but customized to the dark theme guidelines.",
+    "Add motion/framer-motion to the bottom sheets for realistic swipe/open mechanics.",
+    "Use Lucide-React for all icons. strokeWidth={1.5}",
+    "Install and use Playfair Display from Google Fonts in index.css.",
+    "Build the 'Bottom Nav' as a sticky/fixed component for the Rider Home/History/Profile screens.",
+    "Do not use generic blue/purple colors anywhere. Strict adherence to #050505, #0C0C0C, and #D4AF37.",
+    "Map sections should use the provided hero_map_background image as a background layer, with UI layered on top.",
+    "All clickables must have data-testid."
   ]
 }
