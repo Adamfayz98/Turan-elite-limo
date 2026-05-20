@@ -198,3 +198,25 @@ preview only. Mobile-related backend endpoints WILL go to production on the next
 ## Recurrence/Known Issues
 - None as of this session.
 - The Expo tunnel URL (`exp://...exp.direct`) rotates whenever the Metro server restarts. Next session must restart tunnel and provide a fresh QR.
+
+## Session — Feb 20, 2026 (fork)
+**Fixed:**
+- Compile-error overlay bug ("X" popup that wouldn't dismiss) — root cause: `LiveDriversTab.jsx` imported `api` as default but module only has named exports. Switched to `import { api } from "@/lib/api"`.
+- Fleet images replaced — Stretch Limousine (white limo, web+mobile), Party Bus (LED interior, web+mobile, the palm-trees photo was egregious), Sprinter Van (mobile now matches web's user-uploaded photo).
+- Admin Live Map tab was orphaned — TabsTrigger never added. Now visible.
+
+**Added — Mobile pre-auth marketing welcome screen (`/app/mobile/app/index.tsx`):**
+- Hero ("Arrive in unspoken luxury") with rating, 24/7, insurance stats
+- Fleet horizontal carousel (6 vehicles)
+- Services grid (Airport / Corporate / Weddings / Hourly / Wine / Nightlife)
+- Coverage section (3 airports + 12 cities)
+- 3 testimonial reviews
+- Final CTA → Sign in / Book + small Driver link
+- Auth-aware: redirects to `/home` if user already logged in
+- Rationale: cold app-store downloaders see what TuranEliteLimo offers before hitting a login wall
+
+**Pending user verification (mobile, M4 fixes from previous session):**
+- Date/Time picker modal
+- Settings menu wiring
+- Rating screen after trip
+- Call for Quote on call-only vehicles
