@@ -3,9 +3,11 @@ import { useRouter } from "expo-router";
 import { ChevronRight, Crown, Briefcase, Sparkles } from "lucide-react-native";
 import { colors, radius, assets } from "@/theme";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuth } from "@/store/auth";
 
 export default function RolePickerScreen() {
   const router = useRouter();
+  const user = useAuth(s => s.user);
   return (
     <View style={s.container}>
       <ImageBackground source={{ uri: assets.abstractGold }} style={s.bgImage} resizeMode="cover" imageStyle={{ opacity: 0.4 }}>
@@ -27,7 +29,7 @@ export default function RolePickerScreen() {
 
             <Pressable
               testID="role-picker-rider"
-              onPress={() => router.push("/(rider)/auth")}
+              onPress={() => router.push(user ? "/home" : "/(rider)/auth")}
               style={({ pressed }) => [s.card, s.cardRider, pressed && { opacity: 0.85 }]}
             >
               <View style={[s.iconCircle, { backgroundColor: "rgba(212,175,55,0.15)" }]}>

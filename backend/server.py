@@ -96,6 +96,32 @@ async def require_admin(creds: Optional[HTTPAuthorizationCredentials] = Depends(
     return payload
 
 
+def create_customer_token(customer_id: str, email: str) -> str:
+    """Mobile-app customer JWT (separate from admin scope)."""
+    payload = {
+        'sub': email,
+        'customer_id': customer_id,
+        'role': 'customer',
+        'exp': datetime.now(timezone.utc) + timedelta(days=30),
+        'type': 'access',
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+async def require_customer(creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)) -> dict:
+    if creds is None or not creds.credentials:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if payload.get('role') != 'customer':
+        raise HTTPException(status_code=403, detail="Customer access required")
+    return payload
+
+
 # ---------- Models ----------
 VEHICLE_TYPES = [
     "Executive Sedan",
@@ -4268,6 +4294,99 @@ async def admin_stats(_: dict = Depends(require_admin)):
         "completed": completed,
         "inquiries": inquiries,
     }
+
+
+# ============================================================================
+# Customer auth (used by the mobile app — separate from admin auth)
+# ============================================================================
+
+class CustomerSignupRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=80)
+    email: EmailStr
+    phone: Optional[str] = Field(None, max_length=30)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class CustomerLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class CustomerProfile(BaseModel):
+    id: str
+    name: str
+    email: str
+    phone: Optional[str] = None
+
+
+class CustomerAuthResponse(BaseModel):
+    token: str
+    user: CustomerProfile
+
+
+def _customer_to_profile(doc: dict) -> CustomerProfile:
+    return CustomerProfile(
+        id=doc["id"],
+        name=doc["name"],
+        email=doc["email"],
+        phone=doc.get("phone"),
+    )
+
+
+@api_router.post("/customer/signup", response_model=CustomerAuthResponse)
+async def customer_signup(payload: CustomerSignupRequest):
+    email = payload.email.lower()
+    existing = await db.customers.find_one({"email": email}, {"_id": 0, "id": 1})
+    if existing:
+        raise HTTPException(status_code=409, detail="An account already exists with this email.")
+    cid = str(uuid.uuid4())
+    doc = {
+        "id": cid,
+        "name": payload.name.strip(),
+        "email": email,
+        "phone": (payload.phone or "").strip() or None,
+        "password_hash": hash_password(payload.password),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.customers.insert_one(doc)
+    token = create_customer_token(cid, email)
+    return CustomerAuthResponse(token=token, user=_customer_to_profile(doc))
+
+
+@api_router.post("/customer/login", response_model=CustomerAuthResponse)
+async def customer_login(payload: CustomerLoginRequest):
+    email = payload.email.lower()
+    user = await db.customers.find_one({"email": email}, {"_id": 0})
+    if not user or not verify_password(payload.password, user.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_customer_token(user["id"], email)
+    return CustomerAuthResponse(token=token, user=_customer_to_profile(user))
+
+
+@api_router.get("/customer/me", response_model=CustomerProfile)
+async def customer_me(claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    user = await db.customers.find_one({"id": cid}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return _customer_to_profile(user)
+
+
+@api_router.get("/vehicle-types")
+async def list_vehicle_types_public():
+    """Read-only fleet info for the mobile rider app."""
+    pricing = await _load_pricing_map()
+    out = []
+    for vt in VEHICLE_TYPES:
+        p = pricing.get(vt, {})
+        out.append({
+            "vehicle_type": vt,
+            "call_only": bool(p.get("call_only", False)),
+            "minimum_price": float(p.get("minimum", 0.0)),
+            "per_mile": float(p.get("per_mile", 0.0)),
+            "hourly_rate": float(p.get("hourly_rate", 0.0)),
+        })
+    return out
 
 
 # Register router

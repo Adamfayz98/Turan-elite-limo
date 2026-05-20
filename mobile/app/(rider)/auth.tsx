@@ -1,18 +1,24 @@
 import { useState } from "react";
 import { View, Text, StyleSheet, Pressable, Image, ScrollView, KeyboardAvoidingView, Platform, ImageBackground } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronLeft, Mail, Lock, Eye, EyeOff, Apple, ArrowRight } from "lucide-react-native";
+import { ChevronLeft, Mail, Lock, Eye, EyeOff, Apple, ArrowRight, User as UserIcon } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
 import { colors, assets } from "@/theme";
+import { loginRider, signupRider } from "@/api";
+import { useAuth } from "@/store/auth";
 
 export default function RiderAuth() {
   const router = useRouter();
+  const setUser = useAuth(s => s.setUser);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <View style={s.root}>
@@ -55,6 +61,17 @@ export default function RiderAuth() {
             </View>
 
             <View style={{ gap: 14 }}>
+              {mode === "signup" && (
+                <Input
+                  testID="rider-auth-name"
+                  label="Full Name"
+                  placeholder="Jane Doe"
+                  autoCapitalize="words"
+                  value={name}
+                  onChangeText={setName}
+                  icon={<UserIcon size={14} color="rgba(255,255,255,0.4)" />}
+                />
+              )}
               <Input
                 testID="rider-auth-email"
                 label="Email"
@@ -80,6 +97,9 @@ export default function RiderAuth() {
                   </Pressable>
                 }
               />
+              {error && (
+                <Text testID="rider-auth-error" style={s.error}>{error}</Text>
+              )}
               {mode === "signin" && (
                 <Pressable testID="rider-auth-forgot" hitSlop={6}>
                   <Text style={s.forgot}>Forgot password?</Text>
@@ -89,8 +109,26 @@ export default function RiderAuth() {
 
             <Button
               testID="rider-auth-submit"
-              onPress={() => {
-                /* Wired up in Milestone 2 */
+              loading={submitting}
+              onPress={async () => {
+                if (!email.trim() || !password.trim() || (mode === "signup" && !name.trim())) {
+                  setError("Please fill in all fields.");
+                  return;
+                }
+                setError(null);
+                setSubmitting(true);
+                try {
+                  const data = mode === "signin"
+                    ? await loginRider({ email: email.trim().toLowerCase(), password })
+                    : await signupRider({ name: name.trim(), email: email.trim().toLowerCase(), password });
+                  setUser(data.user);
+                  router.replace("/home");
+                } catch (e: any) {
+                  const raw = e?.response?.data?.detail;
+                  setError(typeof raw === "string" ? raw : Array.isArray(raw) ? raw.map((d: any) => d?.msg).join(", ") : "Something went wrong. Try again.");
+                } finally {
+                  setSubmitting(false);
+                }
               }}
               icon={<ArrowRight size={14} color="#000" />}
               style={{ marginTop: 20 }}
@@ -150,4 +188,5 @@ const s = StyleSheet.create({
   dividerTxt: { color: "rgba(255,255,255,0.35)", fontSize: 10, letterSpacing: 2 },
   apple: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, backgroundColor: "#fff", paddingVertical: 14, borderRadius: 999 },
   appleTxt: { color: "#000", fontSize: 13, fontWeight: "500" },
+  error: { color: colors.error, fontSize: 12, marginTop: 4 },
 });
