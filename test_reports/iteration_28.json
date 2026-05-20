@@ -1,0 +1,42 @@
+{
+  "summary": "RETEST of iteration 27 critical bugs in /api/driver-auth/bookings/{id}/record-mid-trip-stop (and the wait-time sibling). Both bugs are FIXED and verified end-to-end against the public preview URL. 24/24 pytest cases pass, including 2 new regression tests added in this iteration that explicitly target the previously-broken behavior.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/driver-auth/bookings/{booking_id}/record-mid-trip-stop",
+        "issue": "Re-geocodes pickup/dropoff and every previously-recorded stop on EVERY new stop call (server.py lines 1488-1500). On a trip with 3 prior stops, that's 5+ Google geocode calls per new stop. Still recommend caching pickup_coord/dropoff_coord + stop coords on the booking doc to avoid quota burn. (Carried over from iteration 27 — not part of this fix scope.)"
+      },
+      {
+        "endpoint": "_record_wait_time_for_booking shared helper",
+        "issue": "Sets only wait_time_minutes_pending and wait_time_recorded_by; does NOT set wait_time_minutes (admin-dashboard-readable field). The token endpoint had identical behavior before the refactor — confirm admin dashboard reads wait_time_minutes_pending (the actual field set) and not wait_time_minutes for the pending-review queue. (Carried over from iteration 27.)"
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration27_jwt_driver_and_pwreset.py",
+    "/app/test_reports/pytest/iteration28_results.xml"
+  ],
+  "action_items": [
+    "None blocking. Both CRITICAL bugs from iteration 27 are verified fixed. Consider addressing the carried-over minor issues (geocode caching, wait_time_minutes vs wait_time_minutes_pending naming) in a future cleanup pass."
+  ],
+  "critical_code_review_comments": [
+    "Refactor is clean: both /api/driver/{token}/... and /api/driver-auth/bookings/{id}/... endpoints now delegate to a single shared helper (_record_wait_time_for_booking, _record_mid_trip_stop_for_booking). Schema parity is guaranteed by construction, which is the right shape for this fix.",
+    "Verified live against preview URL: stop entry now contains the FULL schema { id, address, address_input, minutes_at_stop, wait_grace_minutes, wait_overage_minutes, detour_miles, flat_fee, per_mile_rate, wait_minute_rate, distance_charge, wait_charge, subtotal, service_fee, total, recorded_at, recorded_by, charged_at, payment_intent_id }. The legacy 'amount' field is gone.",
+    "BUG #1 verified fixed: with pricing_config.per_mile=4.0 forced via Mongo, a recorded stop produced detour_miles>0 AND distance_charge = round(detour_miles * 4.0, 2) > 0. Total exceeds the $0.50 admin-charge minimum so /admin/bookings/{id}/charge-mid-trip-stop will accept it.",
+    "BUG #2 verified fixed: stop['total'] is present (the field admin_charge_mid_trip_stop reads at server.py line 1685). No 'Charge too small under $0.50' false-positive.",
+    "/api/driver-auth/bookings/{id}/status DriverStatusUpdate Pydantic regex (server.py line 1106) accepts 'en_route|on_location|passenger_onboard|completed' — confirmed via test_status_progression_forward. The mobile-side update to 'on_location'/'passenger_onboard' is consistent. 'arrived' and 'on_trip' are correctly rejected with 422.",
+    "server.py is still 5431 lines — modular split into routers (driver_auth, customer_auth, admin, etc.) remains a worthwhile refactor but is not blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration27_jwt_driver_and_pwreset.py (extended: stricter schema assertions on mid-trip-stop, new test_record_mid_trip_stop_per_mile_rate_used for BUG #1, new TestTokenBasedDriverEndpoints class for shared-helper regression)"
+  ],
+  "success_rate": {"backend": "100% (24/24 passing)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "Used seeded driver.test@turanelitelimo.com / DriverPass123! from /app/memory/test_credentials.md.",
+  "seed_data_creation": "One session-scoped booking inserted directly into Mongo (full_name='TEST Rider', confirmation_number prefix TEST-, assigned to seeded test driver), torn down at end of session. The per-mile regression test temporarily upserts pricing_config.per_mile=4.0 for Executive Sedan and restores the original document via try/finally.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_iteration27_jwt_driver_and_pwreset.py -v. All 24 tests are green. Bugs #1 and #2 from iteration 27 are verified fixed via the new test_record_mid_trip_stop_per_mile_rate_used and the strict-schema assertions inside test_record_mid_trip_stop. TestTokenBasedDriverEndpoints covers the shared-helper regression for the original /api/driver/{token}/... endpoints. If you add charge-flow E2E tests, the admin endpoint /api/admin/bookings/{id}/charge-mid-trip-stop requires admin 2FA + wait_time_consent=True + stripe_customer_id + stripe_payment_method_id on the booking — easier to mock or to drive via a real seeded booking with a Stripe test card already on file.",
+  "rca of the issue": "Both bugs are resolved by extraction of the original token-endpoint body into _record_mid_trip_stop_for_booking (server.py line 1483) and _record_wait_time_for_booking (line 1402). The JWT endpoints (lines 4917-4938) are now thin wrappers that only do auth + booking ownership check, then delegate. Because there is only one implementation of the business logic now, schema drift between the two endpoints is no longer possible by construction. The per_mile field name is correctly read at line 1507."
+}

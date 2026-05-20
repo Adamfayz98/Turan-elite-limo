@@ -22,22 +22,22 @@ import {
   driverRecordMidTripStop,
 } from "@/api";
 
-const STATUSES = ["assigned", "en_route", "arrived", "on_trip", "completed"] as const;
+const STATUSES = ["assigned", "en_route", "on_location", "passenger_onboard", "completed"] as const;
 type Status = typeof STATUSES[number];
 
 const STATUS_LABEL: Record<Status, string> = {
-  assigned:  "Assigned",
-  en_route:  "En route to pickup",
-  arrived:   "Arrived at pickup",
-  on_trip:   "On trip",
-  completed: "Completed",
+  assigned:          "Assigned",
+  en_route:          "En route to pickup",
+  on_location:       "Arrived at pickup",
+  passenger_onboard: "On trip",
+  completed:         "Completed",
 };
 
 const NEXT_STATUS: Record<Status, { next: Status; label: string } | null> = {
-  assigned:  { next: "en_route",  label: "Start trip / Drive to pickup" },
-  en_route:  { next: "arrived",   label: "I've arrived at pickup" },
-  arrived:   { next: "on_trip",   label: "Passenger picked up · Start ride" },
-  on_trip:   { next: "completed", label: "End trip" },
+  assigned:          { next: "en_route",          label: "Start trip / Drive to pickup" },
+  en_route:          { next: "on_location",       label: "I've arrived at pickup" },
+  on_location:       { next: "passenger_onboard", label: "Passenger picked up · Start ride" },
+  passenger_onboard: { next: "completed",         label: "End trip" },
   completed: null,
 };
 

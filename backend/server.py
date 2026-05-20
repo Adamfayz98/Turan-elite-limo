@@ -1396,28 +1396,28 @@ async def driver_record_wait_time(driver_token: str, payload: WaitTimeRecordPayl
     b = await db.bookings.find_one({"driver_token": driver_token}, {"_id": 0})
     if not b:
         raise HTTPException(status_code=404, detail="Trip not found")
+    return await _record_wait_time_for_booking(b, payload)
 
+
+async def _record_wait_time_for_booking(b: dict, payload: "WaitTimeRecordPayload") -> dict:
+    """Shared logic between the token-based and JWT-based driver wait-time endpoints."""
     if b.get("wait_time_charged_at"):
         return {
             "already_charged": True,
             "amount": b.get("wait_time_fee_amount"),
             "minutes_waited": b.get("wait_time_minutes"),
         }
-
     pricing = await db.pricing_config.find_one({"vehicle_type": b["vehicle_type"]}, {"_id": 0})
     rate = float((pricing or {}).get("wait_minute_rate") or 0)
     preview = _wait_time_amount_preview(payload.minutes_waited, b.get("service_type"), rate)
-
     now_iso = datetime.now(timezone.utc).isoformat()
     await db.bookings.update_one(
         {"id": b["id"]},
-        {
-            "$set": {
-                "wait_time_minutes_pending": payload.minutes_waited,
-                "wait_time_recorded_at": now_iso,
-                "wait_time_recorded_by": "driver",
-            }
-        },
+        {"$set": {
+            "wait_time_minutes_pending": payload.minutes_waited,
+            "wait_time_recorded_at": now_iso,
+            "wait_time_recorded_by": "driver",
+        }},
     )
     return {
         "recorded": True,
@@ -1477,8 +1477,14 @@ async def driver_record_mid_trip_stop(driver_token: str, payload: MidTripStopPay
     b = await db.bookings.find_one({"driver_token": driver_token}, {"_id": 0})
     if not b:
         raise HTTPException(status_code=404, detail="Trip not found")
+    return await _record_mid_trip_stop_for_booking(b, payload)
 
-    # Geocode pickup, dropoff, pre-booked stops, existing mid-trip stops, and the new stop
+
+async def _record_mid_trip_stop_for_booking(b: dict, payload: "MidTripStopPayload") -> dict:
+    """Shared logic between the token-based and JWT-based mid-trip-stop endpoints.
+    Computes detour miles, applies per-stop flat fee + per-mile + wait-time, and
+    appends a fully-formed entry to booking.mid_trip_stops with `total` (NOT `amount`)
+    so the admin charge endpoint can pick it up."""
     pickup = await _geocode(b.get("pickup_location") or "")
     dropoff = await _geocode(b.get("dropoff_location") or "")
     new_stop_coord = await _geocode(payload.stop_address)
@@ -1492,15 +1498,11 @@ async def driver_record_mid_trip_stop(driver_token: str, payload: MidTripStopPay
     existing_mts_coords = await _resolve_coords_for_addresses(
         [s.get("address") for s in existing_mts if s.get("address")]
     )
-
-    # Route waypoints in chronological order: pre-booked stops first, then mid-trip stops
-    # added so far. The new stop is appended at the end before dropoff.
     waypoints_before = prebook_coords + existing_mts_coords
     miles_before = _route_total_miles(pickup, waypoints_before, dropoff)
     miles_after = _route_total_miles(pickup, waypoints_before + [new_stop_coord], dropoff)
     detour_miles = round(max(0.0, miles_after - miles_before), 2)
 
-    # Pricing inputs from the booking's vehicle
     pricing = await db.pricing_config.find_one({"vehicle_type": b["vehicle_type"]}, {"_id": 0}) or {}
     per_mile_rate = float(pricing.get("per_mile") or 0)
     wait_minute_rate = float(pricing.get("wait_minute_rate") or 0)
@@ -4918,32 +4920,10 @@ async def driver_jwt_record_wait_time(
     payload: WaitTimeRecordPayload,
     claims: dict = Depends(require_driver),
 ):
-    """JWT-driver records minutes waited; admin reviews & charges from the dashboard."""
+    """JWT-driver records minutes waited; admin reviews & charges from the dashboard.
+    Uses the same shared logic as the token-based endpoint so admin charge flow works identically."""
     b = await _booking_for_jwt_driver(booking_id, claims.get("driver_id"))
-    if b.get("wait_time_charged_at"):
-        return {
-            "already_charged": True,
-            "amount": b.get("wait_time_fee_amount"),
-            "minutes_waited": b.get("wait_time_minutes"),
-        }
-    pricing = await db.pricing_config.find_one({"vehicle_type": b["vehicle_type"]}, {"_id": 0})
-    rate = float((pricing or {}).get("wait_minute_rate") or 0)
-    preview = _wait_time_amount_preview(payload.minutes_waited, b.get("service_type"), rate)
-    now_iso = datetime.now(timezone.utc).isoformat()
-    await db.bookings.update_one(
-        {"id": b["id"]},
-        {"$set": {
-            "wait_time_minutes_pending": payload.minutes_waited,
-            "wait_time_recorded_at": now_iso,
-            "wait_time_recorded_by": "driver",
-        }},
-    )
-    return {
-        "recorded": True,
-        "minutes_waited": payload.minutes_waited,
-        **preview,
-        "pending_admin_review": True,
-    }
+    return await _record_wait_time_for_booking(b, payload)
 
 
 @api_router.post("/driver-auth/bookings/{booking_id}/record-mid-trip-stop")
@@ -4952,51 +4932,10 @@ async def driver_jwt_record_mid_trip_stop(
     payload: MidTripStopPayload,
     claims: dict = Depends(require_driver),
 ):
-    """JWT-driver logs an unplanned stop. Geocodes + computes detour miles +
-    appends to booking.mid_trip_stops. Admin charges via the existing flow."""
+    """JWT-driver logs an unplanned stop. Uses the shared helper so the schema
+    is identical to the token-based endpoint and admin charge flow Just Works."""
     b = await _booking_for_jwt_driver(booking_id, claims.get("driver_id"))
-
-    pickup_coord = b.get("pickup_coord") or await _geocode(b.get("pickup_location") or "")
-    dropoff_coord = b.get("dropoff_coord") or await _geocode(b.get("dropoff_location") or "")
-    if not pickup_coord or not dropoff_coord:
-        raise HTTPException(status_code=400, detail="Could not resolve trip coordinates")
-
-    new_stop_coord = await _geocode(payload.stop_address)
-    if not new_stop_coord:
-        raise HTTPException(status_code=400, detail="Could not find that address. Please double-check.")
-
-    existing_stops = b.get("mid_trip_stops") or []
-    existing_coords = await _resolve_coords_for_addresses([s["address"] for s in existing_stops])
-    miles_before = _route_total_miles(pickup_coord, existing_coords, dropoff_coord)
-    miles_after = _route_total_miles(pickup_coord, existing_coords + [new_stop_coord], dropoff_coord)
-    detour_miles = max(0.0, round(miles_after - miles_before, 2))
-
-    pricing = await db.pricing_config.find_one({"vehicle_type": b["vehicle_type"]}, {"_id": 0})
-    per_mile = float((pricing or {}).get("price_per_mile") or 0)
-    wait_rate = float((pricing or {}).get("wait_minute_rate") or 0)
-    chargeable_wait_min = max(0, payload.minutes_at_stop - MID_TRIP_STOP_WAIT_GRACE_MIN)
-    detour_fee = round(detour_miles * per_mile, 2)
-    wait_fee = round(chargeable_wait_min * wait_rate, 2)
-    total_fee = round(detour_fee + wait_fee, 2)
-
-    stop_entry = {
-        "id": str(uuid.uuid4()),
-        "address": payload.stop_address,
-        "minutes_at_stop": payload.minutes_at_stop,
-        "chargeable_wait_min": chargeable_wait_min,
-        "detour_miles": detour_miles,
-        "detour_fee": detour_fee,
-        "wait_fee": wait_fee,
-        "amount": total_fee,
-        "recorded_at": datetime.now(timezone.utc).isoformat(),
-        "recorded_by": "driver",
-        "status": "pending",  # awaits admin charge
-    }
-    await db.bookings.update_one(
-        {"id": b["id"]},
-        {"$push": {"mid_trip_stops": stop_entry}},
-    )
-    return {"recorded": True, "stop": stop_entry, "pending_admin_review": True}
+    return await _record_mid_trip_stop_for_booking(b, payload)
 
 
 @api_router.get("/driver-auth/bookings/{booking_id}")

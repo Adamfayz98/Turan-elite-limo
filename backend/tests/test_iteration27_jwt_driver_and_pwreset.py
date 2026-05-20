@@ -386,6 +386,9 @@ class TestDriverWaitTime:
 
 class TestDriverMidTripStop:
     def test_record_mid_trip_stop(self, http, driver_token, test_booking, db):
+        """RETEST BUG #2 FIX: stop entry now contains FULL schema with `total`
+        (not `amount`), identical to the token-based endpoint, so the admin
+        charge endpoint can pick it up via stop['total']."""
         token, _ = driver_token
         mongo_db, loop = db
         # Clear any existing stops
@@ -404,18 +407,148 @@ class TestDriverMidTripStop:
         data = r.json()
         assert data.get("recorded") is True
         stop = data["stop"]
-        assert stop["address"]
+        # BUG #2 FIX assertions: full schema parity with the token endpoint
+        required_keys = {
+            "id", "address", "address_input", "minutes_at_stop",
+            "wait_grace_minutes", "wait_overage_minutes",
+            "detour_miles", "flat_fee", "per_mile_rate", "wait_minute_rate",
+            "distance_charge", "wait_charge", "subtotal", "service_fee", "total",
+            "recorded_at", "recorded_by", "charged_at", "payment_intent_id",
+        }
+        missing = required_keys - set(stop.keys())
+        assert not missing, f"stop entry missing keys: {missing}"
+        # Bug #2 explicitly: `total` must be present, `amount` must NOT (no legacy schema leak)
+        assert "total" in stop
+        assert "amount" not in stop, "Legacy 'amount' field leaked into stop entry"
         assert stop["minutes_at_stop"] == 15
-        assert stop["status"] == "pending"
-        assert "detour_miles" in stop
-        assert "amount" in stop
+        assert stop["address"]
+        assert stop["wait_grace_minutes"] == 10
+        # 15 minutes - 10 grace = 5 minutes overage
+        assert stop["wait_overage_minutes"] == 5
+        assert stop["charged_at"] is None
+        assert stop["payment_intent_id"] is None
+        assert stop["recorded_by"] == "driver"
 
         # Verify persistence + structure pushed into booking
         b = loop.run_until_complete(mongo_db.bookings.find_one({"id": test_booking}, {"_id": 0}))
         assert len(b.get("mid_trip_stops") or []) >= 1
         pushed = b["mid_trip_stops"][-1]
         assert pushed["recorded_by"] == "driver"
-        assert pushed["status"] == "pending"
+        assert "total" in pushed
+        assert pushed["id"] == stop["id"]
+
+    def test_record_mid_trip_stop_per_mile_rate_used(self, http, driver_token, test_booking, db):
+        """RETEST BUG #1 FIX: When pricing_config.per_mile > 0 AND detour_miles > 0,
+        distance_charge must be > 0 (previously was always 0 because the code
+        looked up 'price_per_mile' instead of 'per_mile')."""
+        token, _ = driver_token
+        mongo_db, loop = db
+        # Snapshot any existing pricing_config doc for cleanup
+        vehicle_type = "Executive Sedan"
+        original = loop.run_until_complete(
+            mongo_db.pricing_config.find_one({"vehicle_type": vehicle_type}, {"_id": 0})
+        )
+        # Force per_mile=4.0 (and a sane base config) so the math is deterministic
+        loop.run_until_complete(mongo_db.pricing_config.update_one(
+            {"vehicle_type": vehicle_type},
+            {"$set": {"per_mile": 4.0, "wait_minute_rate": 1.0, "vehicle_type": vehicle_type}},
+            upsert=True,
+        ))
+        # Clear stops to start clean
+        loop.run_until_complete(mongo_db.bookings.update_one(
+            {"id": test_booking}, {"$set": {"mid_trip_stops": []}}
+        ))
+        try:
+            r = http.post(f"{API}/driver-auth/bookings/{test_booking}/record-mid-trip-stop",
+                          headers={"Authorization": f"Bearer {token}"},
+                          json={"stop_address": "Golden Gate Park, San Francisco, CA",
+                                "minutes_at_stop": 0})
+            if r.status_code == 400:
+                pytest.skip(f"Geocoding unavailable: {r.json().get('detail')}")
+            assert r.status_code == 200, r.text
+            stop = r.json()["stop"]
+            assert stop["per_mile_rate"] == 4.0, f"per_mile_rate not picked up: {stop}"
+            # Detour from Market St -> SFO via Golden Gate Park is non-trivial
+            assert stop["detour_miles"] > 0, f"Expected detour_miles > 0, got {stop['detour_miles']}"
+            # BUG #1 core assertion: distance_charge > 0 now
+            expected = round(stop["detour_miles"] * 4.0, 2)
+            assert stop["distance_charge"] == expected, (
+                f"distance_charge wrong: {stop['distance_charge']} != {expected}"
+            )
+            assert stop["distance_charge"] > 0
+            # Total must exceed the $0.50 admin-charge minimum so admin charge flow won't bail
+            assert stop["total"] >= 0.50, (
+                f"total={stop['total']} would be rejected by admin charge endpoint (<$0.50)"
+            )
+        finally:
+            # Restore pricing_config to whatever it was
+            if original is not None:
+                loop.run_until_complete(mongo_db.pricing_config.replace_one(
+                    {"vehicle_type": vehicle_type}, original, upsert=True
+                ))
+            else:
+                loop.run_until_complete(
+                    mongo_db.pricing_config.delete_one({"vehicle_type": vehicle_type})
+                )
+
+    def test_record_mid_trip_stop_bad_address_400(self, http, driver_token, test_booking):
+        token, _ = driver_token
+        r = http.post(f"{API}/driver-auth/bookings/{test_booking}/record-mid-trip-stop",
+                      headers={"Authorization": f"Bearer {token}"},
+                      json={"stop_address": "zzzzzzzzzzzzzzzzzzzzzzzzz",
+                            "minutes_at_stop": 5})
+        # Either Google rejects geocoding (400) or it falls through with a strange address — accept 400
+        assert r.status_code in (400, 200)  # tolerate quota-exhaustion edge
+
+
+# ============================================================
+# TOKEN-BASED DRIVER ENDPOINTS — Regression after shared-helper refactor
+# ============================================================
+
+class TestTokenBasedDriverEndpoints:
+    """Regression: the legacy /driver/{token}/... endpoints now call the same
+    shared helpers as the JWT versions. Behavior should be unchanged."""
+
+    def test_token_record_wait_time(self, http, db, test_booking):
+        mongo_db, loop = db
+        # Look up the driver_token we inserted in the fixture
+        b = loop.run_until_complete(mongo_db.bookings.find_one({"id": test_booking}, {"_id": 0}))
+        driver_token_val = b["driver_token"]
+        # Ensure not already charged
+        loop.run_until_complete(mongo_db.bookings.update_one(
+            {"id": test_booking}, {"$unset": {"wait_time_charged_at": "", "wait_time_fee_amount": "", "wait_time_minutes": ""}}
+        ))
+        r = http.post(f"{API}/driver/{driver_token_val}/record-wait-time",
+                      json={"minutes_waited": 18})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data.get("recorded") is True
+        assert data["minutes_waited"] == 18
+        # Confirm persistence: shared helper sets the same fields
+        b2 = loop.run_until_complete(mongo_db.bookings.find_one({"id": test_booking}, {"_id": 0}))
+        assert b2.get("wait_time_minutes_pending") == 18
+        assert b2.get("wait_time_recorded_by") == "driver"
+
+    def test_token_record_mid_trip_stop(self, http, db, test_booking):
+        mongo_db, loop = db
+        b = loop.run_until_complete(mongo_db.bookings.find_one({"id": test_booking}, {"_id": 0}))
+        driver_token_val = b["driver_token"]
+        loop.run_until_complete(mongo_db.bookings.update_one(
+            {"id": test_booking}, {"$set": {"mid_trip_stops": []}}
+        ))
+        r = http.post(f"{API}/driver/{driver_token_val}/record-mid-trip-stop",
+                      json={"stop_address": "Coit Tower, San Francisco, CA",
+                            "minutes_at_stop": 12})
+        if r.status_code == 400:
+            pytest.skip(f"Geocoding unavailable: {r.json().get('detail')}")
+        assert r.status_code == 200, r.text
+        stop = r.json()["stop"]
+        # Identical schema to JWT version
+        for key in ("total", "subtotal", "flat_fee", "service_fee", "distance_charge",
+                    "wait_charge", "per_mile_rate", "wait_minute_rate",
+                    "address_input", "charged_at", "payment_intent_id"):
+            assert key in stop, f"Token endpoint missing key {key}"
+        assert "amount" not in stop
 
     def test_record_mid_trip_stop_bad_address_400(self, http, driver_token, test_booking):
         token, _ = driver_token
