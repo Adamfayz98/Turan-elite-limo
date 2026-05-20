@@ -121,7 +121,18 @@ export default function DriverTrips() {
                 {i === 0 && (
                   <Button
                     testID={`start-trip-${t.id}`}
-                    onPress={() => {}}
+                    onPress={() => router.push({
+                      pathname: "/(driver)/active-trip",
+                      params: {
+                        id: t.id,
+                        name: t.customer_name || "Passenger",
+                        phone: t.customer_phone || "",
+                        pickup: t.pickup_location,
+                        dropoff: t.dropoff_location,
+                        pax: String(t.passengers || 1),
+                        vehicle: t.vehicle_type || "Sedan",
+                      },
+                    })}
                     icon={<ArrowRight size={13} color="#000" />}
                     style={{ marginTop: 12, paddingVertical: 11 }}
                   >

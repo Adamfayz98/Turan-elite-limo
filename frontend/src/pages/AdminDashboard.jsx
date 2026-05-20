@@ -68,6 +68,7 @@ import SurgeCalendarTab from "@/components/admin/SurgeCalendarTab";
 import PromosTab from "@/components/admin/PromosTab";
 import AnnouncementsTab from "@/components/admin/AnnouncementsTab";
 import DriversTab from "@/components/admin/DriversTab";
+import LiveDriversTab from "@/components/admin/LiveDriversTab";
 import QuoteRequestsTab from "@/components/admin/QuoteRequestsTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
@@ -797,6 +798,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="drivers" className="mt-6">
             <DriversTab />
+          </TabsContent>
+
+          <TabsContent value="live-map" className="mt-6">
+            <LiveDriversTab />
           </TabsContent>
 
           <TabsContent value="quotes" className="mt-6">

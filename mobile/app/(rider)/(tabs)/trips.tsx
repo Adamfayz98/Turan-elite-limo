@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { Sparkles, ArrowRight } from "lucide-react-native";
 import { colors, radius } from "@/theme";
 import { fetchMyTrips } from "@/api";
@@ -27,6 +28,7 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
 };
 
 export default function RiderTrips() {
+  const router = useRouter();
   const [trips, setTrips] = useState<Trip[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -98,8 +100,8 @@ export default function RiderTrips() {
                       <Text style={s.vehicle}>{t.vehicle_type}</Text>
                     </View>
                   </View>
-                  <Pressable testID={`trip-${t.id}-rebook`} style={s.rebook}>
-                    <Text style={s.rebookTxt}>Book again</Text>
+                  <Pressable testID={`trip-${t.id}-track`} onPress={() => router.push(`/(rider)/active?bid=${t.id}`)} style={s.rebook}>
+                    <Text style={s.rebookTxt}>Track live</Text>
                     <ArrowRight size={11} color={colors.gold} />
                   </Pressable>
                 </View>

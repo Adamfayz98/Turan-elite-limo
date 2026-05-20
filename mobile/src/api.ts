@@ -145,6 +145,18 @@ export async function fetchBookingDetail(bookingId: string) {
   return data;
 }
 
+export async function placesAutocomplete(input: string, sessionToken?: string) {
+  const { data } = await api.get("/api/places/autocomplete", {
+    params: { input, session: sessionToken },
+  });
+  return (data?.predictions || []) as Array<{
+    place_id: string;
+    description: string;
+    main_text: string;
+    secondary_text: string;
+  }>;
+}
+
 /* ============== Driver endpoints ============== */
 import { DriverTokenStore } from "@/store/driver";
 
@@ -178,6 +190,23 @@ export async function driverGetTrips() {
 export async function driverGetStats() {
   const { data } = await driverApi.get("/api/driver-auth/stats");
   return data as { trips_this_week: number; trips_all_time: number; earnings_this_week: number; rating: number };
+}
+
+export async function driverPostLocation(payload: {
+  latitude: number;
+  longitude: number;
+  heading?: number | null;
+  speed?: number | null;
+  accuracy?: number | null;
+  active_booking_id?: string | null;
+}) {
+  const { data } = await driverApi.post("/api/driver-auth/location", payload);
+  return data;
+}
+
+export async function customerGetDriverLocation(bookingId: string) {
+  const { data } = await api.get(`/api/customer/bookings/${bookingId}/driver-location`);
+  return data;
 }
 
 export async function logout() {

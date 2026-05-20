@@ -4758,6 +4758,117 @@ async def driver_my_stats(claims: dict = Depends(require_driver)):
     }
 
 
+# ============================================================================
+# Live driver location streaming
+# - Driver app posts current GPS every ~15s to /driver-auth/location
+# - Rider polls /customer/bookings/{id}/driver-location during an active trip
+# - Admin web polls /admin/drivers/live to see all drivers
+# ============================================================================
+
+class DriverLocationUpdate(BaseModel):
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    heading: Optional[float] = Field(None, ge=0, le=360)
+    speed: Optional[float] = Field(None, ge=0)  # m/s
+    accuracy: Optional[float] = None
+    active_booking_id: Optional[str] = None
+
+
+@api_router.post("/driver-auth/location")
+async def driver_post_location(payload: DriverLocationUpdate, claims: dict = Depends(require_driver)):
+    did = claims.get("driver_id")
+    now = datetime.now(timezone.utc)
+    update = {
+        "driver_id": did,
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "heading": payload.heading,
+        "speed": payload.speed,
+        "accuracy": payload.accuracy,
+        "active_booking_id": payload.active_booking_id,
+        "updated_at": now.isoformat(),
+        "updated_at_ts": now.timestamp(),
+    }
+    await db.driver_locations.update_one(
+        {"driver_id": did},
+        {"$set": update},
+        upsert=True,
+    )
+    # If the driver flagged a booking, mirror the latest fix on that booking for fast rider polls.
+    if payload.active_booking_id:
+        await db.bookings.update_one(
+            {"id": payload.active_booking_id, "driver_id": did},
+            {"$set": {
+                "driver_latitude": payload.latitude,
+                "driver_longitude": payload.longitude,
+                "driver_heading": payload.heading,
+                "driver_location_updated_at": now.isoformat(),
+            }},
+        )
+    return {"ok": True, "updated_at": now.isoformat()}
+
+
+@api_router.get("/customer/bookings/{booking_id}/driver-location")
+async def customer_driver_location(booking_id: str, claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    b = await db.bookings.find_one({"id": booking_id, "customer_id": cid}, {
+        "_id": 0, "id": 1, "driver_id": 1, "driver_name": 1, "driver_phone": 1, "driver_plate": 1, "driver_vehicle": 1,
+        "driver_latitude": 1, "driver_longitude": 1, "driver_heading": 1, "driver_location_updated_at": 1,
+        "pickup_location": 1, "dropoff_location": 1, "trip_status": 1, "status": 1,
+    })
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return {
+        "booking_id": b["id"],
+        "status": b.get("status"),
+        "trip_status": b.get("trip_status"),
+        "driver": {
+            "id": b.get("driver_id"),
+            "name": b.get("driver_name"),
+            "phone": b.get("driver_phone"),
+            "plate": b.get("driver_plate"),
+            "vehicle": b.get("driver_vehicle"),
+            "latitude": b.get("driver_latitude"),
+            "longitude": b.get("driver_longitude"),
+            "heading": b.get("driver_heading"),
+            "updated_at": b.get("driver_location_updated_at"),
+        },
+        "pickup_location": b.get("pickup_location"),
+        "dropoff_location": b.get("dropoff_location"),
+    }
+
+
+@api_router.get("/admin/drivers/live")
+async def admin_drivers_live(claims: dict = Depends(require_admin)):
+    cursor = db.driver_locations.find({}, {"_id": 0}).sort("updated_at_ts", -1).limit(200)
+    rows = await cursor.to_list(200)
+    # Join with driver basics
+    driver_ids = list({r["driver_id"] for r in rows})
+    drivers = {}
+    async for d in db.drivers.find({"id": {"$in": driver_ids}}, {"_id": 0, "id": 1, "name": 1, "plate": 1, "vehicle": 1, "phone": 1}):
+        drivers[d["id"]] = d
+    now_ts = datetime.now(timezone.utc).timestamp()
+    out = []
+    for r in rows:
+        d = drivers.get(r["driver_id"], {})
+        age = now_ts - (r.get("updated_at_ts") or 0)
+        out.append({
+            "driver_id": r["driver_id"],
+            "name": d.get("name") or "Driver",
+            "plate": d.get("plate"),
+            "vehicle": d.get("vehicle"),
+            "phone": d.get("phone"),
+            "latitude": r.get("latitude"),
+            "longitude": r.get("longitude"),
+            "heading": r.get("heading"),
+            "active_booking_id": r.get("active_booking_id"),
+            "updated_at": r.get("updated_at"),
+            "stale_seconds": int(age),
+            "is_online": age < 120,
+        })
+    return out
+
+
 # Register router
 app.include_router(api_router)
 
