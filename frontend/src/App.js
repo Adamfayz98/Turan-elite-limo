@@ -12,6 +12,7 @@ import DriverPortal from "@/pages/DriverPortal";
 import PostTrip from "@/pages/PostTrip";
 import Announcement from "@/pages/Announcement";
 import MobileMockup from "@/pages/MobileMockup";
+import ResetPassword from "@/pages/ResetPassword";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
 
 function App() {
@@ -33,6 +34,7 @@ function App() {
           <Route path="/post-trip/:token" element={<PostTrip />} />
           <Route path="/news/:slug" element={<Announcement />} />
           <Route path="/preview/mobile" element={<MobileMockup />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>

@@ -4373,6 +4373,85 @@ async def customer_login(payload: CustomerLoginRequest):
     return CustomerAuthResponse(token=token, user=_customer_to_profile(user))
 
 
+# ----- Customer forgot password (Resend email + reset token) -----
+
+class CustomerForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class CustomerResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=10)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+@api_router.post("/customer/forgot-password")
+async def customer_forgot_password(payload: CustomerForgotPasswordRequest):
+    """Email the customer a one-time password-reset link.
+    Always returns 200 even if the email is unknown — prevents user enumeration."""
+    email = payload.email.lower().strip()
+    user = await db.customers.find_one({"email": email}, {"_id": 0, "id": 1, "name": 1})
+    if user:
+        token = secrets.token_urlsafe(32)
+        expires = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+        await db.password_reset_tokens.insert_one({
+            "token": token,
+            "customer_id": user["id"],
+            "email": email,
+            "expires_at": expires,
+            "used": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        reset_url = f"{SITE_BASE_URL}/reset-password?token={token}"
+        try:
+            from email_service import send_email
+            html = f"""
+            <div style="background:#050505;padding:40px 20px;font-family:Helvetica,Arial,sans-serif;color:#fff;">
+              <div style="max-width:520px;margin:0 auto;background:#0e0e0e;border:1px solid rgba(212,175,55,0.2);border-radius:16px;padding:32px;">
+                <div style="text-align:center;margin-bottom:24px;">
+                  <img src="{SITE_BASE_URL}/logo-mark.png" alt="TuranEliteLimo" style="height:60px;">
+                </div>
+                <h1 style="color:#D4AF37;font-size:22px;font-weight:400;margin:0 0 12px;">Reset your password</h1>
+                <p style="color:rgba(255,255,255,0.7);font-size:14px;line-height:1.6;">
+                  Hi {user.get('name') or 'there'}, we received a request to reset your TuranEliteLimo password.
+                  Click the button below to choose a new one. This link expires in 2 hours.
+                </p>
+                <div style="text-align:center;margin:28px 0;">
+                  <a href="{reset_url}" style="display:inline-block;background:#D4AF37;color:#000;text-decoration:none;padding:14px 26px;border-radius:999px;font-weight:600;font-size:14px;">Reset password</a>
+                </div>
+                <p style="color:rgba(255,255,255,0.45);font-size:12px;line-height:1.6;">
+                  If you didn't ask to reset your password, you can safely ignore this email. The link will expire on its own.
+                </p>
+                <p style="color:rgba(255,255,255,0.3);font-size:11px;line-height:1.5;margin-top:24px;border-top:1px solid rgba(255,255,255,0.08);padding-top:16px;">
+                  TuranEliteLimo · Bay Area &amp; Northern California · (650) 410-0687
+                </p>
+              </div>
+            </div>
+            """
+            await send_email(to=email, subject="Reset your TuranEliteLimo password", html=html)
+        except Exception as e:
+            logger.error(f"Forgot-password email send failed for {email}: {e}")
+    # Generic response — never reveal whether the email exists
+    return {"ok": True, "message": "If an account exists for this email, a reset link has been sent."}
+
+
+@api_router.post("/customer/reset-password")
+async def customer_reset_password(payload: CustomerResetPasswordRequest):
+    rec = await db.password_reset_tokens.find_one({"token": payload.token, "used": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=400, detail="Reset link is invalid or has already been used.")
+    if rec.get("expires_at") and rec["expires_at"] < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(status_code=400, detail="Reset link has expired. Please request a new one.")
+    await db.customers.update_one(
+        {"id": rec["customer_id"]},
+        {"$set": {"password_hash": hash_password(payload.new_password), "password_reset_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    await db.password_reset_tokens.update_one(
+        {"token": payload.token},
+        {"$set": {"used": True, "used_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True, "message": "Password updated. Please sign in with your new password."}
+
+
 @api_router.get("/customer/me", response_model=CustomerProfile)
 async def customer_me(claims: dict = Depends(require_customer)):
     cid = claims.get("customer_id")
@@ -4765,6 +4844,186 @@ async def driver_my_stats(claims: dict = Depends(require_driver)):
         "trips_all_time": total,
         "earnings_this_week": float(week_earnings or 0.0),
         "rating": 4.97,  # Placeholder until reviews tie in
+    }
+
+
+# ----- JWT-driver: trip actions (status / wait time / mid-trip stop) -----
+# These mirror the token-based /driver/{token}/* endpoints but use the
+# JWT-authenticated driver mobile app instead. Same business logic, same DB writes.
+
+async def _booking_for_jwt_driver(booking_id: str, driver_id: str) -> dict:
+    """Fetch a booking & verify it belongs to this JWT-authenticated driver."""
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if b.get("driver_id") != driver_id:
+        raise HTTPException(status_code=403, detail="This trip is not assigned to you.")
+    return b
+
+
+@api_router.post("/driver-auth/bookings/{booking_id}/status")
+async def driver_jwt_update_status(
+    booking_id: str,
+    payload: DriverStatusUpdate,
+    request: Request,
+    claims: dict = Depends(require_driver),
+):
+    """JWT-driver advances trip status (en_route → arrived → on_trip → completed)."""
+    b = await _booking_for_jwt_driver(booking_id, claims.get("driver_id"))
+
+    current = b.get("trip_status") or "assigned"
+    new_status = payload.status
+    try:
+        if TRIP_STATUS_ORDER.index(new_status) <= TRIP_STATUS_ORDER.index(current):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot move from '{current}' to '{new_status}' — status only moves forward.",
+            )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    set_doc = {"trip_status": new_status, "trip_status_updated_at": now_iso}
+    if new_status == "completed":
+        set_doc["completed_at"] = now_iso
+        if b.get("status") in ("confirmed", "pending"):
+            set_doc["status"] = "completed"
+    await db.bookings.update_one({"id": b["id"]}, {"$set": set_doc})
+
+    # Customer + admin SMS (same logic as token-based endpoint)
+    merged = {**b, **set_doc}
+    post_trip_url = None
+    if new_status == "completed" and b.get("manage_token"):
+        origin = _frontend_origin_from_request(request)
+        post_trip_url = f"{origin}/post-trip/{b['manage_token']}"
+    customer_sms = sms_service.render_customer_status_sms(merged, new_status, post_trip_url=post_trip_url)
+    if customer_sms and b.get("phone"):
+        try:
+            await sms_service.send_sms(b["phone"], customer_sms)
+        except Exception as e:
+            logger.warning(f"Customer status SMS failed (jwt-driver): {e}")
+    admin_to = sms_service.admin_phone()
+    if admin_to:
+        try:
+            await sms_service.send_sms(admin_to, sms_service.render_admin_status_sms(merged, new_status))
+        except Exception as e:
+            logger.warning(f"Admin status SMS failed (jwt-driver): {e}")
+
+    return {"ok": True, "trip_status": new_status, "trip_status_updated_at": now_iso}
+
+
+@api_router.post("/driver-auth/bookings/{booking_id}/record-wait-time")
+async def driver_jwt_record_wait_time(
+    booking_id: str,
+    payload: WaitTimeRecordPayload,
+    claims: dict = Depends(require_driver),
+):
+    """JWT-driver records minutes waited; admin reviews & charges from the dashboard."""
+    b = await _booking_for_jwt_driver(booking_id, claims.get("driver_id"))
+    if b.get("wait_time_charged_at"):
+        return {
+            "already_charged": True,
+            "amount": b.get("wait_time_fee_amount"),
+            "minutes_waited": b.get("wait_time_minutes"),
+        }
+    pricing = await db.pricing_config.find_one({"vehicle_type": b["vehicle_type"]}, {"_id": 0})
+    rate = float((pricing or {}).get("wait_minute_rate") or 0)
+    preview = _wait_time_amount_preview(payload.minutes_waited, b.get("service_type"), rate)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {"$set": {
+            "wait_time_minutes_pending": payload.minutes_waited,
+            "wait_time_recorded_at": now_iso,
+            "wait_time_recorded_by": "driver",
+        }},
+    )
+    return {
+        "recorded": True,
+        "minutes_waited": payload.minutes_waited,
+        **preview,
+        "pending_admin_review": True,
+    }
+
+
+@api_router.post("/driver-auth/bookings/{booking_id}/record-mid-trip-stop")
+async def driver_jwt_record_mid_trip_stop(
+    booking_id: str,
+    payload: MidTripStopPayload,
+    claims: dict = Depends(require_driver),
+):
+    """JWT-driver logs an unplanned stop. Geocodes + computes detour miles +
+    appends to booking.mid_trip_stops. Admin charges via the existing flow."""
+    b = await _booking_for_jwt_driver(booking_id, claims.get("driver_id"))
+
+    pickup_coord = b.get("pickup_coord") or await _geocode(b.get("pickup_location") or "")
+    dropoff_coord = b.get("dropoff_coord") or await _geocode(b.get("dropoff_location") or "")
+    if not pickup_coord or not dropoff_coord:
+        raise HTTPException(status_code=400, detail="Could not resolve trip coordinates")
+
+    new_stop_coord = await _geocode(payload.stop_address)
+    if not new_stop_coord:
+        raise HTTPException(status_code=400, detail="Could not find that address. Please double-check.")
+
+    existing_stops = b.get("mid_trip_stops") or []
+    existing_coords = await _resolve_coords_for_addresses([s["address"] for s in existing_stops])
+    miles_before = _route_total_miles(pickup_coord, existing_coords, dropoff_coord)
+    miles_after = _route_total_miles(pickup_coord, existing_coords + [new_stop_coord], dropoff_coord)
+    detour_miles = max(0.0, round(miles_after - miles_before, 2))
+
+    pricing = await db.pricing_config.find_one({"vehicle_type": b["vehicle_type"]}, {"_id": 0})
+    per_mile = float((pricing or {}).get("price_per_mile") or 0)
+    wait_rate = float((pricing or {}).get("wait_minute_rate") or 0)
+    chargeable_wait_min = max(0, payload.minutes_at_stop - MID_TRIP_STOP_WAIT_GRACE_MIN)
+    detour_fee = round(detour_miles * per_mile, 2)
+    wait_fee = round(chargeable_wait_min * wait_rate, 2)
+    total_fee = round(detour_fee + wait_fee, 2)
+
+    stop_entry = {
+        "id": str(uuid.uuid4()),
+        "address": payload.stop_address,
+        "minutes_at_stop": payload.minutes_at_stop,
+        "chargeable_wait_min": chargeable_wait_min,
+        "detour_miles": detour_miles,
+        "detour_fee": detour_fee,
+        "wait_fee": wait_fee,
+        "amount": total_fee,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "recorded_by": "driver",
+        "status": "pending",  # awaits admin charge
+    }
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {"$push": {"mid_trip_stops": stop_entry}},
+    )
+    return {"recorded": True, "stop": stop_entry, "pending_admin_review": True}
+
+
+@api_router.get("/driver-auth/bookings/{booking_id}")
+async def driver_jwt_get_booking(booking_id: str, claims: dict = Depends(require_driver)):
+    """Full trip detail for a single trip assigned to this driver."""
+    b = await _booking_for_jwt_driver(booking_id, claims.get("driver_id"))
+    return {
+        "id": b["id"],
+        "confirmation_number": b.get("confirmation_number"),
+        "trip_status": b.get("trip_status") or "assigned",
+        "status": b.get("status"),
+        "service_type": b.get("service_type"),
+        "customer_name": b.get("full_name"),
+        "customer_phone": b.get("phone"),
+        "pickup_date": b.get("pickup_date"),
+        "pickup_time": b.get("pickup_time"),
+        "pickup_location": b.get("pickup_location"),
+        "dropoff_location": b.get("dropoff_location"),
+        "passengers": b.get("passengers", 1),
+        "vehicle_type": b.get("vehicle_type"),
+        "notes": b.get("notes"),
+        "quote_amount": b.get("quote_amount"),
+        "mid_trip_stops": b.get("mid_trip_stops") or [],
+        "wait_time_minutes_pending": b.get("wait_time_minutes_pending"),
+        "wait_time_charged_at": b.get("wait_time_charged_at"),
+        "wait_time_fee_amount": b.get("wait_time_fee_amount"),
+        "wait_time_minutes": b.get("wait_time_minutes"),
     }
 
 

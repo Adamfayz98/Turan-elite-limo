@@ -1,14 +1,14 @@
 import { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Linking, Platform } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Linking, Platform, TextInput, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { ChevronLeft, CreditCard, Sparkles, Apple, Check } from "lucide-react-native";
+import { ChevronLeft, CreditCard, Sparkles, Apple, Check, Tag, X } from "lucide-react-native";
 import * as WebBrowser from "expo-web-browser";
 import Button from "@/components/Button";
 import { colors, radius } from "@/theme";
 import { useBooking } from "@/store/booking";
 import { useAuth } from "@/store/auth";
-import { bookAndPay } from "@/api";
+import { bookAndPay, validatePromo } from "@/api";
 
 export default function PayScreen() {
   const router = useRouter();
@@ -16,6 +16,9 @@ export default function PayScreen() {
   const resetTrip = useBooking(s => s.resetTrip);
   const user = useAuth(s => s.user);
   const [promo, setPromo] = useState("");
+  const [promoBusy, setPromoBusy] = useState(false);
+  const [promoApplied, setPromoApplied] = useState<{ code: string; discount: number; description: string } | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Guests must sign in or create an account before paying.
@@ -40,8 +43,35 @@ export default function PayScreen() {
   }
 
   const baseFare = trip.quoteAmount || 0;
-  const serviceFee = +(baseFare * 0.02).toFixed(2);
-  const total = +(baseFare + serviceFee).toFixed(2);
+  const promoDiscount = promoApplied?.discount || 0;
+  const fareAfterPromo = Math.max(0, baseFare - promoDiscount);
+  const serviceFee = +(fareAfterPromo * 0.02).toFixed(2);
+  const total = +(fareAfterPromo + serviceFee).toFixed(2);
+
+  const applyPromo = async () => {
+    setPromoError(null);
+    if (!promo.trim()) { setPromoError("Enter a code."); return; }
+    setPromoBusy(true);
+    try {
+      const res = await validatePromo({
+        code: promo.trim(),
+        amount: baseFare,
+        email: user?.email,
+        vehicle_type: trip.vehicleType,
+      });
+      if (res.ok) {
+        setPromoApplied({ code: res.code, discount: res.discount, description: res.description });
+      } else {
+        setPromoError(res.reason || "This code isn't valid.");
+      }
+    } catch {
+      setPromoError("Could not check the code. Try again.");
+    } finally {
+      setPromoBusy(false);
+    }
+  };
+
+  const clearPromo = () => { setPromoApplied(null); setPromo(""); setPromoError(null); };
 
   const onPay = async () => {
     if (!trip.vehicleType || !trip.quoteAmount) {
@@ -57,7 +87,7 @@ export default function PayScreen() {
         vehicle_type: trip.vehicleType,
         quote_amount: trip.quoteAmount,
         passenger_count: trip.passengerCount,
-        promo_code: promo || undefined,
+        promo_code: promoApplied?.code || promo || undefined,
       });
       // Open Stripe Checkout. On native, this is an in-app browser tab that returns
       // via deep link configured on the backend (turanelitelimo://thank-you?...).
@@ -132,10 +162,44 @@ export default function PayScreen() {
         </View>
 
         {/* Promo */}
-        <View style={s.promoCard}>
-          <Sparkles size={14} color={colors.gold} />
-          <Text style={s.promoTxt}>Have a promo code? (coming soon)</Text>
-        </View>
+        {promoApplied ? (
+          <View style={s.promoApplied}>
+            <View style={s.promoIcon}><Check size={13} color={colors.gold} strokeWidth={2.4} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.promoCode}>{promoApplied.code} applied</Text>
+              {!!promoApplied.description && <Text style={s.promoDescAlt}>{promoApplied.description}</Text>}
+            </View>
+            <Text style={s.promoSavings}>-${promoApplied.discount.toFixed(2)}</Text>
+            <Pressable testID="pay-promo-clear" onPress={clearPromo} hitSlop={8} style={{ marginLeft: 8 }}>
+              <X size={14} color="rgba(255,255,255,0.5)" />
+            </Pressable>
+          </View>
+        ) : (
+          <View style={s.promoInputRow}>
+            <View style={s.promoInputWrap}>
+              <Tag size={13} color="rgba(255,255,255,0.4)" />
+              <TextInput
+                testID="pay-promo-input"
+                value={promo}
+                onChangeText={(t) => { setPromo(t.toUpperCase()); setPromoError(null); }}
+                placeholder="Promo code"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                style={s.promoInput}
+              />
+            </View>
+            <Pressable
+              testID="pay-promo-apply"
+              onPress={applyPromo}
+              disabled={promoBusy || !promo.trim()}
+              style={[s.promoApplyBtn, (promoBusy || !promo.trim()) && { opacity: 0.5 }]}
+            >
+              {promoBusy ? <ActivityIndicator size="small" color="#000" /> : <Text style={s.promoApplyTxt}>Apply</Text>}
+            </Pressable>
+          </View>
+        )}
+        {promoError && <Text style={s.promoErr}>{promoError}</Text>}
 
         {/* Price breakdown */}
         <View style={s.breakdown}>
@@ -143,6 +207,12 @@ export default function PayScreen() {
             <Text style={s.brLabel}>Base fare</Text>
             <Text style={s.brValue}>${baseFare.toFixed(2)}</Text>
           </View>
+          {promoApplied && (
+            <View style={s.brRow}>
+              <Text style={[s.brLabel, { color: colors.gold }]}>Promo ({promoApplied.code})</Text>
+              <Text style={[s.brValue, { color: colors.gold }]}>-${promoDiscount.toFixed(2)}</Text>
+            </View>
+          )}
           <View style={s.brRow}>
             <Text style={s.brLabel}>Service fee</Text>
             <Text style={s.brValue}>${serviceFee.toFixed(2)}</Text>
@@ -193,6 +263,17 @@ const s = StyleSheet.create({
   muted: { color: "rgba(255,255,255,0.45)", fontSize: 11, marginTop: 2 },
   promoCard: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14, borderRadius: radius.lg, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(212,175,55,0.3)", backgroundColor: "rgba(212,175,55,0.04)", marginBottom: 16 },
   promoTxt: { color: "rgba(255,255,255,0.6)", fontSize: 12 },
+  promoInputRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  promoInputWrap: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, borderRadius: radius.lg, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.03)" },
+  promoInput: { flex: 1, color: "#fff", fontSize: 13, paddingVertical: 12, letterSpacing: 1 },
+  promoApplyBtn: { paddingHorizontal: 16, justifyContent: "center", borderRadius: radius.lg, backgroundColor: colors.gold },
+  promoApplyTxt: { color: "#000", fontSize: 12, fontWeight: "600" },
+  promoErr: { color: colors.error, fontSize: 11, marginTop: -8, marginBottom: 12 },
+  promoApplied: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14, borderRadius: radius.lg, borderWidth: 1, borderColor: "rgba(212,175,55,0.4)", backgroundColor: "rgba(212,175,55,0.08)", marginBottom: 12 },
+  promoIcon: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(212,175,55,0.2)" },
+  promoCode: { color: "#fff", fontSize: 12, fontWeight: "600", letterSpacing: 0.5 },
+  promoDescAlt: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 2 },
+  promoSavings: { color: colors.gold, fontSize: 13, fontWeight: "700" },
   breakdown: { marginTop: 4 },
   brRow: { flexDirection: "row", justifyContent: "space-between", marginVertical: 5 },
   brLabel: { color: "rgba(255,255,255,0.55)", fontSize: 12 },

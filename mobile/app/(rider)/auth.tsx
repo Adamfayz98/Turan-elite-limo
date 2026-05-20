@@ -101,7 +101,7 @@ export default function RiderAuth() {
                 <Text testID="rider-auth-error" style={s.error}>{error}</Text>
               )}
               {mode === "signin" && (
-                <Pressable testID="rider-auth-forgot" hitSlop={6}>
+                <Pressable testID="rider-auth-forgot" onPress={() => router.push("/(rider)/forgot")} hitSlop={6}>
                   <Text style={s.forgot}>Forgot password?</Text>
                 </Pressable>
               )}

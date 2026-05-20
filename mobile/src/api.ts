@@ -214,6 +214,37 @@ export async function customerRateTrip(bookingId: string, rating: number, commen
   return data;
 }
 
+export async function customerForgotPassword(email: string) {
+  const { data } = await api.post(`/api/customer/forgot-password`, { email });
+  return data;
+}
+
+export async function validatePromo(payload: { code: string; amount: number; email?: string; vehicle_type?: string }) {
+  const { data } = await api.post(`/api/promos/validate`, payload);
+  return data;
+}
+
+// JWT-driver trip actions
+export async function driverGetBookingDetail(bookingId: string) {
+  const { data } = await api.get(`/api/driver-auth/bookings/${bookingId}`);
+  return data;
+}
+
+export async function driverUpdateBookingStatus(bookingId: string, status: string) {
+  const { data } = await api.post(`/api/driver-auth/bookings/${bookingId}/status`, { status });
+  return data;
+}
+
+export async function driverRecordWaitTime(bookingId: string, minutes: number) {
+  const { data } = await api.post(`/api/driver-auth/bookings/${bookingId}/record-wait-time`, { minutes_waited: minutes });
+  return data;
+}
+
+export async function driverRecordMidTripStop(bookingId: string, payload: { stop_address: string; minutes_at_stop: number }) {
+  const { data } = await api.post(`/api/driver-auth/bookings/${bookingId}/record-mid-trip-stop`, payload);
+  return data;
+}
+
 export async function logout() {
   await setToken(null);
 }

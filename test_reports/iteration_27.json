@@ -1,0 +1,67 @@
+{
+  "summary": "Backend-only testing of iteration 27 endpoints: customer forgot/reset password, public promo validate, and the new JWT-driver action endpoints (booking detail, status progression, wait time, mid-trip stop). All 20 pytest cases pass against the public preview URL. Two CRITICAL code-review bugs were found in /api/driver-auth/bookings/{id}/record-mid-trip-stop that the automated contract tests did not surface because the seeded vehicle has per_mile=0.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/driver-auth/bookings/{booking_id}/record-mid-trip-stop",
+        "issue": "BUG #1: Reads wrong pricing field. Line 4975 uses pricing.get('price_per_mile') but the pricing_config documents store the rate under 'per_mile' (see line 1505 in the original token-based endpoint which correctly uses pricing.get('per_mile')). Result: detour_fee is always $0 regardless of mileage. The new endpoint will silently undercharge for every JWT-driver-recorded stop on any vehicle that has a non-zero per_mile rate.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/driver-auth/bookings/{booking_id}/record-mid-trip-stop",
+        "issue": "BUG #2: Schema mismatch with admin charge flow. The stop entry pushed into booking.mid_trip_stops uses keys {detour_fee, wait_fee, amount}, but the admin charge endpoint /api/admin/bookings/{id}/charge-mid-trip-stop (line 1683) reads stop.get('total'). Stops recorded via the JWT-driver endpoint will be uncharge-able through the admin flow (will fail with 'Charge too small under $0.50 minimum'). The original token-based endpoint at line 1519-1535 sets a full schema including total, subtotal, flat_fee, service_fee, distance_charge, wait_charge, wait_grace_minutes, wait_overage_minutes, per_mile_rate, wait_minute_rate, address_input. The new JWT version must produce the same schema or the admin charge endpoint must be updated to recognize 'amount'.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/driver-auth/bookings/{booking_id}/status",
+        "issue": "Status order in code is ['assigned','en_route','on_location','passenger_onboard','completed']. Review request described it as 'assigned -> en_route -> arrived -> on_trip -> completed'. The actual values shipped (on_location, passenger_onboard) are valid and the Pydantic regex accepts them; tests passed using the actual values. Confirm with main agent that the mobile app sends 'on_location'/'passenger_onboard' (not 'arrived'/'on_trip') — otherwise mobile-driver UI will receive a 422."
+      },
+      {
+        "endpoint": "POST /api/driver-auth/bookings/{booking_id}/record-mid-trip-stop",
+        "issue": "Does not include per_stop flat_fee or service_fee in the computed amount, unlike the token-based equivalent (lines 1507-1516). This means stops recorded by the new mobile-driver flow won't have the standard per-stop fee or service fee applied, even setting aside Bug #1."
+      },
+      {
+        "endpoint": "POST /api/driver-auth/bookings/{booking_id}/record-mid-trip-stop",
+        "issue": "Re-geocodes pickup/dropoff every call (line 4959-4960) instead of caching pickup_coord/dropoff_coord onto the booking document. Each driver-recorded stop will burn 3+ Google geocode quota calls, which is a real cost issue given the warning about quota exhaustion."
+      },
+      {
+        "endpoint": "POST /api/driver-auth/bookings/{booking_id}/record-wait-time",
+        "issue": "Response only sets wait_time_minutes_pending; it does not also set wait_time_minutes (the field the original token endpoint sets). Admin dashboards that read wait_time_minutes for review may not see this entry. Verify which field admin dashboards consume."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration27_jwt_driver_and_pwreset.py",
+    "/app/test_reports/pytest/iteration27_results.xml"
+  ],
+  "action_items": [
+    "FIX BUG #1 (CRITICAL): In /app/backend/server.py line 4975, change pricing.get('price_per_mile') to pricing.get('per_mile') so detour_fee is computed against the real rate.",
+    "FIX BUG #2 (CRITICAL): In /app/backend/server.py lines 4982-4994, make the stop_entry schema match what the admin charge endpoint expects — at minimum set 'total' (alias of 'amount'). Ideally make it identical to the token-based entry at lines 1519-1535 so the admin flow + emails work uniformly.",
+    "Decide canonical trip-status vocabulary and align mobile app + review-request docs ('arrived'/'on_trip' described in request vs 'on_location'/'passenger_onboard' in code).",
+    "Consider caching pickup_coord/dropoff_coord on the booking after first geocode to avoid repeated Google quota spend per stop."
+  ],
+  "critical_code_review_comments": [
+    "BUG #1 and #2 above (per_mile field name mismatch + stop schema mismatch with admin charge flow).",
+    "/app/backend/server.py is now 5492 lines — should be split into modular routers (driver_auth, customer_auth, admin, promos, bookings, payments). File size guideline >700 lines is being violated by a factor of 7.",
+    "Driver-auth status endpoint duplicates ~50 lines of SMS / business logic from the token-based version (lines 1241-… vs 4864-4912). Extract a shared _advance_trip_status helper to keep behavior identical.",
+    "Forgot-password & reset-password correctly implemented: generic 200 response prevents enumeration, token is single-use (marked used=True), 2h expiry, password is hashed via bcrypt ($2b$). Verified end-to-end (signup -> forgot -> token from DB -> reset -> new password works -> old password 401 -> token replay 400).",
+    "Promo validate correctly returns ok:false for unknown codes (no leakage) and ok:true with discount + final_amount for valid active promos."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration27_jwt_driver_and_pwreset.py (new)"
+  ],
+  "success_rate": {"backend": "100% (20/20 contract tests passing)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "Used seeded driver.test@turanelitelimo.com / DriverPass123! (from /app/memory/test_credentials.md). Created/torn down ephemeral test customers and a single test booking (full_name='TEST Rider') inserted directly to Mongo to bypass admin 2FA.",
+  "seed_data_creation": "One booking inserted with id=uuid + driver_id=test driver, deleted after session. Ephemeral customers + promo + reset tokens prefixed TEST_ and deleted in test teardown.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_iteration27_jwt_driver_and_pwreset.py -v. Tests are session-scoped: a single booking is created in Mongo and reused across the JWT-driver tests, then cleaned up. After Bug #1 and Bug #2 are fixed by main agent, ADD a regression test that seeds pricing_config.per_mile to a non-zero value (e.g. 4.0) and asserts (a) stop['detour_fee'] > 0 when address is > 0 miles off route AND (b) stop['total'] is present (or whatever field admin_charge_mid_trip_stop reads).",
+  "rca of the issue": "Bug #1 RCA: When porting the token-based mid_trip_stop handler to JWT auth, the developer renamed the local variable 'per_mile_rate' to 'per_mile' but also changed the Mongo field lookup from 'per_mile' to 'price_per_mile' — likely a copy-paste from a different config schema. Bug #2 RCA: The new endpoint invents a simplified stop schema {detour_fee, wait_fee, amount} for the response, but reuses booking.mid_trip_stops to persist it. That collection is consumed downstream by admin_charge_mid_trip_stop which expects stop['total'] (set only by the original handler). Mitigation: reuse the original handler's stop_entry dict shape verbatim — only the auth path differs."
+}

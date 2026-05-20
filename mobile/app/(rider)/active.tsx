@@ -1,15 +1,16 @@
 /**
  * Rider Live Trip screen — the magical "Driver is on the way" view.
  * Polls /api/customer/bookings/{id}/driver-location every 5s and renders
- * the driver's current position on a static Google Map.
+ * the driver's current position on an interactive Google Map.
  */
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Linking, Image, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Pressable, Linking, ScrollView, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft, Phone, MessageSquare, Star, ShieldCheck, Wifi, WifiOff } from "lucide-react-native";
 import { colors, radius } from "@/theme";
 import { customerGetDriverLocation } from "@/api";
+import InteractiveMap from "@/components/InteractiveMap";
 
 const POLL_MS = 5000;
 
@@ -41,20 +42,21 @@ export default function RiderActiveTrip() {
 
   const driver = state?.driver;
   const hasLocation = driver && driver.latitude != null && driver.longitude != null;
+  const pickup = state?.pickup_coord ? { lat: state.pickup_coord.lat, lng: state.pickup_coord.lon } : null;
   const updatedAt = driver?.updated_at ? new Date(driver.updated_at).getTime() : 0;
   const ageSec = updatedAt ? Math.max(0, Math.round((Date.now() - updatedAt) / 1000)) : null;
   const live = ageSec != null && ageSec < 60;
-
-  const mapUrl = hasLocation
-    ? `https://maps.googleapis.com/maps/api/staticmap?center=${driver.latitude},${driver.longitude}&zoom=14&size=600x600&scale=2&maptype=roadmap&style=feature:all|element:labels.text.fill|color:0xb3a472&style=feature:all|element:labels.text.stroke|color:0x050505&style=feature:all|element:geometry.fill|color:0x0a0a0a&style=feature:road|element:geometry|color:0x222222&style=feature:road.highway|element:geometry|color:0x8a6f24&style=feature:water|element:geometry|color:0x050a14&markers=color:0xD4AF37%7Csize:mid%7C${driver.latitude},${driver.longitude}&key=__MAPS_KEY__`
-    : null;
 
   return (
     <View style={s.root}>
       {/* Map area */}
       <View style={s.mapWrap}>
         {hasLocation ? (
-          <MapImage lat={driver.latitude} lng={driver.longitude} />
+          <InteractiveMap
+            driver={{ lat: driver.latitude, lng: driver.longitude, heading: driver.heading }}
+            pickup={pickup}
+            height="100%"
+          />
         ) : (
           <View style={[StyleSheet.absoluteFillObject, { justifyContent: "center", alignItems: "center", backgroundColor: colors.surface }]}>
             <ActivityIndicator color={colors.gold} />
@@ -149,17 +151,7 @@ export default function RiderActiveTrip() {
   );
 }
 
-function MapImage({ lat, lng }: { lat: number; lng: number }) {
-  // Use the Maps Static API. We bake the key on the client because Maps Static
-  // requires URL-signed access; for now use an unsigned key with HTTP-referer locked.
-  // Backend already proxies most maps calls — this lets us render dynamically without a backend round trip.
-  const key = process.env.EXPO_PUBLIC_GOOGLE_MAPS_BROWSER_KEY || "";
-  const dark = "&style=feature:all|element:labels.text.fill|color:0xb3a472&style=feature:all|element:geometry.fill|color:0x0a0a0a&style=feature:road|element:geometry|color:0x222222&style=feature:road.highway|element:geometry|color:0x8a6f24&style=feature:water|element:geometry|color:0x050a14";
-  const marker = `&markers=color:0xD4AF37%7Csize:mid%7C${lat},${lng}`;
-  const base = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=14&size=600x600&scale=2&maptype=roadmap${dark}${marker}`;
-  const url = key ? `${base}&key=${key}` : base; // base without key still draws the watermark map but works for preview
-  return <Image source={{ uri: url }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />;
-}
+function MapImage_DEPRECATED() { return null; }
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
