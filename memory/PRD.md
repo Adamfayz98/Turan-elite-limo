@@ -272,6 +272,35 @@ Mobile (`mobile/app`):
 - iteration_30.json — 18 tests, 1 CRITICAL bug found (quote short-circuit).
 - iteration_31.json — 23/23 passed after one-line fix. Zero critical issues. 4 minor items deferred (notes diff check, quote_recompute_failed flag, modification lead-time guard, response field naming).
 
+## Session — Feb 20, 2026 (fork) — 5th batch (Launch Prep Phase 1)
+
+**iOS / Android launch prep — code-side complete:**
+- App icons generated from wolf logo: `icon.png` (1024 master), `adaptive-icon.png` (Android adaptive foreground), `splash.png` (2048×2048), `favicon.png`, `notification-icon.png` — all in `/app/mobile/assets/`.
+- `app.json` rewritten for production:
+  - Bundle id / package: `com.turanelitelimo.app`
+  - Scheme: `turanelitelimo` (matches existing Stripe deep links)
+  - iOS Info.plist usage descriptions for foreground + background location, camera, photo library, ITSAppUsesNonExemptEncryption=false
+  - Android permissions + universal-link intent filter
+  - expo-location + expo-notifications plugins configured
+  - Runtime version policy: `appVersion` (enables OTA updates per-version)
+- `eas.json` created — development / preview / production build profiles, internal distribution for TestFlight + Android internal testing, app-bundle output for Play Store.
+- Added `expo-notifications` + `expo-device` deps (for upcoming push notifications work).
+
+**Public legal pages (Apple/Google both require these URLs before approving the app):**
+- NEW: `/privacy` — Privacy Policy page (`PrivacyPolicy.jsx`)
+- NEW: `/terms` — Terms of Service page (`TermsOfService.jsx`)
+- Both rendered, linked from each other, follow CCPA / GDPR essentials, name every third-party vendor (Stripe, Google Maps, Resend, SMS provider, Apple/Firebase push).
+
+**Documentation:**
+- NEW: `/app/memory/LAUNCH_CHECKLIST.md` — step-by-step launch runway, all critical IDs to track, realistic timeline (Day 1 → Day 7 live on stores).
+
+**Status of accounts (user-side, pending):**
+- Apple Developer: APPLIED, under Apple review (~24-48h typical).
+- Google Play Console: PURCHASING.
+- Expo/EAS account: NOT YET CREATED.
+
+**Next step after accounts approved:** I will run `eas init` (assigns permanent projectId), then `eas build --platform ios --profile preview` and `--platform android --profile preview` to produce TestFlight + Internal Testing builds.
+
 ## Recurrence/Known Issues
 - None as of this session.
 - The Expo tunnel URL (`exp://...exp.direct`) rotates whenever the Metro server restarts. Next session must restart tunnel and provide a fresh QR.

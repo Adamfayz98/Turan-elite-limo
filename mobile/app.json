@@ -7,6 +7,8 @@
     "icon": "./assets/icon.png",
     "scheme": "turanelitelimo",
     "userInterfaceStyle": "dark",
+    "primaryColor": "#D4AF37",
+    "description": "Premium chauffeur service across the Bay Area & Northern California. Live quotes, instant booking, real-time driver tracking.",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -16,12 +18,15 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.turanelitelimo.app",
+      "buildNumber": "1",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Allow TuranEliteLimo to use your location to show your pickup point and track your chauffeur during a ride.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Drivers need background location so passengers can see live ETA updates throughout the trip.",
+        "NSLocationWhenInUseUsageDescription": "TuranEliteLimo uses your location to set your pickup point and let you watch your chauffeur approach in real time.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Drivers share their background location during active trips so passengers can see live ETA updates throughout the ride.",
         "NSCameraUsageDescription": "Drivers can upload a profile photo.",
-        "NSPhotoLibraryUsageDescription": "Drivers can choose a profile photo from their library."
-      }
+        "NSPhotoLibraryUsageDescription": "Drivers can choose a profile photo from their library.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "associatedDomains": ["applinks:turanelitelimo.com", "applinks:www.turanelitelimo.com"]
     },
     "android": {
       "adaptiveIcon": {
@@ -29,17 +34,55 @@
         "backgroundColor": "#050505"
       },
       "package": "com.turanelitelimo.app",
-      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "CAMERA"]
+      "versionCode": 1,
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "CAMERA", "POST_NOTIFICATIONS"],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "https", "host": "turanelitelimo.com" }, { "scheme": "https", "host": "www.turanelitelimo.com" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",
       "favicon": "./assets/favicon.png",
       "output": "single"
     },
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Drivers share background location during active trips so passengers can see live ETA updates."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#D4AF37",
+          "defaultChannel": "default"
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": false,
       "baseUrl": "/m"
+    },
+    "extra": {
+      "router": { "origin": false },
+      "eas": {
+        "projectId": "REPLACE_AFTER_FIRST_EAS_INIT"
+      }
+    },
+    "owner": "REPLACE_WITH_EXPO_USERNAME",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/REPLACE_AFTER_FIRST_EAS_INIT"
     }
   }
 }

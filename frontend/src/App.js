@@ -13,6 +13,8 @@ import PostTrip from "@/pages/PostTrip";
 import Announcement from "@/pages/Announcement";
 import MobileMockup from "@/pages/MobileMockup";
 import ResetPassword from "@/pages/ResetPassword";
+import PrivacyPolicy from "@/pages/PrivacyPolicy";
+import TermsOfService from "@/pages/TermsOfService";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
 
 function App() {
@@ -35,6 +37,8 @@ function App() {
           <Route path="/news/:slug" element={<Announcement />} />
           <Route path="/preview/mobile" element={<MobileMockup />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<TermsOfService />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
