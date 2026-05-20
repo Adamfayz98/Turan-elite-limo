@@ -195,6 +195,43 @@ preview only. Mobile-related backend endpoints WILL go to production on the next
 - `/app/backend/server.py` — All mobile endpoints (search for `# Customer auth`, `# Driver auth`, `# Live driver location`)
 - `/app/frontend/src/components/admin/LiveDriversTab.jsx` — Admin live map
 
+## Session — Feb 20, 2026 (fork) — continued
+**P0 Batch — Maps + Forgot Password + Promo + Driver Portal:**
+
+Backend (`server.py`):
+- NEW: `POST /api/customer/forgot-password` — Resend-sent reset email, always returns 200 to prevent user enumeration. 2-hour token.
+- NEW: `POST /api/customer/reset-password` — consumes one-time token, updates password hash.
+- NEW: `GET /api/driver-auth/bookings/{id}` — JWT-driver trip detail with ownership check.
+- NEW: `POST /api/driver-auth/bookings/{id}/status` — JWT-driver status progression (TRIP_STATUS_ORDER guard).
+- NEW: `POST /api/driver-auth/bookings/{id}/record-wait-time` — delegates to shared `_record_wait_time_for_booking`.
+- NEW: `POST /api/driver-auth/bookings/{id}/record-mid-trip-stop` — delegates to shared `_record_mid_trip_stop_for_booking`.
+- REFACTOR: Token-based wait-time + mid-trip-stop endpoints now also call the shared helpers (no behavior change, just DRY).
+
+Web (`frontend/src`):
+- NEW: `/reset-password` route + page (`pages/ResetPassword.jsx`).
+- REWRITE: `components/admin/LiveDriversTab.jsx` now uses interactive Google Maps JS API:
+  - Dark luxury theme, pan/zoom enabled, gold car icon marker
+  - Click any driver row → map pans+zooms to that driver
+  - "Reset view" button to clear focus and auto-fit all drivers
+
+Mobile (`mobile/app`):
+- NEW: `/(rider)/forgot.tsx` — forgot-password screen with success confirmation.
+- WIRED: `auth.tsx` "Forgot password?" link now navigates to `/(rider)/forgot`.
+- WIRED: `pay.tsx` promo input — calls `/api/promos/validate`, shows discount preview, sends promo on bookAndPay.
+- REWRITE: `(driver)/active-trip.tsx` — full feature parity with web DriverPortal:
+  - Status progression (assigned → en_route → on_location → passenger_onboard → completed)
+  - Record wait time modal (minutes input → admin reviews)
+  - Add mid-trip stop modal (address + minutes → detour calc, admin reviews)
+  - One-tap navigate via Google Maps deep link
+  - Live GPS streaming indicator
+- NEW: `src/components/InteractiveMap.tsx` — cross-platform interactive Google Map (WebView on native, iframe on web), animated gold car marker.
+- WIRED: Rider active-trip screen now uses InteractiveMap (replaces blurry static image).
+- NEW: API helpers — customerForgotPassword, validatePromo, driverGetBookingDetail, driverUpdateBookingStatus, driverRecordWaitTime, driverRecordMidTripStop.
+
+**Testing:**
+- iteration_27.json — 20/20 passed, 2 CRITICAL bugs found in mid-trip-stop endpoint.
+- iteration_28.json — 24/24 passed, all critical bugs fixed and verified. 2 minor non-blocking issues (pre-existing in token endpoints too): re-geocoding on each call (cost concern); admin dashboard field naming.
+
 ## Recurrence/Known Issues
 - None as of this session.
 - The Expo tunnel URL (`exp://...exp.direct`) rotates whenever the Metro server restarts. Next session must restart tunnel and provide a fresh QR.
