@@ -103,12 +103,13 @@ export default function VehiclePicker() {
         {!loading && !error && quotes.map((q) => {
           const meta = VEHICLE_META[q.vehicle_type] || { img: VEHICLE_META["Executive Sedan"].img, desc: "", cap: "" };
           const isSelected = q.vehicle_type === selected;
-          const disabled = q.price == null;
+          const isCallOnly = q.message === "Call for quote";
+          const disabled = q.price == null && !isCallOnly;
           return (
             <Pressable
               key={q.vehicle_type}
               testID={`vehicle-${q.vehicle_type.replace(/\s+/g, "-").toLowerCase()}`}
-              disabled={disabled}
+              disabled={disabled || isCallOnly}
               onPress={() => setSelected(q.vehicle_type)}
               style={[s.card, isSelected && s.cardSelected, disabled && { opacity: 0.55 }]}
             >
@@ -119,15 +120,25 @@ export default function VehiclePicker() {
                 <View style={s.cardRow}>
                   <Text style={s.cardTitle}>{q.vehicle_type}</Text>
                   <Text style={[s.cardPrice, isSelected && { color: colors.gold }]}>
-                    {q.formatted_price || (q.message === "Call for quote" ? "Quote" : "—")}
+                    {q.formatted_price || (isCallOnly ? "Quote" : "—")}
                   </Text>
                 </View>
                 <Text style={s.cardDesc}>{meta.desc}</Text>
                 <View style={s.cardFoot}>
                   <View style={s.cardMeta}><Users size={11} color="rgba(255,255,255,0.55)" /><Text style={s.cardMetaTxt}>{meta.cap} pax</Text></View>
-                  {q.message && q.message !== "Call for quote" && <Text style={s.muted}>{q.message}</Text>}
-                  {isSelected && !disabled && <Text style={s.selectedTag}>SELECTED</Text>}
+                  {q.message && !isCallOnly && <Text style={s.muted}>{q.message}</Text>}
+                  {isSelected && !disabled && !isCallOnly && <Text style={s.selectedTag}>SELECTED</Text>}
                 </View>
+                {isCallOnly && (
+                  <Pressable
+                    testID={`call-quote-${q.vehicle_type.replace(/\s+/g, "-").toLowerCase()}`}
+                    onPress={callDispatch}
+                    style={s.callBtn}
+                  >
+                    <Phone size={13} color="#000" />
+                    <Text style={s.callBtnTxt}>Call for Quote</Text>
+                  </Pressable>
+                )}
               </View>
             </Pressable>
           );
