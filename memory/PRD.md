@@ -232,6 +232,30 @@ Mobile (`mobile/app`):
 - iteration_27.json — 20/20 passed, 2 CRITICAL bugs found in mid-trip-stop endpoint.
 - iteration_28.json — 24/24 passed, all critical bugs fixed and verified. 2 minor non-blocking issues (pre-existing in token endpoints too): re-geocoding on each call (cost concern); admin dashboard field naming.
 
+## Session — Feb 20, 2026 (fork) — continued (3rd batch)
+**P0 Fixes — Admin map / Consent / Cancel trip / Stripe redirect / Pickup pin:**
+
+Backend (`server.py`):
+- NEW: `POST /api/customer/bookings/{booking_id}/cancel` (JWT-customer auth) — same business rules as the token-based endpoint; unpaid = immediate cancel, paid = `cancellation_requested` flag + admin SMS.
+- FIXED: `/api/customer/book-and-pay` success_url detection — now uses User-Agent (was incorrectly checking `notes` field which mobile never sends). Browsers get the `/m/` https fallback; native apps get the `turanelitelimo://thank-you` deep link.
+- ENHANCED: `/api/customer/bookings/{id}/driver-location` now lazily geocodes + caches `pickup_coord` and `dropoff_coord` on the booking, returned in the response — enables route polyline + pickup pin on the rider live-tracking map.
+
+Web (`frontend/src`):
+- FIXED: `components/admin/LiveDriversTab.jsx` — robust loading/error states (was showing blank dark canvas when Maps JS hadn't loaded). Now shows a "Loading map…" spinner, a yellow error banner if the API key is missing or restricted, and a "No drivers yet" empty-state overlay when no drivers have shared GPS.
+
+Mobile (`mobile/app`):
+- WIRED: `(rider)/(tabs)/trips.tsx` — each non-completed trip card now has a red Cancel button with a confirmation alert (different copy for paid vs unpaid).
+- NEW: `(rider)/pay.tsx` — 3 mandatory consent checkboxes (wait-time, vehicle care, cancellation tier) BEFORE the Pay button activates. Pay button label flips to "Agree to policies to continue" when checkboxes are unchecked.
+- ENHANCED: `(rider)/active.tsx` — rider's live-tracking map now shows the **pickup pin** (gold "A" marker) + a **dashed gold polyline** between the driver and pickup (Uber-style "driver is N min away" visualization).
+- ENHANCED: `src/components/InteractiveMap.tsx` — added `showRoute` prop that draws a dashed gold polyline from driver → pickup.
+- NEW: API helper `customerCancelBooking`.
+
+**Known infrastructure issue (not a code bug):**
+- Expo Go tunnel keeps failing in this container due to `ENOSPC: inotify watch limit (12288 in container, can't raise without root)`. The container's metro file watcher exhausts watches on `node_modules`. This is a platform limitation, not the app. **User can still test via web preview at /m/.** When deploying to production, this is not an issue since native bundles are built once via EAS, not watched.
+
+**Testing:**
+- iteration_29.json — 17/17 backend tests passed. 0 critical. 3 minor polish suggestions (non-blocking, deferred).
+
 ## Recurrence/Known Issues
 - None as of this session.
 - The Expo tunnel URL (`exp://...exp.direct`) rotates whenever the Metro server restarts. Next session must restart tunnel and provide a fresh QR.
