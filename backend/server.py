@@ -1007,6 +1007,17 @@ class ManageCancelRequest(BaseModel):
     reason: Optional[str] = ""
 
 
+class CustomerModifyBookingRequest(BaseModel):
+    """All fields are optional — only the keys the customer sends get updated.
+    The mobile app sends just the fields that changed."""
+    pickup_datetime: Optional[str] = None
+    pickup_location: Optional[str] = None
+    dropoff_location: Optional[str] = None
+    vehicle_type: Optional[str] = None
+    passengers: Optional[int] = Field(None, ge=1, le=30)
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
 @api_router.get("/bookings/manage/{token}")
 async def manage_view_booking(token: str):
     """View booking details via the token customers receive in confirmation email."""
@@ -4733,6 +4744,101 @@ async def customer_jwt_cancel_booking(
         "ok": True,
         "status": "cancelled",
         "message": "Your reservation has been cancelled. We hope to chauffeur you another time.",
+    }
+
+
+@api_router.post("/customer/bookings/{booking_id}/modify")
+async def customer_jwt_modify_booking(
+    booking_id: str,
+    payload: "CustomerModifyBookingRequest",
+    claims: dict = Depends(require_customer),
+):
+    """Modify an unpaid reservation. Customer can change pickup time, pickup/dropoff
+    address, vehicle type, passenger count, or notes BEFORE the trip is paid.
+
+    Rules:
+      - Booking must belong to this customer.
+      - status must be 'pending' or 'confirmed' AND payment_status != 'paid'.
+      - completed/cancelled bookings cannot be modified.
+      - If pickup/dropoff/vehicle/time changed, we re-compute the quote and
+        update quote_amount on the booking. The customer sees the new total on
+        their next checkout attempt.
+      - If only notes/passengers changed, we leave quote_amount untouched.
+
+    Paid bookings: returns 409 with a message asking the customer to contact dispatch.
+    """
+    cid = claims.get("customer_id")
+    b = await db.bookings.find_one({"id": booking_id, "customer_id": cid}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if b.get("status") in ("completed", "cancelled"):
+        raise HTTPException(status_code=400, detail=f"This trip is {b.get('status')} and can't be modified.")
+    if b.get("payment_status") == "paid":
+        raise HTTPException(
+            status_code=409,
+            detail="This reservation is already paid. To make changes, please call dispatch at (650) 410-0687 so we can rebalance the fare and process any refund.",
+        )
+
+    update_doc: dict = {}
+    pricing_inputs_changed = False
+
+    if payload.pickup_datetime is not None and payload.pickup_datetime != b.get("pickup_datetime"):
+        # Parse the new datetime
+        try:
+            dt = datetime.fromisoformat(payload.pickup_datetime.replace("Z", "+00:00"))
+            update_doc["pickup_datetime"] = payload.pickup_datetime
+            update_doc["pickup_date"] = dt.strftime("%Y-%m-%d")
+            update_doc["pickup_time"] = dt.strftime("%H:%M")
+            pricing_inputs_changed = True
+        except Exception:
+            raise HTTPException(status_code=400, detail="Pickup date/time is invalid.")
+
+    if payload.pickup_location is not None and payload.pickup_location.strip() != (b.get("pickup_location") or "").strip():
+        update_doc["pickup_location"] = payload.pickup_location.strip()
+        update_doc["pickup_coord"] = None  # clear geocode cache
+        pricing_inputs_changed = True
+
+    if payload.dropoff_location is not None and payload.dropoff_location.strip() != (b.get("dropoff_location") or "").strip():
+        update_doc["dropoff_location"] = payload.dropoff_location.strip()
+        update_doc["dropoff_coord"] = None
+        pricing_inputs_changed = True
+
+    if payload.vehicle_type is not None and payload.vehicle_type != b.get("vehicle_type"):
+        update_doc["vehicle_type"] = payload.vehicle_type
+        pricing_inputs_changed = True
+
+    if payload.passengers is not None and int(payload.passengers) != int(b.get("passengers") or 1):
+        update_doc["passengers"] = int(payload.passengers)
+
+    if payload.notes is not None:
+        update_doc["notes"] = payload.notes[:1000]
+
+    if not update_doc:
+        return {"ok": True, "no_changes": True, "message": "No changes to apply."}
+
+    # Re-compute quote if pricing inputs changed.
+    new_quote = None
+    if pricing_inputs_changed:
+        merged = {**b, **update_doc}
+        try:
+            new_quote = await _compute_quote_amount(merged)
+            if new_quote is not None:
+                update_doc["quote_amount"] = round(float(new_quote), 2)
+        except Exception as e:
+            logger.warning(f"Modify booking quote recompute failed: {e}")
+
+    update_doc["modified_at"] = datetime.now(timezone.utc).isoformat()
+    update_doc["modified_by"] = "customer"
+
+    await db.bookings.update_one({"id": b["id"]}, {"$set": update_doc})
+
+    return {
+        "ok": True,
+        "booking_id": b["id"],
+        "new_quote_amount": update_doc.get("quote_amount"),
+        "previous_quote_amount": b.get("quote_amount"),
+        "pricing_changed": pricing_inputs_changed and new_quote is not None,
+        "message": "Your reservation has been updated.",
     }
 
 

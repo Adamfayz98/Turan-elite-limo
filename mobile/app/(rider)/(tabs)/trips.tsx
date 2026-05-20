@@ -143,14 +143,26 @@ export default function RiderTrips() {
                   </View>
                   <View style={s.actionRow}>
                     {(t.status || "").toLowerCase() !== "completed" && (t.status || "").toLowerCase() !== "cancelled" && (
-                      <Pressable
-                        testID={`trip-${t.id}-cancel`}
-                        onPress={() => confirmCancel(t.id, t.payment_status === "paid")}
-                        hitSlop={6}
-                        style={s.cancelBtn}
-                      >
-                        <Text style={s.cancelTxt}>Cancel</Text>
-                      </Pressable>
+                      <>
+                        {t.payment_status !== "paid" && (
+                          <Pressable
+                            testID={`trip-${t.id}-modify`}
+                            onPress={() => router.push(`/(rider)/modify?bid=${t.id}`)}
+                            hitSlop={6}
+                            style={s.modifyBtn}
+                          >
+                            <Text style={s.modifyTxt}>Modify</Text>
+                          </Pressable>
+                        )}
+                        <Pressable
+                          testID={`trip-${t.id}-cancel`}
+                          onPress={() => confirmCancel(t.id, t.payment_status === "paid")}
+                          hitSlop={6}
+                          style={s.cancelBtn}
+                        >
+                          <Text style={s.cancelTxt}>Cancel</Text>
+                        </Pressable>
+                      </>
                     )}
                     <Pressable
                       testID={`trip-${t.id}-action`}
@@ -213,6 +225,8 @@ const s = StyleSheet.create({
   actionRow: { flexDirection: "row", gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
   cancelBtn: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1, borderColor: "rgba(244,63,94,0.4)", backgroundColor: "rgba(244,63,94,0.05)" },
   cancelTxt: { color: "#f87171", fontSize: 11, fontWeight: "500" },
+  modifyBtn: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.2)", backgroundColor: "rgba(255,255,255,0.04)" },
+  modifyTxt: { color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "500" },
 
   guestRoot: { flex: 1, padding: 32, alignItems: "center", justifyContent: "center" },
   guestBtn: { marginTop: 22, flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 13, paddingHorizontal: 22, borderRadius: 999, backgroundColor: colors.gold },

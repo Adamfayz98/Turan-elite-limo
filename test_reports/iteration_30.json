@@ -1,0 +1,61 @@
+{
+  "summary": "Iteration 30 backend tests for the new JWT customer modify endpoint POST /api/customer/bookings/{booking_id}/modify. 18/18 pytest cases pass against the preview URL. Covered: (1) auth — 401 without JWT, (2) ownership — 404 for missing & cross-tenant bookings, (3) state preconditions — 409 for paid (message verified to contain '(650) 410-0687' phone digits), 400 for completed, 400 for cancelled, (4) no-op — empty payload returns ok=true with no_changes=true, (5) non-pricing changes (notes/passengers only) — pricing_changed=false, quote_amount unchanged in DB, (6) pricing changes (pickup_location/dropoff_location/vehicle_type/pickup_datetime) — response includes new_quote_amount + previous_quote_amount, geocode caches (pickup_coord/dropoff_coord) correctly cleared, pickup_date/pickup_time derived from new pickup_datetime, (7) bad pickup_datetime returns 400, (8) full-payload modify followed by GET /api/customer/bookings/{id} reflects new pickup/dropoff/vehicle/date/time, (9) regression — POST /api/customer/bookings/{id}/cancel still works for both unpaid (status -> cancelled) and paid (status stays confirmed, cancellation_requested=true) bookings. HOWEVER, an out-of-band probe revealed a latent bug in pricing recompute (see backend_issues.critical): when a pricing-impacting field changes, the response always returns new_quote_amount == previous_quote_amount because _compute_quote_amount short-circuits on the old quote_amount carried in the merged dict.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/customer/bookings/{booking_id}/modify",
+        "issue": "new_quote_amount is NEVER actually recomputed. The modify endpoint builds `merged = {**b, **update_doc}` and calls `_compute_quote_amount(merged)`, but `_compute_quote_amount` returns early at server.py:2864 with `if booking.get('quote_amount'): return float(booking['quote_amount'])`. Since the OLD quote_amount is still in `merged`, the function short-circuits and returns the existing value. Reproduced: a booking with quote_amount=120 (SFO -> Salesforce Tower, ~12 mi) was modified to dropoff=Sacramento Airport (~85 mi). Response returned `new_quote_amount=120.0, previous_quote_amount=120.0, pricing_changed=True` and DB quote_amount stayed 120.0 — should be ~$300+. Fix: pop 'quote_amount' from the merged dict before calling _compute_quote_amount (e.g. `merged.pop('quote_amount', None)`), or refactor _compute_quote_amount to accept a force_recompute flag.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/customer/bookings/{booking_id}/modify",
+        "issue": "If the customer sends `notes` (even unchanged), the endpoint writes update_doc['notes'] = payload.notes[:1000] without comparing against the existing value. Result: sending the SAME notes does not return no_changes=true (it writes notes and modified_at). Only the all-None payload path returns no_changes=true. Cosmetic — does not affect correctness."
+      },
+      {
+        "endpoint": "POST /api/customer/bookings/{booking_id}/modify",
+        "issue": "When `_compute_quote_amount` returns None (e.g. unknown/call-only vehicle, geocode fail), the endpoint silently skips updating quote_amount and the response's `new_quote_amount` is None even though `pricing_changed` evaluates to False per the code (`pricing_inputs_changed and new_quote is not None`). The customer's mobile app will see pricing_changed=false on a clearly pricing-impacting change. Consider adding a flag like `quote_recompute_failed=True` so the client can prompt the customer to call dispatch."
+      },
+      {
+        "endpoint": "POST /api/customer/bookings/{booking_id}/modify",
+        "issue": "Endpoint does not enforce minimum lead time (e.g., can't modify a trip less than 2 hours from pickup). A customer could change pickup_location 10 minutes before pickup and the assigned chauffeur won't be notified. Out of scope for this iteration but worth tracking."
+      },
+      {
+        "endpoint": "GET /api/customer/bookings/{booking_id}",
+        "issue": "Projection does not include `notes` or `passengers`, so the mobile rider app cannot read back the values it just modified via /modify. Had to verify via direct MongoDB read in tests. Recommend adding `notes`, `passengers`, `pickup_datetime`, and `additional_stops` to the response."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration30_jwt_modify_booking.py",
+    "/app/test_reports/pytest/iteration30_results.xml"
+  ],
+  "action_items": [
+    "HIGH: Fix quote recompute in /customer/bookings/{id}/modify — `_compute_quote_amount` short-circuits because the merged dict still contains the old quote_amount. Patch: `merged = {**b, **update_doc}; merged.pop('quote_amount', None); new_quote = await _compute_quote_amount(merged)`. After fix, the existing iteration 30 tests still pass and you can additionally assert new_quote_amount != previous_quote_amount for a large-distance dropoff change.",
+    "MEDIUM: Add `notes`, `passengers`, `pickup_datetime`, `additional_stops` to the GET /api/customer/bookings/{id} projection so the mobile app can render the modified values without a second round-trip.",
+    "LOW: Treat `notes` as a no-op when payload.notes == existing notes (mirror the comparison logic already used for pickup_location/dropoff_location/vehicle_type/passengers).",
+    "LOW: When _compute_quote_amount returns None on a pricing-impacting change, surface a flag (e.g. quote_recompute_failed=True) so the mobile client can warn the rider to call dispatch instead of silently presenting a stale quote."
+  ],
+  "critical_code_review_comments": [
+    "BUG (HIGH): server.py:4822-4826 — `merged = {**b, **update_doc}` followed by `_compute_quote_amount(merged)` will NEVER recompute pricing because _compute_quote_amount (line 2864) returns the existing booking.quote_amount unchanged. Confirmed via live probe: changing dropoff from a 12-mi route to an 85-mi route left quote_amount=120 in both response and DB. This silently breaks the entire pricing-update story of this endpoint.",
+    "Ownership check via {id, customer_id: cid} is correct and consistent with the cancel endpoint — verified that another customer's booking returns 404.",
+    "Geocode cache invalidation (pickup_coord -> None on pickup_location change; dropoff_coord -> None on dropoff_location change) is correctly implemented and verified end-to-end. The next /driver-location call will re-geocode the new address.",
+    "Order of state checks is correct: completed/cancelled checked BEFORE paid check, so an edge-case 'paid + completed' booking returns 400 rather than 409 (probably fine; either error is informative).",
+    "409 detail message includes the literal '(650) 410-0687' — verified via response body assertion.",
+    "Pydantic validation: passengers has ge=1, le=30 and notes has max_length=1000 — good. pickup_datetime is a free-form string parsed manually; consider switching to `datetime` type for FastAPI to auto-validate ISO-8601 and return 422 instead of 400 with a custom string.",
+    "Endpoint does not write an audit log entry (modify_history). admin dashboards will see only modified_at/modified_by but not WHAT changed — if a rider claims their quote changed unexpectedly, support can't easily see the before/after. Suggest pushing an entry into a booking_modifications collection or appending to a booking_history array on the doc.",
+    "server.py is now 5609 lines (+106 from iter 29). Refactor into routers (customer_router, driver_router, admin_router) remains a worthwhile follow-up."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration30_jwt_modify_booking.py (new — 18 tests)"
+  ],
+  "success_rate": {"backend": "100% (18/18 passing)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "rider.test@turanelitelimo.com / RiderPass123! (reused from iteration 29, already in /app/memory/test_credentials.md)",
+  "seed_data_creation": "Per-test bookings inserted directly into Mongo via the created_booking fixture (full_name='TEST Rider', confirmation_number prefix TEST-), each torn down at the end of its test. No Stripe calls made in this iteration (modify endpoint is purely a DB mutation; no payment side-effects).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_iteration30_jwt_modify_booking.py -v. All 18 tests pass. Session-scoped rider_token fixture auto-logs in rider.test@turanelitelimo.com / RiderPass123!. The function-scoped created_booking fixture inserts a minimal booking doc into MongoDB directly (no Stripe), with quote_amount=120 and pre-cached pickup_coord/dropoff_coord — convenient for verifying coord-clearing behavior on pickup_location/dropoff_location changes. IMPORTANT: the HIGH-priority bug (quote recompute short-circuit) is NOT caught by these tests because the test assertions only check that response keys exist and that previous_quote_amount echoes the prior value — they do not assert new_quote_amount differs. Once the main agent applies the `merged.pop('quote_amount', None)` fix, add an assertion like `assert body['new_quote_amount'] != body['previous_quote_amount']` for the large-distance dropoff case.",
+  "rca of the issue": "RCA for the quote-recompute bug: server.py:2864 (`_compute_quote_amount`) opens with `if booking.get('quote_amount'): return float(booking['quote_amount'])` — a short-circuit intended for the original use case (skip recompute when admin manually set a quote). The new modify endpoint at server.py:4822 builds `merged = {**b, **update_doc}` and calls _compute_quote_amount(merged), but `b` already contains the old quote_amount=120, and update_doc never overwrites it before the call, so the short-circuit fires and returns the stale value. Mitigation (one-liner): `merged.pop('quote_amount', None)` immediately before the recompute call. Reproduction: see the inline live probe in this iteration's notes — a booking with SFO -> Salesforce Tower (quote=$120) modified to dropoff=Sacramento Intl Airport returned new_quote_amount=120.0 instead of ~$300+."
+}

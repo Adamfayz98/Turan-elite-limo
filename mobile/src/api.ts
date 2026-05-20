@@ -219,6 +219,18 @@ export async function customerCancelBooking(bookingId: string, reason?: string) 
   return data;
 }
 
+export async function customerModifyBooking(bookingId: string, changes: {
+  pickup_datetime?: string;
+  pickup_location?: string;
+  dropoff_location?: string;
+  vehicle_type?: string;
+  passengers?: number;
+  notes?: string;
+}) {
+  const { data } = await api.post(`/api/customer/bookings/${bookingId}/modify`, changes);
+  return data;
+}
+
 export async function customerForgotPassword(email: string) {
   const { data } = await api.post(`/api/customer/forgot-password`, { email });
   return data;
