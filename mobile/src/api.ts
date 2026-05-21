@@ -157,6 +157,78 @@ export async function placesAutocomplete(input: string, sessionToken?: string) {
   }>;
 }
 
+/* ============== Rider self-service (Profile menu) ============== */
+export async function updateMyProfile(payload: { name?: string; phone?: string }) {
+  const { data } = await api.patch("/api/customer/me", payload);
+  return data;
+}
+
+export interface SavedAddress {
+  id: string;
+  label: string;
+  address: string;
+  is_default_pickup: boolean;
+  is_default_dropoff: boolean;
+  created_at: string;
+}
+
+export async function listSavedAddresses() {
+  const { data } = await api.get<SavedAddress[]>("/api/customer/me/addresses");
+  return data;
+}
+
+export async function createSavedAddress(payload: { label: string; address: string; is_default_pickup?: boolean; is_default_dropoff?: boolean }) {
+  const { data } = await api.post<SavedAddress>("/api/customer/me/addresses", payload);
+  return data;
+}
+
+export async function deleteSavedAddress(id: string) {
+  const { data } = await api.delete(`/api/customer/me/addresses/${id}`);
+  return data;
+}
+
+export async function listPromoHistory() {
+  const { data } = await api.get<Array<{ promo_code: string; discount_amount: number; used_at: string; confirmation_number: string }>>(
+    "/api/customer/me/promos"
+  );
+  return data;
+}
+
+export interface NotificationPrefs {
+  ride_updates_push: boolean;
+  ride_updates_email: boolean;
+  promotions_push: boolean;
+  promotions_email: boolean;
+  receipts_email: boolean;
+}
+
+export async function getNotificationPrefs() {
+  const { data } = await api.get<NotificationPrefs>("/api/customer/me/notifications");
+  return data;
+}
+
+export async function updateNotificationPrefs(prefs: NotificationPrefs) {
+  const { data } = await api.patch<NotificationPrefs>("/api/customer/me/notifications", prefs);
+  return data;
+}
+
+export async function changeMyPassword(payload: { current_password: string; new_password: string }) {
+  const { data } = await api.post("/api/customer/me/change-password", payload);
+  return data;
+}
+
+export async function deleteMyAccount() {
+  const { data } = await api.delete("/api/customer/me");
+  return data;
+}
+
+export async function submitHelpRequest(payload: { subject: string; message: string; booking_id?: string }) {
+  const { data } = await api.post("/api/customer/me/help", payload);
+  return data;
+}
+
+
+
 /* ============== Driver endpoints ============== */
 import { DriverTokenStore } from "@/store/driver";
 
@@ -243,22 +315,22 @@ export async function validatePromo(payload: { code: string; amount: number; ema
 
 // JWT-driver trip actions
 export async function driverGetBookingDetail(bookingId: string) {
-  const { data } = await api.get(`/api/driver-auth/bookings/${bookingId}`);
+  const { data } = await driverApi.get(`/api/driver-auth/bookings/${bookingId}`);
   return data;
 }
 
 export async function driverUpdateBookingStatus(bookingId: string, status: string) {
-  const { data } = await api.post(`/api/driver-auth/bookings/${bookingId}/status`, { status });
+  const { data } = await driverApi.post(`/api/driver-auth/bookings/${bookingId}/status`, { status });
   return data;
 }
 
 export async function driverRecordWaitTime(bookingId: string, minutes: number) {
-  const { data } = await api.post(`/api/driver-auth/bookings/${bookingId}/record-wait-time`, { minutes_waited: minutes });
+  const { data } = await driverApi.post(`/api/driver-auth/bookings/${bookingId}/record-wait-time`, { minutes_waited: minutes });
   return data;
 }
 
 export async function driverRecordMidTripStop(bookingId: string, payload: { stop_address: string; minutes_at_stop: number }) {
-  const { data } = await api.post(`/api/driver-auth/bookings/${bookingId}/record-mid-trip-stop`, payload);
+  const { data } = await driverApi.post(`/api/driver-auth/bookings/${bookingId}/record-mid-trip-stop`, payload);
   return data;
 }
 

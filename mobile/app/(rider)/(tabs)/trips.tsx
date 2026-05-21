@@ -19,14 +19,50 @@ interface Trip {
   status: string;
   payment_status?: string;
   trip_status?: string;
+  driver_name?: string;
 }
 
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  completed: { bg: "rgba(16,185,129,0.1)", fg: "#10B981" },
-  confirmed: { bg: "rgba(212,175,55,0.1)", fg: "#D4AF37" },
-  pending:   { bg: "rgba(255,255,255,0.05)", fg: "rgba(255,255,255,0.55)" },
-  cancelled: { bg: "rgba(239,68,68,0.08)", fg: "#EF4444" },
+  completed:        { bg: "rgba(16,185,129,0.1)",  fg: "#10B981" },
+  in_progress:      { bg: "rgba(16,185,129,0.1)",  fg: "#10B981" },
+  on_location:      { bg: "rgba(16,185,129,0.1)",  fg: "#10B981" },
+  en_route:         { bg: "rgba(59,130,246,0.12)", fg: "#60A5FA" },
+  driver_assigned:  { bg: "rgba(59,130,246,0.12)", fg: "#60A5FA" },
+  reserved:         { bg: "rgba(212,175,55,0.1)",  fg: "#D4AF37" },
+  confirmed:        { bg: "rgba(212,175,55,0.1)",  fg: "#D4AF37" },
+  awaiting_payment: { bg: "rgba(255,255,255,0.05)", fg: "rgba(255,255,255,0.65)" },
+  pending:          { bg: "rgba(255,255,255,0.05)", fg: "rgba(255,255,255,0.55)" },
+  cancelled:        { bg: "rgba(239,68,68,0.08)",  fg: "#EF4444" },
 };
+
+const STATUS_LABELS: Record<string, string> = {
+  awaiting_payment: "Awaiting Payment",
+  reserved:         "Reserved",
+  driver_assigned:  "Driver Assigned",
+  en_route:         "Driver En Route",
+  on_location:      "Driver Arrived",
+  in_progress:      "Trip In Progress",
+  completed:        "Completed",
+  cancelled:        "Cancelled",
+  pending:          "Pending",
+  confirmed:        "Reserved",
+};
+
+// Derives a richer human label from the booking's state. We DON'T just show
+// status.toUpperCase() because "CONFIRMED" looked ambiguous to customers —
+// they expected it to mean "driver assigned & on the way", but in our model
+// "confirmed" just means "payment received".
+function deriveStatusKey(t: Trip): string {
+  const status = (t.status || "pending").toLowerCase();
+  if (status === "cancelled" || status === "completed") return status;
+  if (status === "pending" && t.payment_status !== "paid") return "awaiting_payment";
+  const trip = (t.trip_status || "").toLowerCase();
+  if (trip === "in_progress") return "in_progress";
+  if (trip === "on_location") return "on_location";
+  if (trip === "en_route") return "en_route";
+  if (t.driver_name) return "driver_assigned";
+  return "reserved";
+}
 
 export default function RiderTrips() {
   const router = useRouter();
@@ -113,14 +149,15 @@ export default function RiderTrips() {
         {trips !== null && trips.length > 0 && (
           <View style={{ gap: 12 }}>
             {trips.map(t => {
-              const statusKey = (t.status || "pending").toLowerCase();
+              const statusKey = deriveStatusKey(t);
               const stColor = STATUS_COLORS[statusKey] || STATUS_COLORS.pending;
+              const stLabel = STATUS_LABELS[statusKey] || statusKey.replace(/_/g, " ");
               return (
                 <View key={t.id} style={s.card}>
                   <View style={s.cardHeader}>
                     <Text style={s.date}>{formatDate(t.pickup_date, t.pickup_time)}</Text>
                     <View style={[s.badge, { backgroundColor: stColor.bg, borderColor: stColor.fg + "55" }]}>
-                      <Text style={[s.badgeTxt, { color: stColor.fg }]}>{statusKey.toUpperCase()}</Text>
+                      <Text style={[s.badgeTxt, { color: stColor.fg }]}>{stLabel.toUpperCase()}</Text>
                     </View>
                   </View>
                   <View style={s.body}>

@@ -11,14 +11,14 @@ import { User as UserIcon, MapPin, CreditCard, Sparkles, Settings, ShieldCheck, 
 import { colors, radius, assets } from "@/theme";
 import { useAuth } from "@/store/auth";
 
-const ROWS = [
-  { id: "personal",   icon: UserIcon,    label: "Personal Information", soon: "We'll let you edit your name, phone, and email here soon." },
-  { id: "addresses",  icon: MapPin,      label: "Saved Addresses",       soon: "Save your home, work, and favorite spots for one-tap booking." },
-  { id: "payments",   icon: CreditCard,  label: "Payment Methods",       soon: "Card on file with Apple Pay / Google Pay support is coming next." },
-  { id: "promos",     icon: Sparkles,    label: "Promo Codes",            soon: "Enter a promo at checkout for now — saved promo wallet is on the way." },
-  { id: "notifs",     icon: Bell,        label: "Notifications",          soon: "Configure ride updates, promos, and receipts notifications here." },
-  { id: "privacy",    icon: ShieldCheck, label: "Privacy & Security",    soon: "Manage data sharing, change password, and review activity log." },
-  { id: "help",       icon: HelpCircle,  label: "Help & Support",         soon: "Call dispatch at (415) 555-6789, or email support@turanelitelimo.com." },
+const ROWS: Array<{ id: string; icon: any; label: string; route?: string; soon?: string }> = [
+  { id: "personal",   icon: UserIcon,    label: "Personal Information", route: "/(rider)/personal" },
+  { id: "addresses",  icon: MapPin,      label: "Saved Addresses",       route: "/(rider)/addresses" },
+  { id: "payments",   icon: CreditCard,  label: "Payment Methods",       soon: "Saved cards with Apple Pay / Google Pay are coming next. For now, your card is securely processed by Stripe at every checkout — no extra steps." },
+  { id: "promos",     icon: Sparkles,    label: "Promo Codes",            route: "/(rider)/promos" },
+  { id: "notifs",     icon: Bell,        label: "Notifications",          route: "/(rider)/notifications" },
+  { id: "privacy",    icon: ShieldCheck, label: "Privacy & Security",    route: "/(rider)/privacy" },
+  { id: "help",       icon: HelpCircle,  label: "Help & Support",         route: "/(rider)/help" },
 ];
 
 export default function RiderProfile() {
@@ -75,7 +75,7 @@ export default function RiderProfile() {
               <Pressable
                 key={r.id}
                 testID={`profile-row-${r.id}`}
-                onPress={() => open(r.label, r.soon)}
+                onPress={() => r.route ? router.push(r.route as any) : (r.soon && open(r.label, r.soon))}
                 style={({ pressed }) => [s.menuRow, i < ROWS.length - 1 && s.menuRowDivider, pressed && { backgroundColor: "rgba(212,175,55,0.04)" }]}
               >
                 <Icon size={16} color={colors.gold} strokeWidth={1.6} />

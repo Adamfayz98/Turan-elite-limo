@@ -4677,6 +4677,293 @@ async def customer_me(claims: dict = Depends(require_customer)):
     return _customer_to_profile(user)
 
 
+# ============================================================================
+# Customer self-service endpoints (v1.0 — wires the mobile app's profile menu).
+# Each endpoint requires a valid customer JWT (require_customer dependency).
+# ============================================================================
+
+class CustomerProfileUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=80)
+    phone: Optional[str] = Field(None, max_length=30)
+
+
+@api_router.patch("/customer/me", response_model=CustomerProfile)
+async def customer_update_profile(payload: CustomerProfileUpdate, claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    r = await db.customers.update_one({"id": cid}, {"$set": update})
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Account not found")
+    user = await db.customers.find_one({"id": cid}, {"_id": 0})
+    return _customer_to_profile(user)
+
+
+# ----- Saved addresses -----
+class SavedAddress(BaseModel):
+    id: str
+    label: str  # "Home", "Work", "Mom's place", etc
+    address: str
+    is_default_pickup: bool = False
+    is_default_dropoff: bool = False
+    created_at: str
+
+
+class SavedAddressCreate(BaseModel):
+    label: str = Field(..., min_length=1, max_length=40)
+    address: str = Field(..., min_length=3, max_length=300)
+    is_default_pickup: bool = False
+    is_default_dropoff: bool = False
+
+
+@api_router.get("/customer/me/addresses", response_model=List[SavedAddress])
+async def customer_list_addresses(claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    cursor = db.customer_addresses.find({"customer_id": cid}, {"_id": 0}).sort("created_at", -1)
+    return [SavedAddress(**doc) async for doc in cursor]
+
+
+@api_router.post("/customer/me/addresses", response_model=SavedAddress)
+async def customer_create_address(payload: SavedAddressCreate, claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "customer_id": cid,
+        "label": payload.label.strip(),
+        "address": payload.address.strip(),
+        "is_default_pickup": payload.is_default_pickup,
+        "is_default_dropoff": payload.is_default_dropoff,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # If marking default, clear the flag on siblings
+    if payload.is_default_pickup:
+        await db.customer_addresses.update_many({"customer_id": cid}, {"$set": {"is_default_pickup": False}})
+    if payload.is_default_dropoff:
+        await db.customer_addresses.update_many({"customer_id": cid}, {"$set": {"is_default_dropoff": False}})
+    await db.customer_addresses.insert_one(doc.copy())
+    return SavedAddress(**{k: v for k, v in doc.items() if k != "customer_id"})
+
+
+@api_router.delete("/customer/me/addresses/{address_id}")
+async def customer_delete_address(address_id: str, claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    r = await db.customer_addresses.delete_one({"id": address_id, "customer_id": cid})
+    if not r.deleted_count:
+        raise HTTPException(status_code=404, detail="Address not found")
+    return {"deleted": True}
+
+
+# ----- Promo history (which promos this customer has actually used) -----
+@api_router.get("/customer/me/promos")
+async def customer_promo_history(claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    # Get all the customer's bookings that have promo_code set
+    cursor = db.bookings.find(
+        {"customer_id": cid, "promo_code": {"$exists": True, "$ne": None, "$ne": ""}},
+        {"_id": 0, "promo_code": 1, "promo_discount_amount": 1, "created_at": 1, "confirmation_number": 1},
+    ).sort("created_at", -1)
+    items = []
+    async for b in cursor:
+        items.append({
+            "promo_code": b.get("promo_code"),
+            "discount_amount": b.get("promo_discount_amount") or 0,
+            "used_at": b.get("created_at"),
+            "confirmation_number": b.get("confirmation_number") or "",
+        })
+    return items
+
+
+# ----- Notification preferences -----
+class NotificationPrefs(BaseModel):
+    ride_updates_push: bool = True
+    ride_updates_email: bool = True
+    promotions_push: bool = False
+    promotions_email: bool = False
+    receipts_email: bool = True
+
+
+@api_router.get("/customer/me/notifications", response_model=NotificationPrefs)
+async def customer_get_notification_prefs(claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    user = await db.customers.find_one({"id": cid}, {"_id": 0, "notification_prefs": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return NotificationPrefs(**(user.get("notification_prefs") or {}))
+
+
+@api_router.patch("/customer/me/notifications", response_model=NotificationPrefs)
+async def customer_update_notification_prefs(payload: NotificationPrefs, claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    r = await db.customers.update_one(
+        {"id": cid},
+        {"$set": {"notification_prefs": payload.model_dump(), "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return payload
+
+
+# ----- Privacy & Security: change password + delete account -----
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=200)
+
+
+@api_router.post("/customer/me/change-password")
+async def customer_change_password(payload: ChangePasswordRequest, claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    user = await db.customers.find_one({"id": cid}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if not bcrypt.checkpw(payload.current_password.encode(), user.get("password_hash", "").encode()):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    new_hash = bcrypt.hashpw(payload.new_password.encode(), bcrypt.gensalt()).decode()
+    await db.customers.update_one(
+        {"id": cid},
+        {"$set": {"password_hash": new_hash, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True}
+
+
+@api_router.delete("/customer/me")
+async def customer_delete_account(claims: dict = Depends(require_customer)):
+    """Soft-delete: anonymize the account but keep booking history for accounting."""
+    cid = claims.get("customer_id")
+    user = await db.customers.find_one({"id": cid}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+    anon = {
+        "name": "Deleted user",
+        "email": f"deleted+{cid[:8]}@deleted.local",
+        "phone": "",
+        "password_hash": "",
+        "deleted": True,
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.customers.update_one({"id": cid}, {"$set": anon})
+    await db.customer_addresses.delete_many({"customer_id": cid})
+    return {"ok": True}
+
+
+# ----- Help & Support: contact form from inside the app -----
+class CustomerHelpRequest(BaseModel):
+    subject: str = Field(..., min_length=2, max_length=120)
+    message: str = Field(..., min_length=2, max_length=4000)
+    booking_id: Optional[str] = None
+
+
+@api_router.post("/customer/me/help")
+async def customer_submit_help(payload: CustomerHelpRequest, claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    user = await db.customers.find_one({"id": cid}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+    # Reuse the existing contacts collection so admin sees this in the Contacts tab
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": user.get("name") or "",
+        "email": user.get("email") or "",
+        "phone": user.get("phone") or "",
+        "subject": payload.subject.strip(),
+        "message": payload.message.strip(),
+        "source": "mobile_app",
+        "customer_id": cid,
+        "booking_id": payload.booking_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.contacts.insert_one(doc.copy())
+    # Notify admin via SMS
+    try:
+        admin_to = sms_service.admin_phone()
+        if admin_to:
+            await sms_service.send_sms(
+                admin_to,
+                f"TuranEliteLimo · 💬 IN-APP HELP REQUEST\n"
+                f"{user.get('name') or 'Customer'} · {user.get('phone') or ''}\n"
+                f"Subject: {payload.subject[:60]}\n"
+                f"Open admin → Contacts.",
+            )
+    except Exception as e:
+        logger.warning(f"Help-request admin SMS failed: {e}")
+    return {"ok": True}
+
+
+# ============================================================================
+# Admin: Riders management (lets admin see all riders + trigger password reset)
+# ============================================================================
+@api_router.get("/admin/riders")
+async def admin_list_riders(_: dict = Depends(require_admin)):
+    cursor = db.customers.find(
+        {"deleted": {"$ne": True}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "phone": 1, "created_at": 1, "updated_at": 1},
+    ).sort("created_at", -1)
+    items = []
+    async for c in cursor:
+        # Count bookings + total spent
+        bookings_count = await db.bookings.count_documents({"customer_id": c["id"]})
+        # Sum paid amounts
+        pipe = [
+            {"$match": {"customer_id": c["id"], "payment_status": "paid"}},
+            {"$group": {"_id": None, "total": {"$sum": "$paid_amount"}}},
+        ]
+        total_cursor = db.bookings.aggregate(pipe)
+        total = 0.0
+        async for row in total_cursor:
+            total = float(row.get("total") or 0)
+        items.append({
+            **c,
+            "bookings_count": bookings_count,
+            "total_spent": total,
+        })
+    return items
+
+
+@api_router.post("/admin/riders/{rider_id}/send-password-reset")
+async def admin_send_rider_password_reset(rider_id: str, _: dict = Depends(require_admin)):
+    """Admin triggers a password reset email for a customer who lost their password."""
+    user = await db.customers.find_one({"id": rider_id, "deleted": {"$ne": True}}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    token = secrets.token_urlsafe(40)
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    await db.password_reset_tokens.insert_one({
+        "token": token,
+        "customer_id": user["id"],
+        "email": user["email"],
+        "used": False,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    reset_url = f"{SITE_BASE_URL}/reset-password?token={token}"
+    try:
+        html = f"""
+        <div style="font-family:Helvetica,Arial,sans-serif;background:#0A0A0A;color:#EDEDED;padding:32px;max-width:560px;margin:auto;">
+          <div style="text-align:center;color:#D4AF37;letter-spacing:.3em;font-size:11px;margin-bottom:24px;">TURAN ELITE LIMO</div>
+          <h2 style="color:#FFF;font-weight:300;">Password reset requested for you</h2>
+          <p style="color:#BFBFBF;line-height:1.6;">
+            Hi {user.get('name') or 'there'}, our support team has triggered a password reset on your behalf.
+            Tap the button below to choose a new password. The link expires in 1 hour.
+          </p>
+          <a href="{reset_url}" style="display:inline-block;background:#D4AF37;color:#000;text-decoration:none;padding:14px 26px;border-radius:999px;font-weight:600;">Reset password</a>
+          <p style="color:#888;font-size:12px;margin-top:24px;">
+            If you didn't expect this, you can safely ignore it.
+          </p>
+        </div>
+        """
+        await send_email(
+            to=user["email"],
+            subject="Your TuranEliteLimo password reset link",
+            html=html,
+        )
+    except Exception as e:
+        logger.warning(f"Admin-triggered rider password reset email failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not send reset email")
+    return {"ok": True, "email": user["email"]}
+
+
+
 # ----- Customer trip flow (mobile) -----
 
 class CustomerBookingCreate(BaseModel):

@@ -68,6 +68,7 @@ import SurgeCalendarTab from "@/components/admin/SurgeCalendarTab";
 import PromosTab from "@/components/admin/PromosTab";
 import AnnouncementsTab from "@/components/admin/AnnouncementsTab";
 import DriversTab from "@/components/admin/DriversTab";
+import RidersTab from "@/components/admin/RidersTab";
 import LiveDriversTab from "@/components/admin/LiveDriversTab";
 import QuoteRequestsTab from "@/components/admin/QuoteRequestsTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
@@ -429,6 +430,9 @@ export default function AdminDashboard() {
             </TabsTrigger>
             <TabsTrigger value="drivers" data-testid="tab-drivers" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Drivers
+            </TabsTrigger>
+            <TabsTrigger value="riders" data-testid="tab-riders" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Riders
             </TabsTrigger>
             <TabsTrigger value="live-map" data-testid="tab-live-map" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Live Map
@@ -901,6 +905,9 @@ export default function AdminDashboard() {
 
           <TabsContent value="drivers" className="mt-6">
             <DriversTab />
+          </TabsContent>
+          <TabsContent value="riders" className="mt-6">
+            <RidersTab />
           </TabsContent>
 
           <TabsContent value="live-map" className="mt-6">
