@@ -93,8 +93,7 @@
       ]
     ],
     "experiments": {
-      "typedRoutes": false,
-      "baseUrl": "/m"
+      "typedRoutes": false
     },
     "extra": {
       "router": {
