@@ -13,6 +13,9 @@
       "distribution": "store",
       "channel": "preview",
       "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://limo-experience-1.preview.emergentagent.com"
+      },
       "ios": {
         "simulator": false
       },
@@ -24,6 +27,9 @@
       "distribution": "internal",
       "channel": "preview",
       "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://limo-experience-1.preview.emergentagent.com"
+      },
       "ios": {
         "simulator": false
       },
@@ -34,6 +40,9 @@
     "production": {
       "channel": "production",
       "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://turanelitelimo.com"
+      },
       "ios": {
         "resourceClass": "m-medium"
       },
