@@ -28,6 +28,24 @@ Full-stack web application for a Bay Area luxury chauffeur service (TuranEliteLi
   - Tunnel for Expo Go: `exp://wzy--oe-anonymous-8081.exp.direct` (rotates on restart)
 
 
+## Changelog — May 21 2026 (this session, continued)
+
+### 🗺️ FIX: Background Google Map showed "This page can't load Google Maps correctly" on iOS app
+**Root cause:** The `InteractiveMap` WebView used `baseUrl: "https://maps.google.com/"`, which became the HTTP Referer sent to the Google Maps JS API. Our API key is restricted to `*.turanelitelimo.com/*` and `*.preview.emergentagent.com/*`, so requests from `maps.google.com` were rejected with the "Do you own this website?" overlay. The dialog was also intercepting taps on the gear/settings icon.
+
+**Fix:** Changed `baseUrl` to `https://turanelitelimo.com/` so the WebView referrer matches the existing API key restriction. File: `/app/mobile/src/components/InteractiveMap.tsx`.
+
+**Ship:** Triggered a new iOS build (#12, ID `c20fc598-e470-415a-971a-92496c9017e4`, profile=`production`) — needs manual `eas submit` after build finishes (auto-submit failed due to missing App Store Connect API key setup in non-interactive mode).
+
+### 🤖 FIX: Android EAS build failing (3 prior errors)
+**Root cause:** `@react-native-async-storage/async-storage@^3.0.3` has a new Android-side dependency `org.asyncstorage.shared_storage:storage-android:1.0.0` that is not published to public Maven repositories (Google, Maven Central, JitPack, Sonatype Snapshots all checked). Gradle could not resolve it; build failed at `:app:mergeReleaseNativeLibs`. iOS was unaffected.
+
+**Fix:** Downgraded to `@react-native-async-storage/async-storage@2.2.0` — the Expo SDK 54-compatible version. Re-triggered Android EAS build (ID `fb6b1d42-6192-4a30-8b83-6daabf48d4f7`, profile=`production`, app-bundle).
+
+### 🔐 Expo token persistence
+Saved new EXPO_TOKEN to `/app/.eas_secrets` (chmod 600) so it survives session restarts.
+
+
 ## Changelog — Feb 21 2026 (this session)
 
 ### 🍎🚀 iOS APP UPLOADED TO TESTFLIGHT
