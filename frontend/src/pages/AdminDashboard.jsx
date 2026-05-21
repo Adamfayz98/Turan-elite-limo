@@ -407,8 +407,20 @@ export default function AdminDashboard() {
 
         <Tabs defaultValue="bookings" className="w-full">
           <TabsList className="bg-[#0A0A0A] border border-[#1F1F1F]">
-            <TabsTrigger value="bookings" data-testid="tab-bookings" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+            <TabsTrigger value="bookings" data-testid="tab-bookings" className="relative data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Bookings ({bookings.length})
+              {(() => {
+                const unread = bookings.filter((b) => b.is_read !== true && b.payment_status === "paid").length;
+                return unread > 0 ? (
+                  <span
+                    data-testid="unread-bookings-badge"
+                    className="ml-2 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-[#D4AF37] text-black text-[10px] font-bold tabular-nums leading-none"
+                    title={`${unread} unread booking${unread === 1 ? "" : "s"}`}
+                  >
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                ) : null;
+              })()}
             </TabsTrigger>
             <TabsTrigger value="contacts" data-testid="tab-contacts" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Inquiries ({contacts.length})
@@ -532,7 +544,9 @@ export default function AdminDashboard() {
                       </TableCell>
                     </TableRow>
                   )}
-                  {filteredBookings.map((b) => (
+                  {filteredBookings.map((b) => {
+                    const isUnread = b.is_read !== true && b.payment_status === "paid";
+                    return (
                     <TableRow
                       key={b.id}
                       data-testid={`booking-row-${b.id}`}
@@ -543,11 +557,35 @@ export default function AdminDashboard() {
                         if (interactive) return;
                         if (tag === "BUTTON" || tag === "A") return;
                         setDetailBooking(b);
+                        // Fire-and-forget mark-as-read so the row stops highlighting
+                        if (b.is_read !== true) {
+                          api.post(`/admin/bookings/${b.id}/mark-read`).then(() => {
+                            // Optimistically update local state
+                            setBookings((prev) =>
+                              prev.map((x) =>
+                                x.id === b.id ? { ...x, is_read: true } : x,
+                              ),
+                            );
+                          }).catch(() => {});
+                        }
                       }}
-                      className="border-white/5 hover:bg-white/5 cursor-pointer"
+                      className={`border-white/5 cursor-pointer transition-colors ${
+                        isUnread
+                          ? "bg-[#D4AF37]/[0.04] hover:bg-[#D4AF37]/[0.08]"
+                          : "hover:bg-white/5"
+                      }`}
                     >
                       <TableCell>
-                        <div className="text-white font-medium">{b.full_name}</div>
+                        <div className={`text-white font-medium flex items-center gap-2 ${isUnread ? "font-semibold" : ""}`}>
+                          {isUnread && (
+                            <span
+                              data-testid={`unread-dot-${b.id}`}
+                              className="w-2 h-2 rounded-full bg-[#D4AF37] shadow-[0_0_8px_rgba(212,175,55,0.6)]"
+                              title="New booking — unopened"
+                            />
+                          )}
+                          {b.full_name}
+                        </div>
                         <div className="text-xs text-white/50">{b.email}</div>
                         <div className="text-xs text-white/50">{b.phone}</div>
                         {b.created_at && (
@@ -784,7 +822,8 @@ export default function AdminDashboard() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

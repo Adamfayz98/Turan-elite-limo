@@ -225,6 +225,11 @@ class Booking(BaseModel):
     payment_status: str = "unpaid"  # unpaid | pending | paid | refunded
     payment_session_id: Optional[str] = None
     payment_intent_id: Optional[str] = None
+    # Unread tracking — like an email inbox. New paid bookings appear bold in
+    # the admin dashboard until the admin opens the details dialog at which
+    # point is_read flips true.
+    is_read: bool = False
+    read_at: Optional[str] = None
     # Checkout health / retry tracking — surfaces a badge in admin if a
     # customer keeps hitting "something went wrong" on the Stripe redirect.
     checkout_attempts: int = 0
@@ -393,6 +398,49 @@ async def places_autocomplete(input: str = "", session: Optional[str] = None):
             "secondary_text": (p.get("structured_formatting") or {}).get("secondary_text", ""),
         })
     return {"predictions": preds, "status": data.get("status")}
+
+
+@api_router.get("/places/geocode")
+async def places_geocode(address: str = ""):
+    """Resolve an address string to lat/lng for the rider home map preview."""
+    q = (address or "").strip()
+    if len(q) < 3:
+        return {"lat": None, "lng": None}
+    if not GOOGLE_MAPS_API_KEY:
+        return {"lat": None, "lng": None, "error": "Google API key not configured"}
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as cli:
+            r = await cli.get(
+                "https://maps.googleapis.com/maps/api/geocode/json",
+                params={"address": q, "key": GOOGLE_MAPS_API_KEY, "region": "us"},
+            )
+            data = r.json()
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Geocode failed: {e}")
+        return {"lat": None, "lng": None, "error": "lookup_failed"}
+    results = data.get("results") or []
+    if not results:
+        return {"lat": None, "lng": None}
+    loc = (results[0].get("geometry") or {}).get("location") or {}
+    return {
+        "lat": loc.get("lat"),
+        "lng": loc.get("lng"),
+        "formatted_address": results[0].get("formatted_address") or q,
+    }
+
+
+# ---------- Admin: mark booking as read (unread tracking) ----------
+@api_router.post("/admin/bookings/{booking_id}/mark-read")
+async def admin_mark_booking_read(booking_id: str, _: dict = Depends(require_admin)):
+    """Flip is_read=True on a booking so the admin UI stops highlighting it.
+    Used for unread-indicator pattern (like unread emails)."""
+    r = await db.bookings.update_one(
+        {"id": booking_id, "is_read": {"$ne": True}},
+        {"$set": {"is_read": True, "read_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True, "marked": r.modified_count}
+
+
 
 
 @api_router.post("/bookings", response_model=Booking)
