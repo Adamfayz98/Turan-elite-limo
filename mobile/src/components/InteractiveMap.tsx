@@ -297,7 +297,11 @@ export default function InteractiveMap({
       <WebView
         ref={webRef}
         originWhitelist={["*"]}
-        source={{ html, baseUrl: "https://maps.google.com/" }}
+        // baseUrl controls the HTTP Referer the Google Maps JS API sees.
+        // We must use the production domain so it matches the API key's
+        // allowed-referrer restriction (otherwise Google shows the
+        // "This page can't load Google Maps correctly. Do you own this website?" dialog).
+        source={{ html, baseUrl: "https://turanelitelimo.com/" }}
         style={{ backgroundColor: "#050505" }}
         javaScriptEnabled
         domStorageEnabled
