@@ -466,13 +466,55 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
           </div>
         )}
 
-        {b.cancellation_reason && (
+        {(b.cancellation_reason || b.cancellation_source || b.cancelled_at || b.auto_cancelled_at || b.cancellation_requested_at) && (
           <div className="mt-4">
             <div className="text-[10px] uppercase tracking-[0.25em] text-red-400 mb-1.5">
-              Cancellation reason
+              Cancellation
             </div>
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-sm text-white/85 leading-relaxed whitespace-pre-wrap">
-              {b.cancellation_reason}
+            <div
+              className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-sm text-white/85 leading-relaxed space-y-1.5"
+              data-testid="cancellation-forensics"
+            >
+              {b.cancellation_source && (
+                <div className="text-[11px] uppercase tracking-wider text-white/55">
+                  Source:{" "}
+                  <span className="text-white/90 font-medium">
+                    {b.cancellation_source === "auto_abandoned" && "🤖 System auto-sweep (>72h unpaid)"}
+                    {b.cancellation_source === "customer_web" && "👤 Customer (web manage link)"}
+                    {b.cancellation_source === "mobile_app" && "👤 Customer (mobile app)"}
+                    {b.cancellation_source === "admin" && (
+                      <>
+                        🧑‍💼 Admin
+                        {b.cancelled_by_admin_email ? ` (${b.cancelled_by_admin_email})` : ""}
+                      </>
+                    )}
+                  </span>
+                </div>
+              )}
+              {(b.cancelled_at || b.auto_cancelled_at) && (
+                <div className="text-[11px] uppercase tracking-wider text-white/55">
+                  Cancelled at:{" "}
+                  <span className="text-white/90">
+                    {new Date(b.cancelled_at || b.auto_cancelled_at).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              {b.cancellation_requested_at && b.cancellation_requested_at !== b.cancelled_at && (
+                <div className="text-[11px] uppercase tracking-wider text-white/55">
+                  Customer requested at:{" "}
+                  <span className="text-white/90">
+                    {new Date(b.cancellation_requested_at).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              {b.cancellation_reason && (
+                <div className="pt-1 whitespace-pre-wrap">{b.cancellation_reason}</div>
+              )}
+              {!b.cancellation_source && !b.cancellation_reason && (
+                <div className="text-white/60 italic">
+                  No provenance recorded (legacy cancellation before audit fields were added).
+                </div>
+              )}
             </div>
           </div>
         )}

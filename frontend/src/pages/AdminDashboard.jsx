@@ -555,6 +555,33 @@ export default function AdminDashboard() {
                             ⚠ Cancel requested
                           </div>
                         )}
+                        {b.status === "cancelled" && (() => {
+                          const src = b.cancellation_source;
+                          const when = b.cancelled_at || b.auto_cancelled_at || b.cancellation_requested_at;
+                          let label = "Manual";
+                          let cls = "text-white/50 border-white/15";
+                          let tip = "Cancelled (legacy — no source recorded)";
+                          if (src === "auto_abandoned") {
+                            label = "Auto"; cls = "text-amber-300 border-amber-400/30";
+                            tip = `System auto-cancelled (>72h unpaid Stripe checkout)${when ? ` · ${new Date(when).toLocaleString()}` : ""}`;
+                          } else if (src === "customer_web" || src === "mobile_app") {
+                            label = "Customer"; cls = "text-sky-300 border-sky-400/30";
+                            tip = `Customer cancelled via ${src === "mobile_app" ? "mobile app" : "web manage link"}${when ? ` · ${new Date(when).toLocaleString()}` : ""}${b.cancellation_reason ? ` — ${b.cancellation_reason}` : ""}`;
+                          } else if (src === "admin") {
+                            label = "Admin"; cls = "text-rose-300 border-rose-400/30";
+                            const who = b.cancelled_by_admin_email ? ` by ${b.cancelled_by_admin_email}` : "";
+                            tip = `Admin cancelled${who}${when ? ` · ${new Date(when).toLocaleString()}` : ""}${b.cancellation_reason ? ` — ${b.cancellation_reason}` : ""}`;
+                          }
+                          return (
+                            <div
+                              data-testid={`cancellation-source-${b.id}`}
+                              className={`inline-flex items-center text-[10px] uppercase tracking-wider mt-1 font-medium px-1.5 py-0.5 rounded border ${cls}`}
+                              title={tip}
+                            >
+                              {label}
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         <Badge

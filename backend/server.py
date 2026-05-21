@@ -209,6 +209,16 @@ class Booking(BaseModel):
     cancellation_requested: bool = False
     cancellation_reason: Optional[str] = None
     cancellation_requested_at: Optional[str] = None
+    # Forensic provenance — who cancelled and when. Set at the moment of cancellation.
+    #   "auto_abandoned" -> background sweep (unpaid Stripe checkout, >72h old)
+    #   "customer_web"   -> customer used /manage/<token> link
+    #   "mobile_app"     -> customer used the mobile app
+    #   "admin"          -> admin used the dashboard
+    cancellation_source: Optional[str] = None
+    cancelled_at: Optional[str] = None
+    cancelled_by_admin_email: Optional[str] = None
+    auto_cancelled_at: Optional[str] = None  # legacy field kept for back-compat with older sweeps
+    payment_reminder_sent_at: Optional[str] = None  # "your reservation needs payment" email at ~23h
     completed_at: Optional[str] = None
     status: str = "pending"
     confirmation_number: Optional[str] = None
@@ -1067,13 +1077,16 @@ async def manage_cancel_booking(token: str, payload: ManageCancelRequest):
         return {"ok": True, "status": "cancelled", "already_cancelled": True}
 
     is_paid = b.get("payment_status") == "paid"
+    now_iso = datetime.now(timezone.utc).isoformat()
     update_doc = {
         "cancellation_requested": True,
         "cancellation_reason": (payload.reason or "")[:500],
-        "cancellation_requested_at": datetime.now(timezone.utc).isoformat(),
+        "cancellation_requested_at": now_iso,
+        "cancellation_source": "customer_web",
     }
     if not is_paid:
         update_doc["status"] = "cancelled"
+        update_doc["cancelled_at"] = now_iso
     await db.bookings.update_one({"id": b["id"]}, {"$set": update_doc})
 
     # SMS the admin/driver
@@ -3888,57 +3901,9 @@ async def admin_force_sync_payment(
 # ---------- Admin protected: bookings ----------
 @api_router.get("/admin/bookings", response_model=List[Booking])
 async def list_bookings(_: dict = Depends(require_admin)):
-    # Auto-cancel abandoned Stripe checkouts so the dashboard stays clean.
-    # A booking is "abandoned" when:
-    #   - status="pending" AND payment_status="pending"
-    #   - older than 24 hours (was 2h — too aggressive; bumped to 24h to give
-    #     slow-payers and customers who left to grab their card time to come back)
-    #   - NO chauffeur assigned (if you assigned a driver, the trip is intentional
-    #     even if not yet paid — e.g. cash-on-arrival or manual reconciliation)
-    #   - NOT flagged for manual payment (payment_method != "manual")
-    # Admin-created cash bookings (payment_status stays "unpaid") are untouched.
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    sweep_filter = {
-        "status": "pending",
-        "payment_status": "pending",
-        "created_at": {"$lt": cutoff},
-        "$and": [
-            {"$or": [{"driver_id": {"$exists": False}}, {"driver_id": None}, {"driver_id": ""}]},
-            {"$or": [{"payment_method": {"$exists": False}}, {"payment_method": {"$ne": "manual"}}]},
-        ],
-    }
-    # Pre-fetch which bookings WILL be swept so we can SMS the admin (no email
-    # to the customer — keeps the experience invisible to them per policy).
-    will_sweep = await db.bookings.find(
-        sweep_filter,
-        {"_id": 0, "id": 1, "confirmation_number": 1, "full_name": 1},
-    ).to_list(50)
-
-    if will_sweep:
-        await db.bookings.update_many(
-            sweep_filter,
-            {"$set": {
-                "status": "cancelled",
-                "cancellation_reason": "Checkout abandoned (auto-cleaned after 24h)",
-                "cancellation_source": "auto_abandoned",
-                "auto_cancelled_at": datetime.now(timezone.utc).isoformat(),
-            }},
-        )
-        admin_to = sms_service.admin_phone()
-        if admin_to:
-            preview = ", ".join(
-                (b.get("confirmation_number") or b["id"][:8]) + f" ({b.get('full_name') or '?'})"
-                for b in will_sweep[:5]
-            )
-            extra = f" +{len(will_sweep) - 5} more" if len(will_sweep) > 5 else ""
-            try:
-                await sms_service.send_sms(
-                    admin_to,
-                    f"TuranEliteLimo auto-cleanup: {len(will_sweep)} abandoned booking(s) marked cancelled. {preview}{extra}. Open admin → Bookings to review.",
-                )
-            except Exception as e:
-                logger.warning(f"Admin auto-cleanup SMS failed: {e}")
-
+    # NOTE: The auto-cancel sweep for abandoned Stripe checkouts used to live here
+    # (it fired on every dashboard load). It now runs as a scheduled background job
+    # (_sweep_abandoned_checkouts, hourly) so a dashboard refresh is purely a read.
     cursor = db.bookings.find({}, {"_id": 0}).sort("created_at", -1)
     items = await cursor.to_list(1000)
     return [Booking(**i) for i in items]
@@ -3949,7 +3914,7 @@ async def update_booking_status(
     booking_id: str,
     payload: BookingStatusUpdate,
     request: Request,
-    _: dict = Depends(require_admin),
+    admin: dict = Depends(require_admin),
 ):
     if payload.status not in BOOKING_STATUSES:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of {BOOKING_STATUSES}")
@@ -3957,6 +3922,14 @@ async def update_booking_status(
     update_doc = {"status": payload.status}
     if payload.status == "completed":
         update_doc["completed_at"] = datetime.now(timezone.utc).isoformat()
+
+    # When admin moves the booking to cancelled, stamp who did it + when so we
+    # never lose the audit trail (visible as a badge in the admin UI).
+    if payload.status == "cancelled":
+        now_iso = datetime.now(timezone.utc).isoformat()
+        update_doc["cancellation_source"] = "admin"
+        update_doc["cancelled_at"] = now_iso
+        update_doc["cancelled_by_admin_email"] = admin.get("sub") or ""
 
     # Generate confirmation number on first transition to "confirmed"
     if payload.status == "confirmed":
@@ -4745,14 +4718,16 @@ async def customer_jwt_cancel_booking(
         return {"ok": True, "status": "cancelled", "already_cancelled": True}
 
     is_paid = b.get("payment_status") == "paid"
+    now_iso = datetime.now(timezone.utc).isoformat()
     update_doc = {
         "cancellation_requested": True,
         "cancellation_reason": (payload.reason or "")[:500],
-        "cancellation_requested_at": datetime.now(timezone.utc).isoformat(),
+        "cancellation_requested_at": now_iso,
         "cancellation_source": "mobile_app",
     }
     if not is_paid:
         update_doc["status"] = "cancelled"
+        update_doc["cancelled_at"] = now_iso
     await db.bookings.update_one({"id": b["id"]}, {"$set": update_doc})
 
     admin_to = sms_service.admin_phone()
@@ -5580,8 +5555,16 @@ async def startup_seed():
             replace_existing=True,
             next_run_time=datetime.now(timezone.utc) + timedelta(seconds=60),
         )
+        _scheduler.add_job(
+            _sweep_abandoned_checkouts,
+            "interval",
+            minutes=60,
+            id="abandoned_checkout_sweep",
+            replace_existing=True,
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=120),
+        )
         _scheduler.start()
-        logger.info("Review-request scheduler started (runs every 30 min).")
+        logger.info("Background scheduler started (review requests every 30 min, abandoned-checkout sweep every 60 min).")
     except Exception as e:
         logger.warning(f"Scheduler failed to start: {e}")
 
@@ -5627,6 +5610,145 @@ async def _send_pending_review_requests():
                 logger.warning(f"Review-request send failed for {b.get('id')}: {e}")
     except Exception as e:
         logger.warning(f"_send_pending_review_requests failed: {e}")
+
+
+# ---------- Abandoned-checkout sweep (replaces the inline sweep that used to
+# fire on every GET /admin/bookings load — that sweep was killing real customer
+# bookings the moment the dashboard was opened post-deploy). New rules:
+#   1. Wait 72 hours after creation (was 24h) before cancelling — gives weekend
+#      bookers and slow-payers plenty of time to come back.
+#   2. At ~23h send the customer ONE polite "your reservation needs payment"
+#      email with their manage link, so they're never silently dropped.
+#   3. Only cancel if: status=pending + payment_status=pending + no driver
+#      assigned + payment_method != "manual" + age > 72h.
+# Runs hourly from APScheduler. ----------
+_PAYMENT_REMINDER_HOURS = 23
+_ABANDONED_CANCEL_HOURS = 72
+
+
+def _public_origin() -> str:
+    """Best-effort frontend origin for emailed links from a background job
+    (no Request object). Falls back to the production domain if env not set."""
+    return (
+        os.environ.get("PUBLIC_FRONTEND_ORIGIN")
+        or os.environ.get("FRONTEND_ORIGIN")
+        or "https://turanelitelimo.com"
+    ).rstrip("/")
+
+
+def _render_payment_reminder_email(b: dict, manage_url: Optional[str]) -> str:
+    name = (b.get("full_name") or "there").split()[0]
+    cnum = b.get("confirmation_number") or ""
+    pickup_when = f"{b.get('pickup_date','')} at {b.get('pickup_time','')}".strip()
+    btn = ""
+    if manage_url:
+        btn = (
+            f'<a href="{manage_url}" style="display:inline-block;background:#D4AF37;'
+            f'color:#0A0A0A;text-decoration:none;padding:14px 28px;border-radius:6px;'
+            f'font-weight:600;letter-spacing:.05em;margin:18px 0;">FINISH PAYMENT</a>'
+        )
+    return f"""
+    <div style="font-family:Helvetica,Arial,sans-serif;background:#0A0A0A;color:#EDEDED;padding:32px;max-width:560px;margin:auto;">
+      <div style="text-align:center;color:#D4AF37;letter-spacing:.3em;font-size:11px;margin-bottom:24px;">TURAN ELITE LIMO</div>
+      <h2 style="color:#FFF;font-weight:300;margin:0 0 16px;">Hi {name}, your reservation is still waiting for payment.</h2>
+      <p style="color:#BFBFBF;line-height:1.6;">
+        We're holding your chauffeur reservation{f' <strong style="color:#D4AF37;">{cnum}</strong>' if cnum else ''}
+        for <strong>{pickup_when}</strong>, but we haven't received your payment yet.
+      </p>
+      <p style="color:#BFBFBF;line-height:1.6;">
+        To make sure we don't release the vehicle, please complete checkout in the next 48 hours.
+      </p>
+      {btn}
+      <p style="color:#888;font-size:12px;line-height:1.6;margin-top:24px;">
+        If you no longer need the ride, you can cancel from the same link — no charge.
+        Reply to this email if you have any trouble paying and we'll help personally.
+      </p>
+      <div style="border-top:1px solid #1F1F1F;margin-top:28px;padding-top:16px;color:#666;font-size:11px;text-align:center;">
+        TuranEliteLimo · Bay Area Chauffeur Service
+      </div>
+    </div>
+    """
+
+
+async def _sweep_abandoned_checkouts():
+    """Background job: send 23h reminder emails and then cancel any pending
+    Stripe checkouts that have been abandoned for > 72h. Runs hourly."""
+    try:
+        now = datetime.now(timezone.utc)
+        reminder_cutoff = (now - timedelta(hours=_PAYMENT_REMINDER_HOURS)).isoformat()
+        cancel_cutoff = (now - timedelta(hours=_ABANDONED_CANCEL_HOURS)).isoformat()
+        base_filter = {
+            "status": "pending",
+            "payment_status": "pending",
+            "$and": [
+                {"$or": [{"driver_id": {"$exists": False}}, {"driver_id": None}, {"driver_id": ""}]},
+                {"$or": [{"payment_method": {"$exists": False}}, {"payment_method": {"$ne": "manual"}}]},
+            ],
+        }
+
+        # 1) Send one-time reminder email to bookings >23h old and not yet reminded
+        reminder_filter = {
+            **base_filter,
+            "created_at": {"$lt": reminder_cutoff},
+            "payment_reminder_sent_at": {"$exists": False},
+        }
+        to_remind = await db.bookings.find(reminder_filter, {"_id": 0}).to_list(50)
+        origin = _public_origin()
+        for b in to_remind:
+            try:
+                manage_url = (
+                    f"{origin}/manage/{b.get('manage_token')}" if b.get("manage_token") else None
+                )
+                html = _render_payment_reminder_email(b, manage_url)
+                cnum = b.get("confirmation_number") or ""
+                subject = (
+                    f"Reminder: your reservation needs payment{' — ' + cnum if cnum else ''}"
+                )
+                sent_id = await send_email(to=b["email"], subject=subject, html=html)
+                if sent_id is not None:
+                    await db.bookings.update_one(
+                        {"id": b["id"]},
+                        {"$set": {"payment_reminder_sent_at": now.isoformat()}},
+                    )
+                    logger.info(f"Payment reminder sent for booking {b.get('id')}")
+            except Exception as e:
+                logger.warning(f"Payment reminder failed for {b.get('id')}: {e}")
+
+        # 2) Auto-cancel anything >72h old (still pending). Quiet on the customer
+        # side by design — they already got the 23h reminder and didn't act.
+        cancel_filter = {**base_filter, "created_at": {"$lt": cancel_cutoff}}
+        will_cancel = await db.bookings.find(
+            cancel_filter,
+            {"_id": 0, "id": 1, "confirmation_number": 1, "full_name": 1},
+        ).to_list(50)
+        if will_cancel:
+            await db.bookings.update_many(
+                cancel_filter,
+                {"$set": {
+                    "status": "cancelled",
+                    "cancellation_reason": f"Checkout abandoned (auto-cleaned after {_ABANDONED_CANCEL_HOURS}h)",
+                    "cancellation_source": "auto_abandoned",
+                    "cancelled_at": now.isoformat(),
+                    "auto_cancelled_at": now.isoformat(),
+                }},
+            )
+            admin_to = sms_service.admin_phone()
+            if admin_to:
+                preview = ", ".join(
+                    (b.get("confirmation_number") or b["id"][:8]) + f" ({b.get('full_name') or '?'})"
+                    for b in will_cancel[:5]
+                )
+                extra = f" +{len(will_cancel) - 5} more" if len(will_cancel) > 5 else ""
+                try:
+                    await sms_service.send_sms(
+                        admin_to,
+                        f"TuranEliteLimo auto-cleanup: {len(will_cancel)} abandoned booking(s) cancelled (>72h unpaid). {preview}{extra}.",
+                    )
+                except Exception as e:
+                    logger.warning(f"Admin auto-cleanup SMS failed: {e}")
+            logger.info(f"Auto-cancelled {len(will_cancel)} abandoned bookings (>72h).")
+    except Exception as e:
+        logger.warning(f"_sweep_abandoned_checkouts failed: {e}")
 
 
 _scheduler = None
