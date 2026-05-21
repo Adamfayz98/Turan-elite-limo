@@ -545,7 +545,10 @@ export default function AdminDashboard() {
                     </TableRow>
                   )}
                   {filteredBookings.map((b) => {
-                    const isUnread = b.is_read !== true && b.payment_status === "paid";
+                    // Treat ANY un-opened booking as "unread" (email-inbox metaphor),
+                    // not just paid ones. Cancelled bookings don't need attention so
+                    // they're excluded.
+                    const isUnread = b.is_read !== true && b.status !== "cancelled";
                     return (
                     <TableRow
                       key={b.id}
