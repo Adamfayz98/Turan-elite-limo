@@ -446,6 +446,35 @@ export default function AdminDashboard() {
                   {filteredBookings.length} of {bookings.length}
                 </span>
               )}
+              <Button
+                data-testid="backfill-cancellation-source-btn"
+                variant="outline"
+                size="sm"
+                className="ml-auto border-[#27272A] text-white/70 hover:text-white hover:bg-[#1A1A1A]"
+                title="One-shot: stamp cancellation source (auto/customer/admin) on past cancelled bookings so the badges work retroactively."
+                onClick={async () => {
+                  if (!window.confirm("Backfill cancellation source on all past cancelled bookings? Safe to run multiple times.")) return;
+                  try {
+                    const token = localStorage.getItem("turon_admin_token");
+                    const res = await fetch(
+                      `${process.env.REACT_APP_BACKEND_URL}/api/admin/bookings/backfill-cancellation-source`,
+                      { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+                    );
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.detail || "Failed");
+                    const u = data.updated || {};
+                    toast.success(
+                      `Backfilled ${u.total || 0} bookings: 🤖 ${u.auto_abandoned || 0} auto · 👤 ${u.customer_web || 0} customer · 🧑‍💼 ${u.admin || 0} admin`,
+                      { duration: 8000 },
+                    );
+                    fetchAll();
+                  } catch (e) {
+                    toast.error(`Backfill failed: ${e.message}`);
+                  }
+                }}
+              >
+                Backfill cancel sources
+              </Button>
             </div>
 
             <div className="rounded-2xl border border-[#1F1F1F] bg-[#0A0A0A] overflow-hidden">

@@ -4014,6 +4014,66 @@ async def delete_booking(booking_id: str, _: dict = Depends(require_admin)):
     return {"deleted": True}
 
 
+@api_router.post("/admin/bookings/backfill-cancellation-source")
+async def backfill_cancellation_source(_: dict = Depends(require_admin)):
+    """One-shot backfill: scan all already-cancelled bookings that don't yet
+    have a `cancellation_source` and infer it from existing signals so the
+    admin UI badges work retroactively (e.g. for Krista's reservation).
+
+    Inference rules (same priorities used by the live cancel paths):
+      - cancellation_reason starts with "Checkout abandoned" -> auto_abandoned
+      - cancellation_requested == true                        -> customer_web
+                                                                 (mobile_app is
+                                                                  indistinguishable
+                                                                  from web on
+                                                                  legacy data,
+                                                                  so we stamp
+                                                                  the safer web)
+      - everything else                                       -> admin
+    Returns a count breakdown so the user knows what happened.
+    """
+    cursor = db.bookings.find(
+        {
+            "status": "cancelled",
+            "$or": [
+                {"cancellation_source": {"$exists": False}},
+                {"cancellation_source": None},
+                {"cancellation_source": ""},
+            ],
+        },
+        {"_id": 0},
+    )
+    counts = {"auto_abandoned": 0, "customer_web": 0, "admin": 0}
+    async for b in cursor:
+        reason = (b.get("cancellation_reason") or "").lower()
+        if reason.startswith("checkout abandoned"):
+            source = "auto_abandoned"
+            when = b.get("auto_cancelled_at") or b.get("cancelled_at")
+            extra = {"auto_cancelled_at": when} if when else {}
+        elif b.get("cancellation_requested"):
+            source = "customer_web"
+            when = b.get("cancellation_requested_at") or b.get("cancelled_at")
+            extra = {}
+        else:
+            source = "admin"
+            when = b.get("cancelled_at")
+            extra = {}
+        set_doc = {"cancellation_source": source, **extra}
+        # Best-effort cancelled_at if missing — use the request timestamp or
+        # the booking's created_at as a last-resort marker.
+        if not b.get("cancelled_at"):
+            set_doc["cancelled_at"] = (
+                b.get("cancellation_requested_at")
+                or b.get("auto_cancelled_at")
+                or b.get("created_at")
+            )
+        await db.bookings.update_one({"id": b["id"]}, {"$set": set_doc})
+        counts[source] += 1
+    counts["total"] = counts["auto_abandoned"] + counts["customer_web"] + counts["admin"]
+    return {"ok": True, "updated": counts}
+
+
+
 # ---------- Admin protected: pricing ----------
 class PricingRow(BaseModel):
     model_config = ConfigDict(extra="ignore")
