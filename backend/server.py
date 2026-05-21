@@ -3185,9 +3185,11 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
     await db.bookings.update_one(
         {"id": payload.booking_id},
         {
-            "$set": booking_set,
+            "$set": {
+                **booking_set,
+                "last_checkout_attempt_at": datetime.now(timezone.utc).isoformat(),
+            },
             "$inc": {"checkout_attempts": 1},
-            "$currentDate": {"last_checkout_attempt_at": True},
         },
     )
 
