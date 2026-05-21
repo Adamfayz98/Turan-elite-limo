@@ -629,6 +629,24 @@ export default function AdminDashboard() {
                             Refunded ${b.refund_amount?.toFixed(2)}
                           </div>
                         )}
+                        {b.payment_status !== "paid" && (b.checkout_failures || 0) > 0 && (
+                          <div
+                            data-testid={`checkout-failure-flag-${b.id}`}
+                            className="inline-flex items-center text-[10px] uppercase tracking-wider mt-1 font-medium px-1.5 py-0.5 rounded border text-amber-300 border-amber-400/30"
+                            title={`${b.checkout_failures} Stripe checkout failure(s)${b.last_checkout_error ? ` — ${b.last_checkout_error}` : ""}`}
+                          >
+                            ⚠ {b.checkout_failures} fail{b.checkout_failures > 1 ? "s" : ""}
+                          </div>
+                        )}
+                        {b.payment_status === "pending" && (b.checkout_attempts || 0) > 0 && !(b.checkout_failures || 0) && (
+                          <div
+                            data-testid={`checkout-attempt-flag-${b.id}`}
+                            className="inline-flex items-center text-[10px] uppercase tracking-wider mt-1 font-medium px-1.5 py-0.5 rounded border text-sky-300 border-sky-400/30"
+                            title={`Customer reached Stripe ${b.checkout_attempts} time(s) but hasn't completed payment`}
+                          >
+                            ⏳ {b.checkout_attempts}× attempt
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2 flex-wrap">

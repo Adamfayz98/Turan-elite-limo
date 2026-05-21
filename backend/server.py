@@ -225,6 +225,14 @@ class Booking(BaseModel):
     payment_status: str = "unpaid"  # unpaid | pending | paid | refunded
     payment_session_id: Optional[str] = None
     payment_intent_id: Optional[str] = None
+    # Checkout health / retry tracking — surfaces a badge in admin if a
+    # customer keeps hitting "something went wrong" on the Stripe redirect.
+    checkout_attempts: int = 0
+    checkout_failures: int = 0
+    last_checkout_error: Optional[str] = None
+    last_checkout_error_at: Optional[str] = None
+    last_checkout_attempt_at: Optional[str] = None
+    payment_recovery_sent_at: Optional[str] = None
     paid_amount: Optional[float] = None
     paid_currency: Optional[str] = None
     quote_amount: Optional[float] = None  # snapshot of quoted price at booking time
@@ -3102,22 +3110,39 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
         form.append(("customer_email", customer_email))
 
     async with httpx.AsyncClient(timeout=15.0) as cli:
-        r = await cli.post(
-            "https://api.stripe.com/v1/checkout/sessions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            content=urlencode(form).encode("utf-8"),
-        )
+        try:
+            r = await cli.post(
+                "https://api.stripe.com/v1/checkout/sessions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                content=urlencode(form).encode("utf-8"),
+            )
+        except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPError) as e:
+            # Stripe API call failed (network, timeout, DNS). Log + SMS admin so
+            # we never silently lose a sale to "something went wrong" again.
+            err_msg = f"{type(e).__name__}: {str(e)[:200]}"
+            logger.error(f"Stripe checkout network/timeout failure for booking {payload.booking_id}: {err_msg}")
+            await _record_checkout_failure(payload.booking_id, "network_error", err_msg, booking)
+            raise HTTPException(
+                status_code=502,
+                detail="Our payment processor didn't respond in time. Please click 'Try again' or use the recovery link we just emailed you.",
+            )
     if r.status_code != 200:
-        logger.error(f"Stripe checkout create failed: {r.status_code} {r.text[:500]}")
-        raise HTTPException(status_code=502, detail="Could not start Stripe checkout")
+        err_body = r.text[:500]
+        logger.error(f"Stripe checkout create failed: {r.status_code} {err_body}")
+        await _record_checkout_failure(payload.booking_id, f"stripe_{r.status_code}", err_body, booking)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not start Stripe checkout. We've been notified and will call you to complete the booking.",
+        )
     sess_json = r.json()
     session_url = sess_json.get("url")
     session_id = sess_json.get("id")
     payment_intent_id = sess_json.get("payment_intent")
     if not session_url or not session_id:
+        await _record_checkout_failure(payload.booking_id, "stripe_invalid_session", str(sess_json)[:300], booking)
         raise HTTPException(status_code=502, detail="Stripe returned an invalid session")
 
     await db.payment_transactions.insert_one(
@@ -3144,10 +3169,92 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
         booking_set["stripe_payment_intent_id"] = payment_intent_id
     await db.bookings.update_one(
         {"id": payload.booking_id},
-        {"$set": booking_set},
+        {
+            "$set": booking_set,
+            "$inc": {"checkout_attempts": 1},
+            "$currentDate": {"last_checkout_attempt_at": True},
+        },
     )
 
     return CheckoutCreateResponse(url=session_url, session_id=session_id, amount=float(amount))
+
+
+async def _record_checkout_failure(booking_id: str, error_kind: str, error_detail: str, booking: dict):
+    """Centralized handler for any Stripe-checkout-create failure. Stamps the
+    booking, logs to a dedicated collection, and pages the admin via SMS so we
+    can call the customer back before they cancel out of frustration."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        await db.bookings.update_one(
+            {"id": booking_id},
+            {
+                "$inc": {"checkout_attempts": 1, "checkout_failures": 1},
+                "$set": {"last_checkout_error": error_detail[:300], "last_checkout_error_at": now_iso},
+            },
+        )
+    except Exception as e:
+        logger.warning(f"Failed to stamp checkout failure on booking {booking_id}: {e}")
+    try:
+        await db.checkout_failures.insert_one({
+            "id": str(uuid.uuid4()),
+            "booking_id": booking_id,
+            "kind": error_kind,
+            "detail": error_detail[:1000],
+            "created_at": now_iso,
+        })
+    except Exception as e:
+        logger.warning(f"Failed to log checkout failure: {e}")
+    # Page the admin so they can call the customer NOW
+    try:
+        admin_to = sms_service.admin_phone()
+        if admin_to:
+            cn = booking.get("confirmation_number") or booking.get("id", "")[:8]
+            name = booking.get("full_name") or "Customer"
+            phone = booking.get("phone") or ""
+            quote = booking.get("quote_amount")
+            quote_str = f" · ${quote:.0f}" if quote else ""
+            await sms_service.send_sms(
+                admin_to,
+                f"TuranEliteLimo · ⚠️ CHECKOUT FAILED · #{cn}\n"
+                f"{name} · {phone}{quote_str}\n"
+                f"Reason: {error_kind}\n"
+                f"CALL THIS CUSTOMER NOW — they hit an error trying to pay.",
+            )
+    except Exception as e:
+        logger.warning(f"Admin checkout-failure SMS failed: {e}")
+
+
+# ---------- Client-side checkout telemetry (Stripe redirect blocked detection) ----------
+class CheckoutTelemetryPayload(BaseModel):
+    booking_id: str
+    session_id: Optional[str] = None
+    kind: str  # "redirect_blocked" | "manual_fallback_clicked" | "redirect_error"
+    user_agent: Optional[str] = None
+    detail: Optional[str] = None
+
+
+@api_router.post("/payments/checkout-telemetry")
+async def record_checkout_telemetry(payload: CheckoutTelemetryPayload, request: Request):
+    """Public endpoint — no auth. Frontend pings this if the user is STILL on
+    the booking page 2.5s after we issued window.location.href = stripeUrl,
+    which means the redirect was blocked (iOS ITP, popup blocker, browser
+    policy). Logging it lets us spot patterns and act on them."""
+    try:
+        await db.checkout_telemetry.insert_one({
+            "id": str(uuid.uuid4()),
+            "booking_id": payload.booking_id,
+            "session_id": payload.session_id,
+            "kind": payload.kind[:40],
+            "user_agent": (payload.user_agent or "")[:300],
+            "detail": (payload.detail or "")[:500],
+            "ip": (request.client.host if request.client else "") or "",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as e:
+        logger.warning(f"Telemetry insert failed: {e}")
+    return {"ok": True}
+
+
 
 
 @api_router.get("/payments/status/{session_id}", response_model=PaymentStatus)
@@ -5623,8 +5730,16 @@ async def startup_seed():
             replace_existing=True,
             next_run_time=datetime.now(timezone.utc) + timedelta(seconds=120),
         )
+        _scheduler.add_job(
+            _send_payment_recovery_emails,
+            "interval",
+            minutes=5,
+            id="payment_recovery_email",
+            replace_existing=True,
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=90),
+        )
         _scheduler.start()
-        logger.info("Background scheduler started (review requests every 30 min, abandoned-checkout sweep every 60 min).")
+        logger.info("Background scheduler started (review requests every 30 min, abandoned-checkout sweep every 60 min, payment-recovery every 5 min).")
     except Exception as e:
         logger.warning(f"Scheduler failed to start: {e}")
 
@@ -5809,6 +5924,123 @@ async def _sweep_abandoned_checkouts():
             logger.info(f"Auto-cancelled {len(will_cancel)} abandoned bookings (>72h).")
     except Exception as e:
         logger.warning(f"_sweep_abandoned_checkouts failed: {e}")
+
+
+# ---------- 15-minute payment-recovery email + admin SMS ----------
+# When a customer creates a booking, the system creates a Stripe Checkout
+# session and redirects them. If the redirect silently fails (iOS Safari ITP,
+# network blip, popup blocker, JS error mid-redirect) they end up with
+# payment_status="pending" but never see the Stripe page. Krista's story.
+# This job catches that within 15 minutes:
+#   1. Emails the customer a one-click "Finish payment" link (their manage URL)
+#   2. Texts the admin so they can phone the customer immediately
+
+def _render_payment_recovery_email(b: dict, manage_url: Optional[str]) -> str:
+    name = (b.get("full_name") or "there").split()[0]
+    cnum = b.get("confirmation_number") or ""
+    pickup_when = f"{b.get('pickup_date','')} at {b.get('pickup_time','')}".strip()
+    btn = ""
+    if manage_url:
+        btn = (
+            f'<a href="{manage_url}" style="display:inline-block;background:#D4AF37;'
+            f'color:#0A0A0A;text-decoration:none;padding:14px 28px;border-radius:6px;'
+            f'font-weight:600;letter-spacing:.05em;margin:18px 0;">FINISH PAYMENT</a>'
+        )
+    return f"""
+    <div style="font-family:Helvetica,Arial,sans-serif;background:#0A0A0A;color:#EDEDED;padding:32px;max-width:560px;margin:auto;">
+      <div style="text-align:center;color:#D4AF37;letter-spacing:.3em;font-size:11px;margin-bottom:24px;">TURAN ELITE LIMO</div>
+      <h2 style="color:#FFF;font-weight:300;margin:0 0 16px;">Hi {name}, looks like your checkout got interrupted.</h2>
+      <p style="color:#BFBFBF;line-height:1.6;">
+        We received your reservation request{f' <strong style="color:#D4AF37;">{cnum}</strong>' if cnum else ''}
+        for <strong>{pickup_when}</strong>, but we never received the payment confirmation —
+        looks like the secure-checkout page didn't open for you.
+      </p>
+      <p style="color:#BFBFBF;line-height:1.6;">
+        Tap the button below to finish booking. It only takes a moment.
+      </p>
+      {btn}
+      <p style="color:#888;font-size:12px;line-height:1.6;margin-top:24px;">
+        Trouble with the page? Just reply to this email and we'll send you a direct payment link, or
+        call us and we can take payment over the phone.
+      </p>
+      <div style="border-top:1px solid #1F1F1F;margin-top:28px;padding-top:16px;color:#666;font-size:11px;text-align:center;">
+        TuranEliteLimo · Bay Area Chauffeur Service
+      </div>
+    </div>
+    """
+
+
+async def _send_payment_recovery_emails():
+    """Background job: catch customers stuck on 'payment_status: pending' for
+    more than 15 minutes and never paid. One-shot recovery (per booking)."""
+    try:
+        now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(minutes=15)).isoformat()
+        cursor = db.bookings.find(
+            {
+                "status": "pending",
+                "payment_status": "pending",
+                "created_at": {"$lt": cutoff},
+                "payment_recovery_sent_at": {"$exists": False},
+                "cancellation_requested": {"$ne": True},
+                "$and": [
+                    {"$or": [{"driver_id": {"$exists": False}}, {"driver_id": None}, {"driver_id": ""}]},
+                    {"$or": [{"payment_method": {"$exists": False}}, {"payment_method": {"$ne": "manual"}}]},
+                ],
+            },
+            {"_id": 0},
+        ).limit(50)
+        stuck = await cursor.to_list(50)
+        if not stuck:
+            return
+        origin = _public_origin()
+        for b in stuck:
+            manage_url = (
+                f"{origin}/manage/{b.get('manage_token')}" if b.get("manage_token") else None
+            )
+            cnum = b.get("confirmation_number") or ""
+            # 1) Recovery email to the customer
+            try:
+                html = _render_payment_recovery_email(b, manage_url)
+                subject = (
+                    f"Quick fix: finish booking your ride{(' #' + cnum) if cnum else ''}"
+                )
+                sent_id = await send_email(to=b["email"], subject=subject, html=html)
+                if sent_id is not None:
+                    logger.info(f"Payment-recovery email sent for booking {b.get('id')}")
+            except Exception as e:
+                logger.warning(f"Payment-recovery email failed for {b.get('id')}: {e}")
+            # 2) Admin SMS so they can call the customer NOW
+            try:
+                admin_to = sms_service.admin_phone()
+                if admin_to:
+                    name = b.get("full_name") or "Customer"
+                    phone = b.get("phone") or ""
+                    err = (b.get("last_checkout_error") or "")[:40]
+                    err_str = f"\nLast error: {err}" if err else ""
+                    await sms_service.send_sms(
+                        admin_to,
+                        f"TuranEliteLimo · 🔔 STUCK CHECKOUT · #{cnum or b.get('id','')[:8]}\n"
+                        f"{name} · {phone}\n"
+                        f"Booked 15+ min ago, never paid.{err_str}\n"
+                        f"Call them — recovery email already sent.",
+                    )
+            except Exception as e:
+                logger.warning(f"Admin stuck-checkout SMS failed: {e}")
+            # 3) Stamp the booking so we don't email them twice
+            await db.bookings.update_one(
+                {"id": b["id"]},
+                {"$set": {"payment_recovery_sent_at": now.isoformat()}},
+            )
+    except Exception as e:
+        logger.warning(f"_send_payment_recovery_emails failed: {e}")
+
+
+# ---------- Client-side telemetry: did the Stripe redirect actually fire? ----------
+# Frontend pings this if the user is STILL on the booking page 3 seconds after
+# we issued window.location.href = stripeUrl. That means the redirect was blocked
+# (iOS ITP, popup blocker, browser policy). We log it so we can act on patterns.
+# (Endpoint is registered earlier in the file before app.include_router.)
 
 
 _scheduler = None

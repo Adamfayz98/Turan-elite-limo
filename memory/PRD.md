@@ -29,45 +29,62 @@ Full-stack web application for a Bay Area luxury chauffeur service (TuranEliteLi
 
 
 ## Changelog — Feb 21 2026 (this session)
-### 🔴 P0 Fix: Auto-cancel of unpaid bookings was killing real customers
-**Problem reported by user (Krista on production):** A real reservation
-showed status="cancelled" the moment the admin opened the bookings page
-post-redeploy. The customer was never emailed; only admin SMS fired.
 
-**Root cause:** `GET /api/admin/bookings` ran an **inline sweep** that cancelled
-ANY booking with `status=pending` + `payment_status=pending` older than **24h**
-with no driver. Every dashboard refresh = mass cancellation event.
+### 🔴 P0 Fix: "Something went wrong" on Stripe checkout (the Krista root cause)
+**Problem:** Customer Krista (and the user himself, reproduced on Chrome desktop)
+hit `/payments/checkout` → got "Something went wrong" toast → never reached
+Stripe → frustrated → cancelled the booking. Root cause was that
+`window.location.href = stripeUrl` silently fails in several scenarios:
+iOS Safari ITP, popup blockers, network blips between booking creation and
+checkout response (booking + Stripe session got written to DB but the
+client-side redirect never ran).
 
-**Fixes shipped:**
-1. **Removed the inline sweep from `GET /admin/bookings`** — that endpoint is now
-   a pure read. It no longer mutates state under any circumstance.
-2. **Moved the sweep to a scheduled job** (`_sweep_abandoned_checkouts`)
-   running hourly via APScheduler. Cutoff extended from 24h → **72h** so weekend
-   bookers and slow-payers aren't dropped silently.
-3. **Added 23h reminder email** — at ~23h post-creation, the customer gets ONE
-   polite "your reservation needs payment" email with their manage link before
-   anything is cancelled. Tracked via `payment_reminder_sent_at`.
-4. **Cancellation provenance audit trail** stamped on every cancel path:
-   - `cancellation_source` ∈ `{"auto_abandoned", "customer_web", "mobile_app", "admin"}`
-   - `cancelled_at` (ISO timestamp)
-   - `cancelled_by_admin_email` (when admin did it)
-   - `auto_cancelled_at` (kept for back-compat with legacy sweeps)
-5. **Admin UI badges** — every cancelled booking now shows a colored pill
-   (🤖 Auto / 👤 Customer / 🧑‍💼 Admin / ⚪ Manual) on the bookings list,
-   with full forensic details (timestamp, admin email, source) in the booking
-   detail dialog. Riders never have to wonder "who cancelled this?" again.
+**Four-layer fix shipped:**
+1. **Visible checkout overlay** (`CheckoutRedirectOverlay.jsx`) — replaces silent
+   `window.location.href` with a full-screen "Opening secure checkout…" modal
+   that triggers the redirect AND, after 2.5s of being still on the page,
+   reveals a big yellow "Open secure checkout →" button with the real Stripe
+   URL. Works on iOS Safari because the manual click is user-initiated.
+2. **15-minute payment-recovery email** (`_send_payment_recovery_emails`) —
+   APScheduler job runs every 5 min, finds any booking stuck in
+   `payment_status=pending` for >15 min, sends customer a polite "looks like
+   checkout got interrupted, here's a direct link" email AND texts the admin
+   so they can phone the customer immediately. One-shot per booking
+   (`payment_recovery_sent_at`).
+3. **Server-side checkout failure tracking** — `_record_checkout_failure`
+   catches Stripe timeouts/network errors/non-200s. Increments
+   `checkout_failures` on the booking, logs to `checkout_failures` collection,
+   AND fires an admin SMS *"⚠️ CHECKOUT FAILED · CALL THIS CUSTOMER NOW"*.
+4. **Client-side telemetry** — `POST /api/payments/checkout-telemetry` logs
+   redirect_blocked / manual_fallback_clicked events with user-agent so we can
+   spot patterns (e.g. iOS 17 Safari blocking the redirect 30% of the time).
 
-**Files touched:**
-- `/app/backend/server.py` — Booking model + 3 cancel paths + scheduler job
-- `/app/frontend/src/pages/AdminDashboard.jsx` — badge in Status column
-- `/app/frontend/src/components/admin/BookingDetailsDialog.jsx` — forensic panel
-- `/app/backend/tests/test_cancellation_provenance.py` — regression suite (5 scenarios)
+**Admin UI:** Bookings table now shows two extra badges in the Payment column:
+- 🔵 `⏳ Nx attempt` — customer reached Stripe N times but hasn't paid
+- 🟠 `⚠ N fails` — Stripe call failed N times (hover for error detail)
 
-**Validation:** All 5 scenarios pass — admin cancel, customer-web cancel,
-auto-sweep, GET endpoint is read-only, 30h booking is reminded NOT cancelled.
+**Tests:** 5 backend tests all pass — telemetry endpoint, recovery job at 15min,
+recovery skips <15min bookings, recovery skips cancellation-requested bookings,
+real Stripe checkout creates session + stamps counters.
 
-**Action required from user:** Redeploy production. Krista's case can then
-be inspected via the new badge (or via Mongo: `cancellation_source` field).
+**Files:**
+- `/app/backend/server.py` — Booking model + `/payments/checkout` hardening +
+  recovery job + telemetry endpoint + admin SMS on every checkout failure
+- `/app/frontend/src/components/CheckoutRedirectOverlay.jsx` — NEW
+- `/app/frontend/src/components/BookingForm.jsx` — uses overlay
+- `/app/frontend/src/pages/PayBooking.jsx` — uses overlay
+- `/app/frontend/src/pages/AdminDashboard.jsx` — attempt/failure badges
+
+### 🟢 Cancellation provenance + retroactive backfill (shipped earlier today)
+- `cancellation_source` stamped on every cancel path
+  (`admin` / `customer_web` / `mobile_app` / `auto_abandoned`)
+- Admin UI badges: 🤖 / 👤 / 🧑‍💼 / ⚪ on every cancelled booking
+- Forensic timestamps (`cancelled_at`, `cancelled_by_admin_email`,
+  `auto_cancelled_at`, `payment_reminder_sent_at`) in BookingDetailsDialog
+- `_sweep_abandoned_checkouts` background job — 72h cutoff (was 24h inline),
+  with 23h "your reservation needs payment" reminder email
+- `POST /admin/bookings/backfill-cancellation-source` — one-shot endpoint
+  + admin UI button to retro-stamp historical cancellations
 
 
 ## Tech Stack

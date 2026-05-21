@@ -22,6 +22,7 @@ import FleetPicker from "@/components/FleetPicker";
 import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
 import StripeBadge from "@/components/StripeBadge";
 import CancellationPolicy from "@/components/CancellationPolicy";
+import CheckoutRedirectOverlay from "@/components/CheckoutRedirectOverlay";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -112,6 +113,9 @@ export default function BookingForm() {
   const [promoCode, setPromoCode] = useState("");
   const [promoApplied, setPromoApplied] = useState(null); // {code, discount, final_amount, description}
   const [promoStatus, setPromoStatus] = useState({ checking: false, error: null });
+  // Visible "Opening secure checkout..." overlay with manual-click fallback
+  // for browsers that silently block window.location.href to Stripe.
+  const [checkoutOverlay, setCheckoutOverlay] = useState(null); // { url, bookingId, sessionId } | null
 
   useEffect(() => {
     api.get("/options").then((r) => setOptions(r.data)).catch(() => {});
@@ -289,13 +293,19 @@ export default function BookingForm() {
       const hasInstantPrice = vQuote && vQuote.price != null;
 
       if (hasInstantPrice) {
-        // Redirect straight to Stripe checkout — premium, familiar UX
+        // Show a visible "Opening secure checkout…" overlay that triggers the
+        // redirect AND offers a manual fallback button if the browser blocks
+        // the auto-redirect (iOS Safari ITP, popup blockers, etc).
         try {
           const { data: co } = await api.post("/payments/checkout", {
             booking_id: booking.id,
             origin_url: window.location.origin,
           });
-          window.location.href = co.url;
+          setCheckoutOverlay({
+            url: co.url,
+            bookingId: booking.id,
+            sessionId: co.session_id,
+          });
           return; // don't reset state — redirect imminent
         } catch (err) {
           toast.error(
@@ -327,6 +337,14 @@ export default function BookingForm() {
       data-testid="booking-section"
       className="relative py-24 md:py-32 px-6 md:px-10 border-t border-white/5"
     >
+      {checkoutOverlay && (
+        <CheckoutRedirectOverlay
+          stripeUrl={checkoutOverlay.url}
+          bookingId={checkoutOverlay.bookingId}
+          sessionId={checkoutOverlay.sessionId}
+          onClose={() => setCheckoutOverlay(null)}
+        />
+      )}
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-14">
           <span className="text-xs tracking-[0.3em] uppercase text-[#D4AF37]">02 — Reserve</span>

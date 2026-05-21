@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
 import GoogleAdsConversion from "@/components/GoogleAdsConversion";
+import CheckoutRedirectOverlay from "@/components/CheckoutRedirectOverlay";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
 export default function PayBooking() {
@@ -29,6 +30,7 @@ export default function PayBooking() {
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
   const [pollMsg, setPollMsg] = useState(null);
+  const [checkoutOverlay, setCheckoutOverlay] = useState(null);
   const polledRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -113,7 +115,11 @@ export default function PayBooking() {
         booking_id: booking.id,
         origin_url: window.location.origin,
       });
-      window.location.href = data.url;
+      setCheckoutOverlay({
+        url: data.url,
+        bookingId: booking.id,
+        sessionId: data.session_id,
+      });
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Could not start payment");
       setPaying(false);
@@ -162,6 +168,14 @@ export default function PayBooking() {
 
   return (
     <main data-testid="pay-page" className="min-h-screen bg-[#050505] text-white">
+      {checkoutOverlay && (
+        <CheckoutRedirectOverlay
+          stripeUrl={checkoutOverlay.url}
+          bookingId={checkoutOverlay.bookingId}
+          sessionId={checkoutOverlay.sessionId}
+          onClose={() => { setCheckoutOverlay(null); setPaying(false); }}
+        />
+      )}
       <GoogleAdsConversion booking={booking} />
       <header className="px-6 md:px-10 h-20 flex items-center border-b border-white/10">
         <Link to="/" className="flex items-center gap-2.5">
