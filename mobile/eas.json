@@ -55,6 +55,7 @@
     "production": {
       "ios": {
         "ascAppId": "6771610380",
+        "appleId": "abdulkhafizfayzullaev@gmail.com",
         "appleTeamId": "9M7CK4W8HM"
       },
       "android": {

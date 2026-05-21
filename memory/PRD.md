@@ -35,7 +35,7 @@ Full-stack web application for a Bay Area luxury chauffeur service (TuranEliteLi
 
 **Fix:** Changed `baseUrl` to `https://turanelitelimo.com/` so the WebView referrer matches the existing API key restriction. File: `/app/mobile/src/components/InteractiveMap.tsx`.
 
-**Ship:** Triggered a new iOS build (#12, ID `c20fc598-e470-415a-971a-92496c9017e4`, profile=`production`) — needs manual `eas submit` after build finishes (auto-submit failed due to missing App Store Connect API key setup in non-interactive mode).
+**Ship:** iOS build #12 (`c20fc598`) successfully uploaded to App Store Connect via `eas submit` using app-specific Apple ID password. Submission ID `8535dae7-8fd5-4e92-b122-b0a7739e6790`. Apple-side processing in progress — will appear in TestFlight in ~5-15 min. eas.json updated with `appleId: abdulkhafizfayzullaev@gmail.com` for future submits.
 
 ### 🤖 FIX: Android EAS build failing (4 prior errors — root causes resolved)
 **Root cause A:** `@react-native-async-storage/async-storage@^3.0.3` has a new Android-side dependency `org.asyncstorage.shared_storage:storage-android:1.0.0` that is not published to public Maven repositories. Gradle could not resolve it; build failed at `:app:mergeReleaseNativeLibs`.
