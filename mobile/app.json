@@ -90,7 +90,10 @@
           "color": "#D4AF37",
           "defaultChannel": "default"
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-secure-store",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": false

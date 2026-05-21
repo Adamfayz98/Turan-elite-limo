@@ -37,10 +37,16 @@ Full-stack web application for a Bay Area luxury chauffeur service (TuranEliteLi
 
 **Ship:** Triggered a new iOS build (#12, ID `c20fc598-e470-415a-971a-92496c9017e4`, profile=`production`) — needs manual `eas submit` after build finishes (auto-submit failed due to missing App Store Connect API key setup in non-interactive mode).
 
-### 🤖 FIX: Android EAS build failing (3 prior errors)
-**Root cause:** `@react-native-async-storage/async-storage@^3.0.3` has a new Android-side dependency `org.asyncstorage.shared_storage:storage-android:1.0.0` that is not published to public Maven repositories (Google, Maven Central, JitPack, Sonatype Snapshots all checked). Gradle could not resolve it; build failed at `:app:mergeReleaseNativeLibs`. iOS was unaffected.
+### 🤖 FIX: Android EAS build failing (4 prior errors — root causes resolved)
+**Root cause A:** `@react-native-async-storage/async-storage@^3.0.3` has a new Android-side dependency `org.asyncstorage.shared_storage:storage-android:1.0.0` that is not published to public Maven repositories. Gradle could not resolve it; build failed at `:app:mergeReleaseNativeLibs`.
 
-**Fix:** Downgraded to `@react-native-async-storage/async-storage@2.2.0` — the Expo SDK 54-compatible version. Re-triggered Android EAS build (ID `fb6b1d42-6192-4a30-8b83-6daabf48d4f7`, profile=`production`, app-bundle).
+**Root cause B:** Many `expo-*` packages were on version 55.x while the project is on Expo SDK 54 — Kotlin compilation of `expo-updates:compileReleaseKotlin` failed with "`onDidCreateReactHost` overrides nothing" because the 55.x packages expected newer React Native host APIs. iOS tolerated this; Android did not.
+
+**Fix:**
+1. Downgraded `@react-native-async-storage/async-storage` from `^3.0.3` → `2.2.0` (Expo SDK 54-compatible).
+2. Realigned all expo packages to SDK 54 via `expo install`: `expo-device@~8.0.10`, `expo-haptics@~15.0.8`, `expo-location@~19.0.8`, `expo-notifications@~0.32.17`, `expo-secure-store@~15.0.8`, `expo-updates@~29.0.17`, `expo-web-browser@~15.0.11`, `react-native-webview@13.15.0`, `@react-native-community/datetimepicker@8.4.4`.
+
+**Result:** Android build #6 (`f3046e50-3b45-4f46-8979-bb4b14b8fd70`, versionCode 6) FINISHED — `.aab` available at https://expo.dev/artifacts/eas/w1vDzeuzDETkz5ioKJAT7q.aab. Ready to submit to Google Play Console.
 
 ### 🔐 Expo token persistence
 Saved new EXPO_TOKEN to `/app/.eas_secrets` (chmod 600) so it survives session restarts.
