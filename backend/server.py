@@ -3889,24 +3889,55 @@ async def admin_force_sync_payment(
 @api_router.get("/admin/bookings", response_model=List[Booking])
 async def list_bookings(_: dict = Depends(require_admin)):
     # Auto-cancel abandoned Stripe checkouts so the dashboard stays clean.
-    # A booking is "abandoned" when: customer started Stripe checkout but never
-    # completed it (payment_status="pending"), booking is still "pending", and it
-    # was created more than 2 hours ago. Admin-created cash bookings (payment_status
-    # stays "unpaid") are intentionally untouched.
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
-    await db.bookings.update_many(
-        {
-            "status": "pending",
-            "payment_status": "pending",
-            "created_at": {"$lt": cutoff},
-        },
-        {
-            "$set": {
+    # A booking is "abandoned" when:
+    #   - status="pending" AND payment_status="pending"
+    #   - older than 24 hours (was 2h — too aggressive; bumped to 24h to give
+    #     slow-payers and customers who left to grab their card time to come back)
+    #   - NO chauffeur assigned (if you assigned a driver, the trip is intentional
+    #     even if not yet paid — e.g. cash-on-arrival or manual reconciliation)
+    #   - NOT flagged for manual payment (payment_method != "manual")
+    # Admin-created cash bookings (payment_status stays "unpaid") are untouched.
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    sweep_filter = {
+        "status": "pending",
+        "payment_status": "pending",
+        "created_at": {"$lt": cutoff},
+        "$and": [
+            {"$or": [{"driver_id": {"$exists": False}}, {"driver_id": None}, {"driver_id": ""}]},
+            {"$or": [{"payment_method": {"$exists": False}}, {"payment_method": {"$ne": "manual"}}]},
+        ],
+    }
+    # Pre-fetch which bookings WILL be swept so we can SMS the admin (no email
+    # to the customer — keeps the experience invisible to them per policy).
+    will_sweep = await db.bookings.find(
+        sweep_filter,
+        {"_id": 0, "id": 1, "confirmation_number": 1, "full_name": 1},
+    ).to_list(50)
+
+    if will_sweep:
+        await db.bookings.update_many(
+            sweep_filter,
+            {"$set": {
                 "status": "cancelled",
-                "cancellation_reason": "Checkout abandoned (auto-cleaned)",
-            }
-        },
-    )
+                "cancellation_reason": "Checkout abandoned (auto-cleaned after 24h)",
+                "cancellation_source": "auto_abandoned",
+                "auto_cancelled_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        admin_to = sms_service.admin_phone()
+        if admin_to:
+            preview = ", ".join(
+                (b.get("confirmation_number") or b["id"][:8]) + f" ({b.get('full_name') or '?'})"
+                for b in will_sweep[:5]
+            )
+            extra = f" +{len(will_sweep) - 5} more" if len(will_sweep) > 5 else ""
+            try:
+                await sms_service.send_sms(
+                    admin_to,
+                    f"TuranEliteLimo auto-cleanup: {len(will_sweep)} abandoned booking(s) marked cancelled. {preview}{extra}. Open admin → Bookings to review.",
+                )
+            except Exception as e:
+                logger.warning(f"Admin auto-cleanup SMS failed: {e}")
 
     cursor = db.bookings.find({}, {"_id": 0}).sort("created_at", -1)
     items = await cursor.to_list(1000)
