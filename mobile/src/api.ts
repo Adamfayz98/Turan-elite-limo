@@ -8,7 +8,7 @@ import { Platform } from "react-native";
 
 const BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ||
-  "https://limo-experience-1.preview.emergentagent.com";
+  "https://turanelitelimo.com";
 
 let cachedToken: string | null = null;
 

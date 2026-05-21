@@ -2544,31 +2544,46 @@ async def public_banner_promo():
     """Returns the currently advertised promo (if any) for the sitewide banner.
     Picks the most recently created promo that is active + has show_on_banner=True
     + not expired + hasn't hit max_uses.
+    Defensive: skips malformed promo docs instead of 500-ing on missing fields.
     """
     today = datetime.now(timezone.utc).date().isoformat()
-    cursor = db.promos.find(
-        {"active": True, "show_on_banner": True},
-        {"_id": 0},
-    ).sort("created_at", -1)
-    rows = await cursor.to_list(20)
+    try:
+        cursor = db.promos.find(
+            {"active": True, "show_on_banner": True},
+            {"_id": 0},
+        ).sort("created_at", -1)
+        rows = await cursor.to_list(20)
+    except Exception as e:
+        logger.warning(f"public_banner_promo: db query failed: {e}")
+        return {"code": None}
     for p in rows:
-        # Expiry guard
-        exp = p.get("expires_at")
-        if exp and exp < today:
+        try:
+            # Required fields — skip silently if any malformed legacy doc lacks them
+            code = p.get("code")
+            dtype = p.get("discount_type")
+            val = p.get("value")
+            if not code or not dtype or val is None:
+                continue
+            # Expiry guard
+            exp = p.get("expires_at")
+            if exp and exp < today:
+                continue
+            # Max uses guard
+            mu = p.get("max_uses")
+            if mu is not None and int(p.get("uses") or 0) >= int(mu):
+                continue
+            return {
+                "code": code,
+                "description": p.get("description") or "",
+                "discount_type": dtype,
+                "value": float(val),
+                "min_ride_amount": float(p.get("min_ride_amount") or 0),
+                "first_ride_only": bool(p.get("first_ride_only")),
+                "expires_at": p.get("expires_at"),
+            }
+        except Exception as e:
+            logger.warning(f"public_banner_promo: skipping malformed promo {p.get('id','?')}: {e}")
             continue
-        # Max uses guard
-        mu = p.get("max_uses")
-        if mu is not None and int(p.get("uses") or 0) >= int(mu):
-            continue
-        return {
-            "code": p["code"],
-            "description": p.get("description") or "",
-            "discount_type": p["discount_type"],
-            "value": float(p["value"]),
-            "min_ride_amount": float(p.get("min_ride_amount") or 0),
-            "first_ride_only": bool(p.get("first_ride_only")),
-            "expires_at": p.get("expires_at"),
-        }
     return {"code": None}
 
 
@@ -4013,7 +4028,15 @@ async def list_bookings(_: dict = Depends(require_admin)):
     # (_sweep_abandoned_checkouts, hourly) so a dashboard refresh is purely a read.
     cursor = db.bookings.find({}, {"_id": 0}).sort("created_at", -1)
     items = await cursor.to_list(1000)
-    return [Booking(**i) for i in items]
+    # Defensive: a single malformed legacy booking (missing required field,
+    # unexpected enum, etc.) must NOT take down the entire admin dashboard.
+    out = []
+    for i in items:
+        try:
+            out.append(Booking(**i))
+        except Exception as e:
+            logger.warning(f"list_bookings: skipping malformed booking {i.get('id','?')}: {e}")
+    return out
 
 
 @api_router.patch("/admin/bookings/{booking_id}", response_model=Booking)
@@ -4450,7 +4473,14 @@ async def delete_surge_event(event_id: str, _: dict = Depends(require_admin)):
 async def list_contacts(_: dict = Depends(require_admin)):
     cursor = db.contacts.find({}, {"_id": 0}).sort("created_at", -1)
     items = await cursor.to_list(1000)
-    return [ContactInquiry(**i) for i in items]
+    # Defensive: a single malformed legacy doc shouldn't 500 the whole list.
+    out = []
+    for i in items:
+        try:
+            out.append(ContactInquiry(**i))
+        except Exception as e:
+            logger.warning(f"list_contacts: skipping malformed contact {i.get('id','?')}: {e}")
+    return out
 
 
 @api_router.patch("/admin/contacts/{contact_id}")

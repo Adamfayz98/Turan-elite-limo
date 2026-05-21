@@ -133,20 +133,46 @@ export default function AdminDashboard() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [b, c, s] = await Promise.all([
+      // Use allSettled so one failing endpoint doesn't blank out the entire
+      // dashboard. Each section reports its own error independently.
+      const [bRes, cRes, sRes] = await Promise.allSettled([
         api.get("/admin/bookings"),
         api.get("/admin/contacts"),
         api.get("/admin/stats"),
       ]);
-      setBookings(b.data);
-      setContacts(c.data);
-      setStats(s.data);
-    } catch (err) {
-      if (err.response?.status === 401) {
+
+      // Auth check — if ALL three returned 401, the session expired
+      const all401 =
+        [bRes, cRes, sRes].every(
+          (r) => r.status === "rejected" && r.reason?.response?.status === 401,
+        );
+      if (all401) {
         toast.error("Session expired. Please sign in again.");
         logout();
+        return;
+      }
+
+      const failures = [];
+      if (bRes.status === "fulfilled") {
+        setBookings(bRes.value.data);
       } else {
-        toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to load");
+        failures.push(`bookings (${bRes.reason?.response?.status || "network"})`);
+      }
+      if (cRes.status === "fulfilled") {
+        setContacts(cRes.value.data);
+      } else {
+        failures.push(`contacts (${cRes.reason?.response?.status || "network"})`);
+      }
+      if (sRes.status === "fulfilled") {
+        setStats(sRes.value.data);
+      } else {
+        failures.push(`stats (${sRes.reason?.response?.status || "network"})`);
+      }
+      if (failures.length) {
+        toast.error(
+          `Could not load: ${failures.join(", ")}. Other sections still loaded.`,
+          { duration: 6000 },
+        );
       }
     } finally {
       setLoading(false);

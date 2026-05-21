@@ -43,7 +43,7 @@ export const spacing = {
 
 /** Logo asset URLs. Hosted on customer-assets so they work in preview, production, and native builds without redeploy. */
 export const assets = {
-  logoMark: "https://limo-experience-1.preview.emergentagent.com/logo-mark.png?v=4",
-  logoFull: "https://limo-experience-1.preview.emergentagent.com/logo-full.png?v=4",
+  logoMark: "https://turanelitelimo.com/logo-mark.png?v=4",
+  logoFull: "https://turanelitelimo.com/logo-full.png?v=4",
   abstractGold: "https://static.prod-images.emergentagent.com/jobs/1689fe63-929d-4e0f-9a68-ee41e3772b20/images/552a1c8656efc0533fd136ccd9396126f7b4d6677e70677000c2f04374d4d979.png",
 };
