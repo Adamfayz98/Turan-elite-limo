@@ -120,9 +120,9 @@ export default function RiderHome() {
       {/* Dim layer so the bottom sheet text stays legible over the live map */}
       <View pointerEvents="none" style={s.mapDim} />
 
-      <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
+      <SafeAreaView style={s.safe} edges={["top", "left", "right"]} pointerEvents="box-none">
         {/* Top bar */}
-        <View style={s.topBar}>
+        <View style={s.topBar} pointerEvents="box-none">
           <Pressable testID="home-settings" onPress={() => router.push("/profile")} style={s.iconBtn}>
             <Settings size={16} color="#fff" strokeWidth={1.6} />
           </Pressable>
@@ -138,6 +138,7 @@ export default function RiderHome() {
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
+          pointerEvents="box-none"
         >
           <View style={s.sheet}>
             {/* Quick-actions row (only renders if rider has Home/Work saved). */}

@@ -81,6 +81,17 @@ User created `AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A` under `support@turanelite
 - API restrictions: Maps JS, Places, Geocoding, Directions
 - Billing linked
 
+### 🔧 CRITICAL FIX: Map was completely frozen (build #16 follow-up)
+**Symptoms:** Map rendered visually but was unresponsive — no pan, no pinch-zoom, and pickup/dropoff entries didn't show pins.
+
+**Root cause:** `<SafeAreaView style={{flex:1}}>` in `home.tsx` covers the entire screen above the bottom form sheet. By default, React Native parent views with `flex:1` **intercept ALL touch events in their bounds**, even when visually empty/transparent. So every drag/pinch in the middle of the screen went to SafeAreaView instead of MapView below it. The map APPEARED frozen because it never received a single touch event.
+
+**Fix:** Added `pointerEvents="box-none"` to the SafeAreaView and KeyboardAvoidingView in home.tsx — this tells RN "don't catch touches in my empty space, let them fall through; my children (top bar, form sheet) handle their own taps". Also added double-retry to InteractiveMap's auto-fit (300ms + 1200ms after coords change) so iOS marker mounting timing can't leave pins off-screen.
+
+**Ship:**
+- iOS build #17 (`a84842e7-1a37-43d3-9176-e31671ddf154`) → submitted to TestFlight (submission `6a695031`). Install **1.0.0 (17)**.
+- Android build #11 (`114d22a6-ef2d-4efa-b4b9-d251979eac05`) → in progress.
+
 ### 🔧 FIX: Native map pins + route line not rendering on iOS (build #15 follow-up)
 **Symptoms in build #15:** Map looked stunning (dark/gold luxury, full-screen, no error overlays, exactly like IMG_1850) — but pickup/dropoff pins and the route line didn't appear when both addresses were entered.
 

@@ -107,28 +107,31 @@ export default function InteractiveMap({
     return pts;
   }, [JSON.stringify(allDrivers), JSON.stringify(pickup), JSON.stringify(dropoff)]);
 
-  // Fit to all points whenever they change.
+  // Fit to all points whenever they change, OR once the map signals ready.
+  // We try both paths so a slow/dropped onMapReady event doesn't leave the
+  // pins permanently off-screen.
   useEffect(() => {
-    if (!mapReady) return;
     if (focusDriverId) return;
     if (coordinates.length === 0) return;
-    if (coordinates.length === 1) {
-      mapRef.current?.animateToRegion(
-        { latitude: coordinates[0].latitude, longitude: coordinates[0].longitude, latitudeDelta: 0.04, longitudeDelta: 0.04 },
-        700
-      );
-      return;
-    }
-    // Slight delay lets the marker views mount before we fit, so anchors are
-    // measured correctly on iOS.
-    const t = setTimeout(() => {
-      mapRef.current?.fitToCoordinates(coordinates, {
-        edgePadding: fitPadding,
-        animated: true,
-      });
-    }, 250);
-    return () => clearTimeout(t);
-  }, [JSON.stringify(coordinates), focusDriverId, mapReady, JSON.stringify(fitPadding)]);
+    const fit = () => {
+      if (coordinates.length === 1) {
+        mapRef.current?.animateToRegion(
+          { latitude: coordinates[0].latitude, longitude: coordinates[0].longitude, latitudeDelta: 0.04, longitudeDelta: 0.04 },
+          700
+        );
+      } else {
+        mapRef.current?.fitToCoordinates(coordinates, {
+          edgePadding: fitPadding,
+          animated: true,
+        });
+      }
+    };
+    // Try once immediately and again after a short delay so iOS has time
+    // to mount the markers (whose anchors influence the fit calculation).
+    const t1 = setTimeout(fit, 300);
+    const t2 = setTimeout(fit, 1200);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [JSON.stringify(coordinates), focusDriverId, JSON.stringify(fitPadding), mapReady]);
 
   useEffect(() => {
     if (!mapReady) return;
