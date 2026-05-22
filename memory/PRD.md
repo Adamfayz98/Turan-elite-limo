@@ -81,8 +81,21 @@ User created `AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A` under `support@turanelite
 - API restrictions: Maps JS, Places, Geocoding, Directions
 - Billing linked
 
-### 📡 Push Notifications playbook obtained
-Full integration plan ready (Expo Push API + FastAPI BackgroundTasks + Beanie MongoDB ODM + exponent-server-sdk-async). 2 channels: `ride-updates` and `dispatch-alerts`. Triggers: driver assigned / 5 min away / arrived / trip started / trip completed / new request / ride assigned. Ready to implement next session.
+### 🗺️ MAJOR REFACTOR: WebView Maps → Native Google Maps SDK (react-native-maps)
+**Why:** User's previous build (#14) still showed "Can't load Google Maps correctly" error in iOS with web chrome (Keyboard shortcuts/Terms footer). Root cause is fundamental — iOS WKWebView and HTTP-referrer restrictions are not compatible. The whole WebView approach was the wrong tool for the job.
+
+**Refactor:**
+1. Installed `react-native-maps@1.20.1` (the library Uber/Lyft use).
+2. Rewrote `/app/mobile/src/components/InteractiveMap.tsx` from a WebView-based component to a native `MapView` using `PROVIDER_GOOGLE`. Dark/gold luxury style applied via `customMapStyle` prop. Custom gold pickup pin, dark dropoff pin, gold polyline. Auto-fits to all visible points with 60% padding.
+3. Fixed `/app/mobile/app/(rider)/(tabs)/home.tsx` — InteractiveMap now passed `height="100%"` so it actually fills the screen (was defaulting to 320px, causing the "half black, half map" layout bug).
+4. Added native API key configuration in `app.json`:
+   - `ios.config.googleMapsApiKey`
+   - `android.config.googleMaps.apiKey`
+5. User enabled Maps SDK for iOS + Maps SDK for Android in Google Cloud and added them to the existing key restrictions.
+
+**Ship:**
+- iOS build #15 (`c53199a3-a19a-42bc-9c91-b9cac62d04b9`) — submitted to TestFlight (submission `b3cf864a`). Processing on Apple's side.
+- Android build #9 (`8577f9dc-4ff0-4d3a-8972-093706cf4aec`) — in progress.
 
 
 ## Changelog — Feb 21 2026 (this session)
