@@ -56,8 +56,33 @@ Full-stack web application for a Bay Area luxury chauffeur service (TuranEliteLi
 
 **Result:** Android build #6 (`f3046e50-3b45-4f46-8979-bb4b14b8fd70`, versionCode 6) FINISHED — `.aab` available at https://expo.dev/artifacts/eas/w1vDzeuzDETkz5ioKJAT7q.aab. Ready to submit to Google Play Console.
 
-### 🔐 Expo token persistence
-Saved new EXPO_TOKEN to `/app/.eas_secrets` (chmod 600) so it survives session restarts.
+### 🎨 FIX: App icon too small + off-center on iPhone home screen
+**Root cause:** Original `icon.png` had the wolf+crescent logo filling only 54% of canvas (Apple ideal: 70-85%) with center offset 70px below true center.
+
+**Fix:** Regenerated all icon assets from `logo-mark-1024.png` (the master logo file):
+- `icon.png`: logo now fills 78% of canvas, perfectly centered (511, 512)
+- `adaptive-icon.png`: 70% (Android safe zone)
+- `splash.png`: 40% (elegant centered on dark)
+
+### 🐞 FIX: Mobile web preview at `/m/` returned a blank white page
+**Root cause:** Expo's `expo export --platform web` generates an `index.html` that references `/_expo/...` (root) for JS, but the page is served from `/m/`, so the browser hit 404 silently.
+
+**Fix:** Patched `/app/frontend/public/m/index.html` to use `/m/_expo/...` paths. Verified curl returns new JS bundle with the new API key.
+
+### 🚀 NEW BUILDS shipped
+- iOS #13 (`58e45020`) — first build with new API key → submitted to TestFlight
+- iOS #14 (`f1f6c60e`) — has new API key + new icons → submitted to TestFlight (submission `1e5615c0`)
+- Android #7 (`b8e0dc60`) — first .aab with new key: https://expo.dev/artifacts/eas/oQ7EKwWR492JwB5VSkdnSr.aab
+- Android #8 (`eef75758`) — .aab with new key + new icons → ready for Play Console submit once user provides service account JSON
+
+### 🔑 New Google Maps API key created
+User created `AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A` under `support@turanelitelimo.com` Cloud account with:
+- Application restrictions: None (required for WebView)
+- API restrictions: Maps JS, Places, Geocoding, Directions
+- Billing linked
+
+### 📡 Push Notifications playbook obtained
+Full integration plan ready (Expo Push API + FastAPI BackgroundTasks + Beanie MongoDB ODM + exponent-server-sdk-async). 2 channels: `ride-updates` and `dispatch-alerts`. Triggers: driver assigned / 5 min away / arrived / trip started / trip completed / new request / ride assigned. Ready to implement next session.
 
 
 ## Changelog — Feb 21 2026 (this session)
