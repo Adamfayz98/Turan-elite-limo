@@ -64,13 +64,20 @@ export default function RiderHome() {
     })();
   }, [user]);
 
+  // Track geocode status so we can show a small debug indicator on the map.
+  // Removes the mystery of "is geocoding running? is the key working?"
+  const [geocodeStatus, setGeocodeStatus] = useState<string>("");
+
   // Re-geocode pickup whenever it changes (debounced)
   useEffect(() => {
     let cancelled = false;
     if (!pickup.trim()) { setPickupCoord(null); return; }
     const t = setTimeout(async () => {
+      setGeocodeStatus("geocoding pickup…");
       const c = await geocode(pickup);
-      if (!cancelled) setPickupCoord(c);
+      if (cancelled) return;
+      setPickupCoord(c);
+      setGeocodeStatus(c ? `pickup ${c.lat.toFixed(3)},${c.lng.toFixed(3)}` : "pickup geocode FAILED");
     }, 500);
     return () => { cancelled = true; clearTimeout(t); };
   }, [pickup]);
@@ -80,8 +87,11 @@ export default function RiderHome() {
     let cancelled = false;
     if (!dropoff.trim()) { setDropoffCoord(null); return; }
     const t = setTimeout(async () => {
+      setGeocodeStatus("geocoding dropoff…");
       const c = await geocode(dropoff);
-      if (!cancelled) setDropoffCoord(c);
+      if (cancelled) return;
+      setDropoffCoord(c);
+      setGeocodeStatus(c ? `dropoff ${c.lat.toFixed(3)},${c.lng.toFixed(3)}` : "dropoff geocode FAILED");
     }, 500);
     return () => { cancelled = true; clearTimeout(t); };
   }, [dropoff]);
@@ -133,6 +143,17 @@ export default function RiderHome() {
       <View pointerEvents="none" style={s.mapDim} />
 
       <SafeAreaView style={s.safe} edges={["top", "left", "right"]} pointerEvents="box-none">
+        {/* Debug pill: shows live geocode status so we can verify the
+            Google Maps key is wired up correctly on TestFlight builds.
+            Remove once the map is confirmed working in the wild. */}
+        {!!geocodeStatus && (
+          <View pointerEvents="none" style={s.debugPill}>
+            <Text style={s.debugTxt} numberOfLines={1}>{geocodeStatus}</Text>
+            <Text style={s.debugTxt} numberOfLines={1}>
+              key:{GMAPS_KEY ? `${GMAPS_KEY.slice(0,10)}…` : "MISSING"} pin:{pickupCoord ? "✓" : "✗"}/{dropoffCoord ? "✓" : "✗"}
+            </Text>
+          </View>
+        )}
         {/* Top bar */}
         <View style={s.topBar} pointerEvents="box-none">
           <Pressable testID="home-settings" onPress={() => router.push("/profile")} style={s.iconBtn}>
@@ -268,4 +289,15 @@ const s = StyleSheet.create({
   chipTxt: { color: "rgba(255,255,255,0.85)", fontSize: 12 },
   quickChip: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: "rgba(212,175,55,0.1)", borderWidth: 1, borderColor: "rgba(212,175,55,0.35)" },
   quickTxt: { color: colors.gold, fontSize: 12, fontWeight: "500", maxWidth: 150 },
+  debugPill: {
+    alignSelf: "center",
+    marginTop: 60,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(212,175,55,0.4)",
+  },
+  debugTxt: { color: "#D4AF37", fontSize: 10, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
 });

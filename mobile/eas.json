@@ -41,7 +41,8 @@
       "channel": "production",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://turanelitelimo.com"
+        "EXPO_PUBLIC_API_URL": "https://turanelitelimo.com",
+        "EXPO_PUBLIC_GOOGLE_MAPS_BROWSER_KEY": "AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A"
       },
       "ios": {
         "resourceClass": "m-medium"
