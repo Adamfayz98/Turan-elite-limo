@@ -96,7 +96,7 @@ const DEFAULT_REGION: Region = {
   longitudeDelta: 0.25,
 };
 
-const DEFAULT_PADDING = { top: 120, right: 60, bottom: 320, left: 60 };
+const DEFAULT_PADDING = { top: 140, right: 60, bottom: 380, left: 60 };
 
 /**
  * Marker child wrapped so we can flip tracksViewChanges → false after first
@@ -275,29 +275,44 @@ export default function InteractiveMap({
         {/* Dashed route driver→pickup (active trip) */}
         {showRoute && allDrivers.length === 1 && pickup && (
           <Polyline
+            key={`drv-route-${allDrivers[0].lat}-${allDrivers[0].lng}-${pickup.lat}-${pickup.lng}`}
             coordinates={[
               { latitude: allDrivers[0].lat, longitude: allDrivers[0].lng },
               { latitude: pickup.lat, longitude: pickup.lng },
             ]}
             strokeColor="#D4AF37"
+            strokeColors={["#D4AF37", "#D4AF37"]}
             strokeWidth={4}
             lineDashPattern={Platform.OS === "ios" ? [8, 8] : undefined}
+            geodesic={false}
+            zIndex={20}
           />
         )}
 
         {/* Solid gold route pickup→dropoff. Uses the real road-following
             polyline from Directions API when available, otherwise falls back
-            to a straight line so the user still sees a connection. */}
+            to a straight line so the user still sees a connection.
+            iOS quirk: react-native-maps sometimes ignores `strokeColor` and
+            falls back to the system default blue. Passing the same color via
+            both `strokeColor` AND `strokeColors` (array) plus a stable `key`
+            forces iOS to use our gold (#D4AF37). */}
         {pickup && dropoff && (
           <Polyline
+            key={`route-${pickup.lat}-${pickup.lng}-${dropoff.lat}-${dropoff.lng}-${routeCoords.length}`}
             coordinates={routeCoords.length > 0 ? routeCoords : [
               { latitude: pickup.lat, longitude: pickup.lng },
               { latitude: dropoff.lat, longitude: dropoff.lng },
             ]}
             strokeColor="#D4AF37"
+            strokeColors={routeCoords.length > 0
+              ? routeCoords.map(() => "#D4AF37")
+              : ["#D4AF37", "#D4AF37"]
+            }
             strokeWidth={5}
             lineCap="round"
             lineJoin="round"
+            geodesic={false}
+            zIndex={10}
           />
         )}
       </MapView>

@@ -64,20 +64,13 @@ export default function RiderHome() {
     })();
   }, [user]);
 
-  // Track geocode status so we can show a small debug indicator on the map.
-  // Removes the mystery of "is geocoding running? is the key working?"
-  const [geocodeStatus, setGeocodeStatus] = useState<string>("");
-
   // Re-geocode pickup whenever it changes (debounced)
   useEffect(() => {
     let cancelled = false;
     if (!pickup.trim()) { setPickupCoord(null); return; }
     const t = setTimeout(async () => {
-      setGeocodeStatus("geocoding pickup…");
       const c = await geocode(pickup);
-      if (cancelled) return;
-      setPickupCoord(c);
-      setGeocodeStatus(c ? `pickup ${c.lat.toFixed(3)},${c.lng.toFixed(3)}` : "pickup geocode FAILED");
+      if (!cancelled) setPickupCoord(c);
     }, 500);
     return () => { cancelled = true; clearTimeout(t); };
   }, [pickup]);
@@ -87,11 +80,8 @@ export default function RiderHome() {
     let cancelled = false;
     if (!dropoff.trim()) { setDropoffCoord(null); return; }
     const t = setTimeout(async () => {
-      setGeocodeStatus("geocoding dropoff…");
       const c = await geocode(dropoff);
-      if (cancelled) return;
-      setDropoffCoord(c);
-      setGeocodeStatus(c ? `dropoff ${c.lat.toFixed(3)},${c.lng.toFixed(3)}` : "dropoff geocode FAILED");
+      if (!cancelled) setDropoffCoord(c);
     }, 500);
     return () => { cancelled = true; clearTimeout(t); };
   }, [dropoff]);
@@ -143,17 +133,6 @@ export default function RiderHome() {
       <View pointerEvents="none" style={s.mapDim} />
 
       <SafeAreaView style={s.safe} edges={["top", "left", "right"]} pointerEvents="box-none">
-        {/* Debug pill: shows live geocode status so we can verify the
-            Google Maps key is wired up correctly on TestFlight builds.
-            Remove once the map is confirmed working in the wild. */}
-        {!!geocodeStatus && (
-          <View pointerEvents="none" style={s.debugPill}>
-            <Text style={s.debugTxt} numberOfLines={1}>{geocodeStatus}</Text>
-            <Text style={s.debugTxt} numberOfLines={1}>
-              key:{GMAPS_KEY ? `${GMAPS_KEY.slice(0,10)}…` : "MISSING"} pin:{pickupCoord ? "✓" : "✗"}/{dropoffCoord ? "✓" : "✗"}
-            </Text>
-          </View>
-        )}
         {/* Top bar */}
         <View style={s.topBar} pointerEvents="box-none">
           <Pressable testID="home-settings" onPress={() => router.push("/profile")} style={s.iconBtn}>
