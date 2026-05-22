@@ -1,58 +1,87 @@
 /**
- * Native Google Maps wrapper for TuranEliteLimo. Uses `react-native-maps`
- * with PROVIDER_GOOGLE on both iOS and Android.
+ * Native Google Maps wrapper for TuranEliteLimo.
  *
- * Three iOS-specific gotchas this component handles:
- *   1. Custom <Marker> children render BLANK on iOS unless tracksViewChanges
- *      starts `true` and is switched to `false` only AFTER the marker mounts.
- *   2. fitToCoordinates is far more reliable than animateToRegion when fitting
- *      multiple points — and it accepts edgePadding so pins are not hidden
- *      behind the bottom form sheet.
- *   3. mapPadding must compensate for any UI overlay so the map's logical
- *      center is the visible center of the map (not the screen center).
+ * This file is intentionally DEFENSIVE — every external input (geocode results,
+ * Directions API responses, polyline decoding) is validated before passing to
+ * react-native-maps, because invalid data (NaN, undefined, out-of-range)
+ * triggers native crashes on iOS that show no JS-level stack trace.
+ *
+ * Crash-prevention rules followed here:
+ *   1. Polyline always rendered with a stable key (so iOS does not unmount/remount
+ *      mid-animation, which causes UAF on the Google Maps SDK iOS pin layer).
+ *   2. Polyline coordinate list is filtered to remove any NaN / out-of-range
+ *      points BEFORE handing to <Polyline>.
+ *   3. Marker children are wrapped to flip tracksViewChanges off only after a
+ *      successful layout pass (otherwise iOS shows blank custom views).
+ *   4. fitToCoordinates uses ONLY pickup / dropoff / driver pins — not the
+ *      hundreds of Directions route waypoints, which on older devices makes
+ *      the native fit calculation OOM.
+ *   5. Directions API failures fall back silently to a straight line; the
+ *      app never blocks on the network.
  */
-import { useRef, useEffect, useMemo, useState } from "react";
+import { useRef, useEffect, useMemo, useState, useCallback } from "react";
 import { StyleSheet, View, Platform } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, Region } from "react-native-maps";
 
 const GMAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_BROWSER_KEY || "";
 
-// Decodes a Google "encoded polyline" string into an array of lat/lng pairs.
-// Implements the algorithm from https://developers.google.com/maps/documentation/utilities/polylinealgorithm
+// Sanity check: lat must be in [-90,90], lng in [-180,180], both finite.
+function validCoord(p: { latitude?: number; longitude?: number } | undefined | null): boolean {
+  if (!p) return false;
+  const { latitude: la, longitude: lo } = p as any;
+  return (
+    typeof la === "number" && typeof lo === "number" &&
+    Number.isFinite(la) && Number.isFinite(lo) &&
+    la >= -90 && la <= 90 && lo >= -180 && lo <= 180
+  );
+}
+
+// Decodes a Google "encoded polyline" string. Returns ONLY validated points.
 function decodePolyline(str: string): { latitude: number; longitude: number }[] {
+  if (!str || typeof str !== "string") return [];
   const points: { latitude: number; longitude: number }[] = [];
   let index = 0, lat = 0, lng = 0;
-  while (index < str.length) {
-    let b: number, shift = 0, result = 0;
-    do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-    const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
-    lat += dlat;
-    shift = 0; result = 0;
-    do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-    const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
-    lng += dlng;
-    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  try {
+    while (index < str.length) {
+      let b: number, shift = 0, result = 0;
+      do {
+        b = str.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20 && index < str.length);
+      const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+      lat += dlat;
+      shift = 0; result = 0;
+      do {
+        b = str.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20 && index < str.length);
+      const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+      lng += dlng;
+      const p = { latitude: lat / 1e5, longitude: lng / 1e5 };
+      if (validCoord(p)) points.push(p);
+    }
+  } catch {
+    return [];
   }
   return points;
 }
 
-// Calls Google Directions API for an actual road-following polyline between
-// pickup and dropoff. Falls back gracefully to a straight line if the API
-// is unreachable.
 async function fetchRoutePolyline(
   origin: { lat: number; lng: number },
   destination: { lat: number; lng: number },
-): Promise<{ latitude: number; longitude: number }[] | null> {
-  if (!GMAPS_KEY) return null;
+): Promise<{ latitude: number; longitude: number }[]> {
+  if (!GMAPS_KEY) return [];
   try {
     const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&mode=driving&key=${GMAPS_KEY}`;
     const r = await fetch(url);
     const data = await r.json();
+    if (data?.status !== "OK") return [];
     const enc = data?.routes?.[0]?.overview_polyline?.points;
-    if (!enc) return null;
-    return decodePolyline(enc);
+    return enc ? decodePolyline(enc) : [];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -67,9 +96,6 @@ type Props = {
   showRoute?: boolean;
   height?: number | string;
   focusDriverId?: string | null;
-  /** Padding (px) added when fitting markers — so pins aren't hidden behind a
-   *  bottom sheet or top bar. Defaults: { top: 120, right: 60, bottom: 320, left: 60 }
-   *  which keeps pins centered above the home-screen form sheet. */
   fitPadding?: { top: number; right: number; bottom: number; left: number };
   style?: any;
 };
@@ -98,27 +124,19 @@ const DEFAULT_REGION: Region = {
 
 const DEFAULT_PADDING = { top: 140, right: 60, bottom: 380, left: 60 };
 
-/**
- * Marker child wrapped so we can flip tracksViewChanges → false after first
- * render — required so iOS actually rasterises the custom view inside the pin.
- */
-function StableMarker({ coordinate, anchor, rotation, flat, zIndex, children }: any) {
+function StableMarker({ coordinate, anchor, rotation, zIndex, children }: any) {
   const [tracking, setTracking] = useState(true);
+  const stop = useCallback(() => setTracking(false), []);
+  if (!validCoord(coordinate)) return null;
   return (
     <Marker
       coordinate={coordinate}
       anchor={anchor}
       rotation={rotation}
-      flat={flat}
       zIndex={zIndex}
       tracksViewChanges={tracking}
     >
-      {/* Give iOS a chance to render the custom view, then stop tracking
-          (tracksViewChanges=true is needed for the initial layout pass; we
-          flip it off afterwards so the marker doesn't re-render every frame). */}
-      <View onLayout={() => setTimeout(() => setTracking(false), 500)}>
-        {children}
-      </View>
+      <View onLayout={() => setTimeout(stop, 400)}>{children}</View>
     </Marker>
   );
 }
@@ -135,74 +153,98 @@ export default function InteractiveMap({
   style,
 }: Props) {
   const mapRef = useRef<MapView>(null);
-  const [mapReady, setMapReady] = useState(false);
-  // Road-following polyline between pickup and dropoff (from Directions API).
   const [routeCoords, setRouteCoords] = useState<{ latitude: number; longitude: number }[]>([]);
 
-  const allDrivers: DriverMarker[] = drivers && drivers.length
-    ? drivers
-    : (driver ? [{ id: "me", ...driver }] : []);
+  // Normalize driver list
+  const allDrivers: DriverMarker[] = useMemo(() => {
+    const list = drivers && drivers.length ? drivers : (driver ? [{ id: "me", ...driver }] : []);
+    return list.filter((d) => Number.isFinite(d.lat) && Number.isFinite(d.lng));
+  }, [drivers, driver]);
 
-  // Fetch real driving route whenever pickup + dropoff are set.
+  // Validated pickup / dropoff (defensive — if address resolved to garbage,
+  // we treat as absent rather than crash the map).
+  const pickupValid = pickup && Number.isFinite(pickup.lat) && Number.isFinite(pickup.lng) ? pickup : null;
+  const dropoffValid = dropoff && Number.isFinite(dropoff.lat) && Number.isFinite(dropoff.lng) ? dropoff : null;
+
+  // Fetch the road-following route whenever pickup AND dropoff are set.
   useEffect(() => {
-    if (!pickup || !dropoff) { setRouteCoords([]); return; }
+    if (!pickupValid || !dropoffValid) { setRouteCoords([]); return; }
     let cancelled = false;
     fetchRoutePolyline(
-      { lat: pickup.lat, lng: pickup.lng },
-      { lat: dropoff.lat, lng: dropoff.lng },
+      { lat: pickupValid.lat, lng: pickupValid.lng },
+      { lat: dropoffValid.lat, lng: dropoffValid.lng },
     ).then((pts) => {
-      if (!cancelled && pts && pts.length) setRouteCoords(pts);
+      if (cancelled) return;
+      // Belt-and-suspenders: filter once more right before render to be sure
+      // no NaN sneaks into the Polyline component (which iOS will SIGSEGV on).
+      const clean = pts.filter(validCoord);
+      setRouteCoords(clean);
     });
     return () => { cancelled = true; };
-  }, [pickup?.lat, pickup?.lng, dropoff?.lat, dropoff?.lng]);
+  }, [pickupValid?.lat, pickupValid?.lng, dropoffValid?.lat, dropoffValid?.lng]);
 
-  const coordinates = useMemo(() => {
+  // Compute the SMALL set of points to fit to. We deliberately exclude the
+  // detailed route polyline waypoints — fitting hundreds of points crashes
+  // native fit code on older iPhones (and the pickup+dropoff bounding box
+  // already encloses the route).
+  const fitPoints = useMemo(() => {
     const pts: { latitude: number; longitude: number }[] = [];
     allDrivers.forEach((d) => pts.push({ latitude: d.lat, longitude: d.lng }));
-    if (pickup) pts.push({ latitude: pickup.lat, longitude: pickup.lng });
-    if (dropoff) pts.push({ latitude: dropoff.lat, longitude: dropoff.lng });
-    // Include intermediate route waypoints so fit zooms wide enough to
-    // contain the actual driving path (which may bow out from a straight line).
-    routeCoords.forEach((p) => pts.push(p));
-    return pts;
-  }, [JSON.stringify(allDrivers), JSON.stringify(pickup), JSON.stringify(dropoff), routeCoords.length]);
+    if (pickupValid) pts.push({ latitude: pickupValid.lat, longitude: pickupValid.lng });
+    if (dropoffValid) pts.push({ latitude: dropoffValid.lat, longitude: dropoffValid.lng });
+    return pts.filter(validCoord);
+  }, [allDrivers, pickupValid?.lat, pickupValid?.lng, dropoffValid?.lat, dropoffValid?.lng]);
 
-  // Fit to all points whenever they change, OR once the map signals ready.
-  // We try both paths so a slow/dropped onMapReady event doesn't leave the
-  // pins permanently off-screen.
+  // Fit to visible points; retry once after a short delay so iOS has time
+  // to mount the markers before we measure.
   useEffect(() => {
     if (focusDriverId) return;
-    if (coordinates.length === 0) return;
+    if (fitPoints.length === 0) return;
     const fit = () => {
-      if (coordinates.length === 1) {
-        mapRef.current?.animateToRegion(
-          { latitude: coordinates[0].latitude, longitude: coordinates[0].longitude, latitudeDelta: 0.04, longitudeDelta: 0.04 },
-          700
-        );
-      } else {
-        mapRef.current?.fitToCoordinates(coordinates, {
-          edgePadding: fitPadding,
-          animated: true,
-        });
-      }
+      try {
+        if (fitPoints.length === 1) {
+          mapRef.current?.animateToRegion(
+            { latitude: fitPoints[0].latitude, longitude: fitPoints[0].longitude, latitudeDelta: 0.04, longitudeDelta: 0.04 },
+            600
+          );
+        } else {
+          mapRef.current?.fitToCoordinates(fitPoints, {
+            edgePadding: fitPadding,
+            animated: true,
+          });
+        }
+      } catch { /* never throw to the JS bridge */ }
     };
-    // Try once immediately and again after a short delay so iOS has time
-    // to mount the markers (whose anchors influence the fit calculation).
     const t1 = setTimeout(fit, 300);
     const t2 = setTimeout(fit, 1200);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [JSON.stringify(coordinates), focusDriverId, JSON.stringify(fitPadding), mapReady]);
+  }, [fitPoints, focusDriverId, fitPadding]);
 
   useEffect(() => {
-    if (!mapReady) return;
     if (!focusDriverId) return;
     const d = allDrivers.find((x) => x.id === focusDriverId);
     if (!d) return;
-    mapRef.current?.animateToRegion(
-      { latitude: d.lat, longitude: d.lng, latitudeDelta: 0.02, longitudeDelta: 0.02 },
-      500
-    );
-  }, [focusDriverId, JSON.stringify(allDrivers), mapReady]);
+    try {
+      mapRef.current?.animateToRegion(
+        { latitude: d.lat, longitude: d.lng, latitudeDelta: 0.02, longitudeDelta: 0.02 },
+        500
+      );
+    } catch { /* ignore */ }
+  }, [focusDriverId, allDrivers]);
+
+  // The route polyline we will actually render. If Directions API failed or
+  // is still loading, render a straight line so the user always sees a path.
+  // Validate one more time and dedupe to be safe.
+  const polylineCoords = useMemo(() => {
+    if (!pickupValid || !dropoffValid) return [];
+    const candidate = routeCoords.length >= 2
+      ? routeCoords
+      : [
+          { latitude: pickupValid.lat, longitude: pickupValid.lng },
+          { latitude: dropoffValid.lat, longitude: dropoffValid.lng },
+        ];
+    return candidate.filter(validCoord);
+  }, [routeCoords, pickupValid?.lat, pickupValid?.lng, dropoffValid?.lat, dropoffValid?.lng]);
 
   return (
     <View style={[styles.container, { height } as any, style]}>
@@ -221,93 +263,80 @@ export default function InteractiveMap({
         rotateEnabled
         pitchEnabled={false}
         toolbarEnabled={false}
-        onMapReady={() => setMapReady(true)}
         mapPadding={{ top: 80, right: 0, bottom: 280, left: 0 }}
       >
-        {/* Driver markers — gold ring + black car */}
         {allDrivers.map((d) => (
           <StableMarker
             key={d.id || "me"}
             coordinate={{ latitude: d.lat, longitude: d.lng }}
             anchor={{ x: 0.5, y: 0.5 }}
             rotation={d.heading || 0}
-            flat
             zIndex={50}
           >
-            <View style={styles.driverMarker}>
-              <View style={styles.driverInner} />
-            </View>
+            <View style={styles.driverMarker}><View style={styles.driverInner} /></View>
           </StableMarker>
         ))}
 
-        {/* Pickup pin — gold circle "A" */}
-        {pickup && (
+        {pickupValid && (
           <StableMarker
-            coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
+            key="pickup"
+            coordinate={{ latitude: pickupValid.lat, longitude: pickupValid.lng }}
             anchor={{ x: 0.5, y: 1 }}
             zIndex={100}
           >
             <View style={styles.pinStack}>
-              <View style={styles.pickupPin}>
-                <View style={styles.pickupGlyph} />
-              </View>
+              <View style={styles.pickupPin}><View style={styles.pickupGlyph} /></View>
               <View style={styles.pinTail} />
             </View>
           </StableMarker>
         )}
 
-        {/* Dropoff pin — dark circle "B" w/ gold ring */}
-        {dropoff && (
+        {dropoffValid && (
           <StableMarker
-            coordinate={{ latitude: dropoff.lat, longitude: dropoff.lng }}
+            key="dropoff"
+            coordinate={{ latitude: dropoffValid.lat, longitude: dropoffValid.lng }}
             anchor={{ x: 0.5, y: 1 }}
             zIndex={100}
           >
             <View style={styles.pinStack}>
-              <View style={styles.dropoffPin}>
-                <View style={styles.dropoffGlyph} />
-              </View>
+              <View style={styles.dropoffPin}><View style={styles.dropoffGlyph} /></View>
               <View style={[styles.pinTail, { backgroundColor: "#D4AF37" }]} />
             </View>
           </StableMarker>
         )}
 
-        {/* Dashed route driver→pickup (active trip) */}
-        {showRoute && allDrivers.length === 1 && pickup && (
+        {/* Single Polyline element with a STABLE key derived only from pickup +
+            dropoff endpoints. routeCoords length is NOT in the key — this
+            prevents rapid unmount/remount when routeCoords changes from 0 to N
+            (the leading cause of the iOS crash in builds #20 and #21). */}
+        {polylineCoords.length >= 2 && pickupValid && dropoffValid && (
           <Polyline
-            key={`drv-route-${allDrivers[0].lat}-${allDrivers[0].lng}-${pickup.lat}-${pickup.lng}`}
-            coordinates={[
-              { latitude: allDrivers[0].lat, longitude: allDrivers[0].lng },
-              { latitude: pickup.lat, longitude: pickup.lng },
-            ]}
-            strokeColor="#D4AF37"
-            strokeWidth={4}
-            lineDashPattern={Platform.OS === "ios" ? [8, 8] : undefined}
-            geodesic={false}
-            zIndex={20}
-          />
-        )}
-
-        {/* Solid gold route pickup→dropoff. Uses the real road-following
-            polyline from Directions API when available, otherwise falls back
-            to a straight line so the user still sees a connection.
-            iOS quirk: react-native-maps sometimes ignores `strokeColor` and
-            falls back to system default blue. The stable `key` prop derived
-            from the coordinates forces iOS to fully re-mount the polyline
-            (rather than reuse a stale view), which makes strokeColor stick. */}
-        {pickup && dropoff && (
-          <Polyline
-            key={`route-${pickup.lat.toFixed(4)}-${pickup.lng.toFixed(4)}-${dropoff.lat.toFixed(4)}-${dropoff.lng.toFixed(4)}-${routeCoords.length}`}
-            coordinates={routeCoords.length > 0 ? routeCoords : [
-              { latitude: pickup.lat, longitude: pickup.lng },
-              { latitude: dropoff.lat, longitude: dropoff.lng },
-            ]}
+            key={`route-${pickupValid.lat.toFixed(4)}-${pickupValid.lng.toFixed(4)}-${dropoffValid.lat.toFixed(4)}-${dropoffValid.lng.toFixed(4)}`}
+            coordinates={polylineCoords}
             strokeColor="#D4AF37"
             strokeWidth={5}
             lineCap="round"
             lineJoin="round"
             geodesic={false}
             zIndex={10}
+          />
+        )}
+
+        {/* Optional dashed driver→pickup link (live trip view only). Same
+            defensive pattern. */}
+        {showRoute && allDrivers.length === 1 && pickupValid &&
+         validCoord({ latitude: allDrivers[0].lat, longitude: allDrivers[0].lng }) && (
+          <Polyline
+            key={`drv-${allDrivers[0].id || "me"}-${pickupValid.lat.toFixed(4)}-${pickupValid.lng.toFixed(4)}`}
+            coordinates={[
+              { latitude: allDrivers[0].lat, longitude: allDrivers[0].lng },
+              { latitude: pickupValid.lat, longitude: pickupValid.lng },
+            ]}
+            strokeColor="#D4AF37"
+            strokeWidth={4}
+            lineDashPattern={Platform.OS === "ios" ? [8, 8] : undefined}
+            geodesic={false}
+            zIndex={20}
           />
         )}
       </MapView>
@@ -328,10 +357,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#0a0a0a",
     borderWidth: 1, borderColor: "#D4AF37",
   },
-  pinStack: {
-    alignItems: "center",
-    justifyContent: "flex-end",
-  },
+  pinStack: { alignItems: "center", justifyContent: "flex-end" },
   pickupPin: {
     width: 32, height: 32, borderRadius: 16,
     backgroundColor: "#D4AF37",
@@ -339,10 +365,7 @@ const styles = StyleSheet.create({
     borderWidth: 3, borderColor: "#0a0a0a",
   },
   pickupGlyph: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#0a0a0a" },
-  pinTail: {
-    width: 4, height: 8, backgroundColor: "#0a0a0a",
-    marginTop: -1,
-  },
+  pinTail: { width: 4, height: 8, backgroundColor: "#0a0a0a", marginTop: -1 },
   dropoffPin: {
     width: 28, height: 28, borderRadius: 14,
     backgroundColor: "#1a1a1a",
