@@ -30,12 +30,20 @@ Full-stack web application for a Bay Area luxury chauffeur service (TuranEliteLi
 
 ## Changelog — May 21 2026 (this session, continued)
 
-### 🗺️ FIX: Background Google Map showed "This page can't load Google Maps correctly" on iOS app
-**Root cause:** The `InteractiveMap` WebView used `baseUrl: "https://maps.google.com/"`, which became the HTTP Referer sent to the Google Maps JS API. Our API key is restricted to `*.turanelitelimo.com/*` and `*.preview.emergentagent.com/*`, so requests from `maps.google.com` were rejected with the "Do you own this website?" overlay. The dialog was also intercepting taps on the gear/settings icon.
+### 🗺️ FIX (TAKE 2): Map "This page can't load Google Maps correctly" — ROOT CAUSE FOUND
+**Why the first fix failed:** Changing WebView `baseUrl` to `turanelitelimo.com` did NOT actually change the HTTP Referer header that iOS WebView sends to Google. Per react-native-webview docs, iOS WKWebView does not reliably send the Referer header for HTML content loaded via `source={{ html }}`. The Google Maps JS API was rejecting the request because no/wrong referrer was reaching it.
 
-**Fix:** Changed `baseUrl` to `https://turanelitelimo.com/` so the WebView referrer matches the existing API key restriction. File: `/app/mobile/src/components/InteractiveMap.tsx`.
+**Real fix:** Created a NEW unrestricted Google Maps API key (`AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A`) in Google Cloud Console for the TuranEliteLimo project with:
+- Application restrictions: **None** (no HTTP referrer restriction — required for WebView)
+- API restrictions: Maps JavaScript API, Places API, Geocoding API, Directions API
+- Billing now enabled on the project (user just linked billing account)
 
-**Ship:** iOS build #12 (`c20fc598`) successfully uploaded to App Store Connect via `eas submit` using app-specific Apple ID password. Submission ID `8535dae7-8fd5-4e92-b122-b0a7739e6790`. Apple-side processing in progress — will appear in TestFlight in ~5-15 min. eas.json updated with `appleId: abdulkhafizfayzullaev@gmail.com` for future submits.
+**Ship:**
+- iOS build #13 (`58e45020-0343-4ffb-baa5-1b37ee7112d5`) submitted to TestFlight (submission `fbe2830f`). 
+- Android build #7 (`b8e0dc60-b56d-4062-bff2-7a522527bef1`) finished — `.aab` at https://expo.dev/artifacts/eas/oQ7EKwWR492JwB5VSkdnSr.aab — waiting on Google Play service account JSON for auto-submit.
+- Mobile web preview at `/m/` rebuilt with new key and verified via curl — server returns `AIzaSyCDl...`, old key removed.
+
+**Verification:** Direct curl tests of Maps JS API, Geocoding API, and Places API with the new key all succeed.
 
 ### 🤖 FIX: Android EAS build failing (4 prior errors — root causes resolved)
 **Root cause A:** `@react-native-async-storage/async-storage@^3.0.3` has a new Android-side dependency `org.asyncstorage.shared_storage:storage-android:1.0.0` that is not published to public Maven repositories. Gradle could not resolve it; build failed at `:app:mergeReleaseNativeLibs`.
