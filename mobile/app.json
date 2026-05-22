@@ -21,6 +21,9 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.turanelitelimo.app",
       "buildNumber": "1",
+      "config": {
+        "googleMapsApiKey": "AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A"
+      },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "TuranEliteLimo uses your location to set your pickup point and let you watch your chauffeur approach in real time.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Drivers share their background location during active trips so passengers can see live ETA updates throughout the ride.",
@@ -40,6 +43,11 @@
       },
       "package": "com.turanelitelimo.app",
       "versionCode": 1,
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A"
+        }
+      },
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",

@@ -107,12 +107,14 @@ export default function RiderHome() {
   return (
     <View style={s.root}>
       {/* Live interactive map background — auto-zooms to pickup + dropoff and
-          draws the route once both addresses are resolved. */}
+          draws the route once both addresses are resolved. Native Google Maps
+          SDK (react-native-maps); fills the entire screen behind the form. */}
       <View style={StyleSheet.absoluteFillObject}>
         <InteractiveMap
           pickup={pickupCoord || undefined}
           dropoff={dropoffCoord || undefined}
-          showRoute={!!(pickupCoord && dropoffCoord)}
+          showRoute={false}
+          height="100%"
         />
       </View>
       {/* Dim layer so the bottom sheet text stays legible over the live map */}

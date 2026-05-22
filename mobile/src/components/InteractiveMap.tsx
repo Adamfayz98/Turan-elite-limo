@@ -1,34 +1,48 @@
 /**
- * Interactive Google Map for the rider's "Driver is on the way" screen and
- * the admin Live Drivers tab. Cross-platform: native uses WebView, web uses iframe.
+ * Native Google Maps wrapper for TuranEliteLimo (rider home, live tracking,
+ * admin live drivers). Uses `react-native-maps` (which itself uses the
+ * Google Maps SDK for iOS / Android on native, and the Google Maps JS API
+ * on web). This is the ride-share-app-standard approach — same library
+ * powers Uber's RN preview.
  *
- * Props:
- *   - driver: { lat, lng, heading? }       -> renders an animated black car icon
- *   - pickup: { lat, lng }                  -> renders a gold pickup pin
- *   - dropoff?: { lat, lng }                -> renders a small destination pin
- *   - focusDriverId?: string (admin-only) used to trigger a re-pan via postMessage
+ * Why we left the WebView/iframe approach:
+ *   - iOS WKWebView does not reliably send Referer, so HTTP-referrer
+ *     restricted keys couldn't be used.
+ *   - The WebView showed Google's web-page chrome (Keyboard shortcuts,
+ *     Terms, "Map data ©2026 Google") which looks unprofessional on a
+ *     luxury app.
+ *   - Pan/zoom in a WebView is laggy compared to native.
  *
- * The map auto-fits its bounds to include all visible markers.
+ * Props (unchanged from old API — drop-in replacement):
+ *   - driver:  single driver { lat, lng, heading? }
+ *   - drivers: many drivers (admin live view)
+ *   - pickup:  rider's pickup pin
+ *   - dropoff: rider's destination pin
+ *   - showRoute: dashed line driver→pickup
+ *   - height: number or "100%" — defaults to "100%" so map fills its parent
+ *   - focusDriverId: when set, pan + zoom to that driver (admin row click)
  */
-import { useMemo, useRef, useEffect } from "react";
-import { Platform, StyleSheet, View } from "react-native";
-import { WebView } from "react-native-webview";
+import { useRef, useEffect, useMemo } from "react";
+import { StyleSheet, View, Platform } from "react-native";
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE, Region } from "react-native-maps";
 
 export type LatLng = { lat: number; lng: number; heading?: number };
 export type DriverMarker = LatLng & { id?: string; name?: string; vehicle?: string };
 
 type Props = {
   driver?: DriverMarker | null;
-  drivers?: DriverMarker[];          // admin multi-driver mode
+  drivers?: DriverMarker[];
   pickup?: LatLng | null;
   dropoff?: LatLng | null;
-  showRoute?: boolean;                // draw dashed line driver -> pickup (rider live tracking)
+  showRoute?: boolean;
   height?: number | string;
-  focusDriverId?: string | null;     // when set, the map pans+zooms to that driver
+  focusDriverId?: string | null;
   style?: any;
 };
 
-const DARK_MAP_STYLE: any[] = [
+// Same elegant dark/gold theme we had before, just delivered to the
+// native SDK via `customMapStyle` instead of injected into a WebView.
+const DARK_GOLD_MAP_STYLE: any[] = [
   { elementType: "geometry", stylers: [{ color: "#0a0a0a" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#b3a472" }] },
   { elementType: "labels.text.stroke", stylers: [{ color: "#050505" }] },
@@ -43,194 +57,29 @@ const DARK_MAP_STYLE: any[] = [
   { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#3d5a80" }] },
 ];
 
-function buildHtml(apiKey: string) {
-  // SVG car icon (top-down view) — gold with black tint.
-  const CAR_SVG =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 42 42">` +
-    `<g transform="translate(21 21)">` +
-    // outer gold glow ring
-    `<circle r="18" fill="rgba(212,175,55,0.15)" />` +
-    `<circle r="14" fill="#D4AF37" stroke="#000" stroke-width="1" />` +
-    // car body (top-down)
-    `<g transform="rotate(-90)">` +
-    `<rect x="-7" y="-10" width="14" height="20" rx="3" fill="#0a0a0a" stroke="#D4AF37" stroke-width="1" />` +
-    `<rect x="-5" y="-7" width="10" height="5" rx="1" fill="#1a1a1a" />` + // windshield
-    `<rect x="-5" y="2" width="10" height="5" rx="1" fill="#1a1a1a" />` + // rear window
-    `</g>` +
-    `</g></svg>`;
+const DEFAULT_REGION: Region = {
+  latitude: 37.7749,
+  longitude: -122.4194,
+  latitudeDelta: 0.25,
+  longitudeDelta: 0.25,
+};
 
-  return `<!doctype html>
-<html><head>
-<meta charset="utf-8" />
-<meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
-<style>
-  html,body,#map { width:100%; height:100%; margin:0; padding:0; background:#050505; }
-</style>
-</head>
-<body>
-<div id="map"></div>
-<script>
-  var DRIVER_ICON_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(${JSON.stringify(CAR_SVG)});
-  var DARK_STYLE = ${JSON.stringify(DARK_MAP_STYLE)};
-  var map, driverMarkers = {}, pickupMarker = null, dropoffMarker = null, routeLine = null;
-  var lastBoundsKey = '';
-  var focusDriverId = null;
-
-  function sendToHost(payload) {
-    try {
-      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-        window.ReactNativeWebView.postMessage(JSON.stringify(payload));
-      } else if (window.parent && window.parent !== window) {
-        window.parent.postMessage(payload, '*');
-      }
-    } catch(e) {}
-  }
-
-  function initMap() {
-    map = new google.maps.Map(document.getElementById('map'), {
-      center: { lat: 37.7749, lng: -122.4194 },
-      zoom: 11,
-      disableDefaultUI: true,
-      zoomControl: true,
-      gestureHandling: 'greedy',
-      styles: DARK_STYLE,
-      backgroundColor: '#050505'
-    });
-    sendToHost({ type: 'ready' });
-  }
-  window.initMap = initMap;
-
-  function updateMarkers(payload) {
-    if (!map) return;
-    var drivers = payload.drivers || [];
-    // Update/create driver markers, remove stale
-    var seen = {};
-    drivers.forEach(function(d) {
-      seen[d.id || 'me'] = true;
-      var existing = driverMarkers[d.id || 'me'];
-      var pos = new google.maps.LatLng(d.lat, d.lng);
-      if (existing) {
-        existing.setPosition(pos);
-        if (d.heading != null) {
-          var icon = existing.getIcon();
-          icon.rotation = d.heading;
-          existing.setIcon(icon);
-        }
-      } else {
-        var marker = new google.maps.Marker({
-          position: pos,
-          map: map,
-          icon: {
-            url: DRIVER_ICON_URL,
-            scaledSize: new google.maps.Size(42, 42),
-            anchor: new google.maps.Point(21, 21),
-          },
-          title: d.name || 'Driver',
-          zIndex: 999,
-        });
-        marker.addListener('click', function() { sendToHost({ type: 'driver_click', id: d.id || 'me' }); });
-        driverMarkers[d.id || 'me'] = marker;
-      }
-    });
-    // Remove stale
-    Object.keys(driverMarkers).forEach(function(id) {
-      if (!seen[id]) {
-        driverMarkers[id].setMap(null);
-        delete driverMarkers[id];
-      }
-    });
-
-    // Pickup pin
-    if (payload.pickup) {
-      var pos = new google.maps.LatLng(payload.pickup.lat, payload.pickup.lng);
-      if (!pickupMarker) {
-        pickupMarker = new google.maps.Marker({
-          position: pos, map: map, label: { text: 'A', color: '#000', fontWeight: '700', fontSize: '13px' },
-          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: '#D4AF37', fillOpacity: 1, strokeColor: '#000', strokeWeight: 2 },
-          zIndex: 500,
-        });
-      } else { pickupMarker.setPosition(pos); }
-    } else if (pickupMarker) { pickupMarker.setMap(null); pickupMarker = null; }
-
-    // Dropoff pin
-    if (payload.dropoff) {
-      var pos = new google.maps.LatLng(payload.dropoff.lat, payload.dropoff.lng);
-      if (!dropoffMarker) {
-        dropoffMarker = new google.maps.Marker({
-          position: pos, map: map, label: { text: 'B', color: '#fff', fontWeight: '700', fontSize: '13px' },
-          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: '#444', fillOpacity: 1, strokeColor: '#D4AF37', strokeWeight: 1.5 },
-          zIndex: 500,
-        });
-      } else { dropoffMarker.setPosition(pos); }
-    } else if (dropoffMarker) { dropoffMarker.setMap(null); dropoffMarker = null; }
-
-    // Route line from driver -> pickup (dashed gold). Updates as driver moves.
-    if (payload.showRoute && drivers.length === 1 && payload.pickup) {
-      var d = drivers[0];
-      var path = [
-        new google.maps.LatLng(d.lat, d.lng),
-        new google.maps.LatLng(payload.pickup.lat, payload.pickup.lng),
-      ];
-      if (routeLine) {
-        routeLine.setPath(path);
-      } else {
-        routeLine = new google.maps.Polyline({
-          path: path,
-          map: map,
-          strokeOpacity: 0,
-          icons: [{
-            icon: { path: 'M 0,-1 0,1', strokeColor: '#D4AF37', strokeOpacity: 0.85, scale: 3 },
-            offset: '0',
-            repeat: '14px',
-          }],
-          zIndex: 400,
-        });
-      }
-    } else if (routeLine) { routeLine.setMap(null); routeLine = null; }
-
-    // Fit bounds (only auto-fit when not focused on a specific driver)
-    if (!focusDriverId) {
-      var bounds = new google.maps.LatLngBounds();
-      drivers.forEach(function(d) { bounds.extend(new google.maps.LatLng(d.lat, d.lng)); });
-      if (payload.pickup) bounds.extend(new google.maps.LatLng(payload.pickup.lat, payload.pickup.lng));
-      if (payload.dropoff) bounds.extend(new google.maps.LatLng(payload.dropoff.lat, payload.dropoff.lng));
-      if (!bounds.isEmpty()) {
-        var key = bounds.toUrlValue();
-        if (key !== lastBoundsKey) {
-          lastBoundsKey = key;
-          var count = drivers.length + (payload.pickup?1:0) + (payload.dropoff?1:0);
-          if (count === 1) { map.setCenter(bounds.getCenter()); map.setZoom(15); }
-          else { map.fitBounds(bounds, 80); }
-        }
-      }
-    }
-  }
-
-  function focusDriver(id) {
-    focusDriverId = id;
-    if (id && driverMarkers[id]) {
-      map.panTo(driverMarkers[id].getPosition());
-      map.setZoom(15);
-    } else {
-      lastBoundsKey = ''; // re-fit on next update
-    }
-  }
-
-  function handleMessage(data) {
-    try {
-      if (data.type === 'update') updateMarkers(data);
-      else if (data.type === 'focus_driver') focusDriver(data.id);
-    } catch(e) { sendToHost({ type: 'error', message: String(e) }); }
-  }
-  document.addEventListener('message', function(ev) { try { handleMessage(JSON.parse(ev.data)); } catch(e){} });
-  window.addEventListener('message', function(ev) {
-    var data = ev.data;
-    if (typeof data === 'string') { try { data = JSON.parse(data); } catch(e){ return; } }
-    if (data && data.type) handleMessage(data);
-  });
-</script>
-<script async defer src="https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initMap"></script>
-</body></html>`;
+// Compute a region that fits all supplied points with comfortable padding.
+function regionForPoints(points: { lat: number; lng: number }[]): Region | null {
+  if (points.length === 0) return null;
+  const lats = points.map((p) => p.lat);
+  const lngs = points.map((p) => p.lng);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const midLat = (minLat + maxLat) / 2;
+  const midLng = (minLng + maxLng) / 2;
+  // 30% padding on each side, with sane minimum spans so a single point
+  // doesn't zoom in to street level.
+  const latDelta = Math.max((maxLat - minLat) * 1.6, 0.015);
+  const lngDelta = Math.max((maxLng - minLng) * 1.6, 0.015);
+  return { latitude: midLat, longitude: midLng, latitudeDelta: latDelta, longitudeDelta: lngDelta };
 }
 
 export default function InteractiveMap({
@@ -239,88 +88,162 @@ export default function InteractiveMap({
   pickup,
   dropoff,
   showRoute = false,
-  height = 320,
+  height = "100%" as any,
   focusDriverId,
   style,
 }: Props) {
-  const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_BROWSER_KEY || "";
-  const html = useMemo(() => buildHtml(apiKey), [apiKey]);
-  const webRef = useRef<WebView>(null);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const isReady = useRef(false);
+  const mapRef = useRef<MapView>(null);
 
   const allDrivers: DriverMarker[] = drivers && drivers.length
     ? drivers
     : (driver ? [{ id: "me", ...driver }] : []);
 
-  const post = (msg: object) => {
-    const str = JSON.stringify(msg);
-    if (Platform.OS === "web") {
-      iframeRef.current?.contentWindow?.postMessage(msg, "*");
-    } else {
-      webRef.current?.injectJavaScript(`window.handleMessage && window.handleMessage(${str}); true;`);
-    }
-  };
+  // Stable list of points we want to fit on screen.
+  const points = useMemo(() => {
+    const pts: { lat: number; lng: number }[] = [];
+    allDrivers.forEach((d) => pts.push({ lat: d.lat, lng: d.lng }));
+    if (pickup) pts.push({ lat: pickup.lat, lng: pickup.lng });
+    if (dropoff) pts.push({ lat: dropoff.lat, lng: dropoff.lng });
+    return pts;
+  }, [JSON.stringify(allDrivers), JSON.stringify(pickup), JSON.stringify(dropoff)]);
 
-  // Send updates when markers change (debounced by deps)
+  // Auto-fit whenever the visible points change (debounced via deps).
   useEffect(() => {
-    if (!isReady.current) return;
-    post({ type: "update", drivers: allDrivers, pickup, dropoff, showRoute });
-  }, [JSON.stringify(allDrivers), JSON.stringify(pickup), JSON.stringify(dropoff), showRoute]);
+    if (focusDriverId) return; // explicit focus wins
+    if (points.length === 0) return;
+    const r = regionForPoints(points);
+    if (r) mapRef.current?.animateToRegion(r, 600);
+  }, [JSON.stringify(points), focusDriverId]);
 
-  // Send focus instruction when admin clicks a driver row
+  // Pan to the explicitly focused driver (admin row click).
   useEffect(() => {
-    if (!isReady.current) return;
-    post({ type: "focus_driver", id: focusDriverId || null });
-  }, [focusDriverId]);
-
-  if (Platform.OS === "web") {
-    // Use srcDoc iframe so the WebView has the same code path
-    return (
-      <View style={[styles.container, { height }, style]}>
-        <iframe
-          ref={iframeRef}
-          srcDoc={html}
-          style={{ width: "100%", height: "100%", border: "none", background: "#050505" }}
-          onLoad={() => {
-            isReady.current = true;
-            post({ type: "update", drivers: allDrivers, pickup, dropoff, showRoute });
-            if (focusDriverId) post({ type: "focus_driver", id: focusDriverId });
-          }}
-        />
-      </View>
+    if (!focusDriverId) return;
+    const d = allDrivers.find((x) => x.id === focusDriverId);
+    if (!d) return;
+    mapRef.current?.animateToRegion(
+      { latitude: d.lat, longitude: d.lng, latitudeDelta: 0.02, longitudeDelta: 0.02 },
+      500
     );
-  }
+  }, [focusDriverId, JSON.stringify(allDrivers)]);
 
   return (
-    <View style={[styles.container, { height }, style]}>
-      <WebView
-        ref={webRef}
-        originWhitelist={["*"]}
-        // baseUrl controls the HTTP Referer the Google Maps JS API sees.
-        // We must use the production domain so it matches the API key's
-        // allowed-referrer restriction (otherwise Google shows the
-        // "This page can't load Google Maps correctly. Do you own this website?" dialog).
-        source={{ html, baseUrl: "https://turanelitelimo.com/" }}
-        style={{ backgroundColor: "#050505" }}
-        javaScriptEnabled
-        domStorageEnabled
-        scalesPageToFit={false}
-        onMessage={(e) => {
-          try {
-            const data = JSON.parse(e.nativeEvent.data);
-            if (data.type === "ready") {
-              isReady.current = true;
-              post({ type: "update", drivers: allDrivers, pickup, dropoff, showRoute });
-              if (focusDriverId) post({ type: "focus_driver", id: focusDriverId });
-            }
-          } catch {}
-        }}
-      />
+    <View style={[styles.container, { height } as any, style]}>
+      <MapView
+        ref={mapRef}
+        // iOS supports Apple Maps natively too, but using Google on both
+        // platforms keeps the dark/gold theme identical.
+        provider={PROVIDER_GOOGLE}
+        style={StyleSheet.absoluteFillObject}
+        initialRegion={DEFAULT_REGION}
+        customMapStyle={DARK_GOLD_MAP_STYLE}
+        showsCompass={false}
+        showsMyLocationButton={false}
+        showsPointsOfInterest={false}
+        showsTraffic={false}
+        showsBuildings={false}
+        showsIndoors={false}
+        rotateEnabled
+        pitchEnabled={false}
+        toolbarEnabled={false}
+        mapPadding={{ top: 0, right: 0, bottom: 0, left: 0 }}
+      >
+        {/* Driver markers — gold ring + black car */}
+        {allDrivers.map((d) => (
+          <Marker
+            key={d.id || "me"}
+            coordinate={{ latitude: d.lat, longitude: d.lng }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            rotation={d.heading || 0}
+            flat
+            tracksViewChanges={false}
+          >
+            <View style={styles.driverMarker}>
+              <View style={styles.driverInner} />
+            </View>
+          </Marker>
+        ))}
+
+        {/* Pickup pin (gold "A") */}
+        {pickup && (
+          <Marker
+            coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+          >
+            <View style={styles.pickupPin}>
+              <View style={styles.pickupDot} />
+            </View>
+          </Marker>
+        )}
+
+        {/* Dropoff pin (dark "B" w/ gold ring) */}
+        {dropoff && (
+          <Marker
+            coordinate={{ latitude: dropoff.lat, longitude: dropoff.lng }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+          >
+            <View style={styles.dropoffPin}>
+              <View style={styles.dropoffDot} />
+            </View>
+          </Marker>
+        )}
+
+        {/* Dashed gold route driver→pickup (used in live trip view) */}
+        {showRoute && allDrivers.length === 1 && pickup && (
+          <Polyline
+            coordinates={[
+              { latitude: allDrivers[0].lat, longitude: allDrivers[0].lng },
+              { latitude: pickup.lat, longitude: pickup.lng },
+            ]}
+            strokeColor="#D4AF37"
+            strokeWidth={3}
+            lineDashPattern={Platform.OS === "ios" ? [6, 6] : undefined}
+          />
+        )}
+
+        {/* Solid gold route pickup→dropoff (rider booking flow preview) */}
+        {pickup && dropoff && (
+          <Polyline
+            coordinates={[
+              { latitude: pickup.lat, longitude: pickup.lng },
+              { latitude: dropoff.lat, longitude: dropoff.lng },
+            ]}
+            strokeColor="#D4AF37"
+            strokeWidth={4}
+          />
+        )}
+      </MapView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { width: "100%", overflow: "hidden", backgroundColor: "#050505" },
+  driverMarker: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: "rgba(212,175,55,0.18)",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#D4AF37",
+  },
+  driverInner: {
+    width: 14, height: 14, borderRadius: 7,
+    backgroundColor: "#0a0a0a",
+    borderWidth: 1, borderColor: "#D4AF37",
+  },
+  pickupPin: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: "#D4AF37",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#000",
+    shadowColor: "#D4AF37", shadowOpacity: 0.6, shadowRadius: 8,
+  },
+  pickupDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#000" },
+  dropoffPin: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: "#444",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#D4AF37",
+  },
+  dropoffDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#fff" },
 });
