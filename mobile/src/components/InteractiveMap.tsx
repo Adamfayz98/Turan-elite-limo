@@ -281,7 +281,6 @@ export default function InteractiveMap({
               { latitude: pickup.lat, longitude: pickup.lng },
             ]}
             strokeColor="#D4AF37"
-            strokeColors={["#D4AF37", "#D4AF37"]}
             strokeWidth={4}
             lineDashPattern={Platform.OS === "ios" ? [8, 8] : undefined}
             geodesic={false}
@@ -293,21 +292,17 @@ export default function InteractiveMap({
             polyline from Directions API when available, otherwise falls back
             to a straight line so the user still sees a connection.
             iOS quirk: react-native-maps sometimes ignores `strokeColor` and
-            falls back to the system default blue. Passing the same color via
-            both `strokeColor` AND `strokeColors` (array) plus a stable `key`
-            forces iOS to use our gold (#D4AF37). */}
+            falls back to system default blue. The stable `key` prop derived
+            from the coordinates forces iOS to fully re-mount the polyline
+            (rather than reuse a stale view), which makes strokeColor stick. */}
         {pickup && dropoff && (
           <Polyline
-            key={`route-${pickup.lat}-${pickup.lng}-${dropoff.lat}-${dropoff.lng}-${routeCoords.length}`}
+            key={`route-${pickup.lat.toFixed(4)}-${pickup.lng.toFixed(4)}-${dropoff.lat.toFixed(4)}-${dropoff.lng.toFixed(4)}-${routeCoords.length}`}
             coordinates={routeCoords.length > 0 ? routeCoords : [
               { latitude: pickup.lat, longitude: pickup.lng },
               { latitude: dropoff.lat, longitude: dropoff.lng },
             ]}
             strokeColor="#D4AF37"
-            strokeColors={routeCoords.length > 0
-              ? routeCoords.map(() => "#D4AF37")
-              : ["#D4AF37", "#D4AF37"]
-            }
             strokeWidth={5}
             lineCap="round"
             lineJoin="round"

@@ -69,7 +69,7 @@ export default function VehiclePicker() {
   };
 
   const selectedQ = quotes.find(q => q.vehicle_type === selected);
-  const callDispatch = () => Linking.openURL("tel:+14155556789");
+  const callDispatch = () => Linking.openURL("tel:+16504100687");
 
   return (
     <SafeAreaView style={s.safe}>
