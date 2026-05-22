@@ -81,6 +81,20 @@ User created `AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A` under `support@turanelite
 - API restrictions: Maps JS, Places, Geocoding, Directions
 - Billing linked
 
+### 🔧 ROOT CAUSE FIX: Pins/route never appeared because production `/api/places/geocode` returned 404
+**Symptoms from build #17:** Map pans/zooms perfectly, but entering pickup/dropoff produced no pins, no route line.
+
+**Real root cause:** The mobile app's production build calls `https://turanelitelimo.com` (set via `EXPO_PUBLIC_API_URL` in `eas.json` production profile). But the `/api/places/geocode` endpoint added in this session lives ONLY in the preview backend — production hasn't been deployed yet. Confirmed via curl: `curl https://turanelitelimo.com/api/places/geocode?address=...` returns HTTP 404. So `geocode()` in `home.tsx` silently failed, `pickupCoord`/`dropoffCoord` stayed `null`, no pins rendered.
+
+**Fix:**
+1. **Bypass backend entirely for geocoding** — `home.tsx` now calls Google Maps Geocoding API directly using `EXPO_PUBLIC_GOOGLE_MAPS_BROWSER_KEY`. Works regardless of backend deploy status. Tested via direct curl: Four Seasons → (37.7866, -122.4044), SFO → (37.6191, -122.3816). ✅
+2. **Added real road-following Directions API integration** (the "potential improvement" user approved) — gold polyline now traces actual highways via Google Directions `overview_polyline` + custom Polyline decoder. Tested: SF→SFO returns 992-char polyline via US-101 S, 23 min, 14.1 mi. Decoder verified against Google's reference example (38.5,-120.2),(40.7,-120.95),(43.252,-126.453). ✅
+3. Removed invalid `onLoad` prop from `<Marker>` (TS rejected it); StableMarker still flips `tracksViewChanges` via the child View's `onLayout`. TypeScript clean (`npx tsc --noEmit` passes).
+
+**Ship:**
+- iOS build #18 (`9c2cb5d5-8f3b-4039-b61a-58531b59cfd8`) → submitted to TestFlight (submission `e398d1ab`). Install **1.0.0 (18)**.
+- Android build #12 (`fcd86883-7448-4a88-ac6d-3c6b50a97697`) → in progress.
+
 ### 🔧 CRITICAL FIX: Map was completely frozen (build #16 follow-up)
 **Symptoms:** Map rendered visually but was unresponsive — no pan, no pinch-zoom, and pickup/dropoff entries didn't show pins.
 

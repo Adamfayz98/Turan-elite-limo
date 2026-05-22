@@ -10,16 +10,28 @@ import InteractiveMap from "@/components/InteractiveMap";
 import { colors, radius } from "@/theme";
 import { useAuth } from "@/store/auth";
 import { useBooking } from "@/store/booking";
-import { api, SavedAddress, listSavedAddresses } from "@/api";
+import { SavedAddress, listSavedAddresses } from "@/api";
 
-// Geocodes a free-form address. Returns null if not resolvable.
+// Geocodes a free-form address by calling Google's Geocoding API directly.
+// We do this from the client (instead of routing through our backend) so the
+// map works whether or not the production backend has the /api/places/geocode
+// endpoint deployed yet. The mobile API key (Application restrictions: None,
+// API restrictions: Geocoding/Places/Maps SDK) is safe to ship in the client.
+const GMAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_BROWSER_KEY || "";
+
 async function geocode(addr: string): Promise<{ lat: number; lng: number } | null> {
-  if (!addr || addr.length < 3) return null;
+  if (!addr || addr.length < 3 || !GMAPS_KEY) return null;
   try {
-    const { data } = await api.get("/api/places/geocode", { params: { address: addr } });
-    if (data?.lat == null || data?.lng == null) return null;
-    return { lat: data.lat, lng: data.lng };
-  } catch { return null; }
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&region=us&key=${GMAPS_KEY}`;
+    const r = await fetch(url);
+    const data = await r.json();
+    if (data?.status !== "OK" || !data?.results?.length) return null;
+    const loc = data.results[0]?.geometry?.location;
+    if (loc?.lat == null || loc?.lng == null) return null;
+    return { lat: loc.lat, lng: loc.lng };
+  } catch {
+    return null;
+  }
 }
 
 export default function RiderHome() {

@@ -15,6 +15,47 @@ import { useRef, useEffect, useMemo, useState } from "react";
 import { StyleSheet, View, Platform } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, Region } from "react-native-maps";
 
+const GMAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_BROWSER_KEY || "";
+
+// Decodes a Google "encoded polyline" string into an array of lat/lng pairs.
+// Implements the algorithm from https://developers.google.com/maps/documentation/utilities/polylinealgorithm
+function decodePolyline(str: string): { latitude: number; longitude: number }[] {
+  const points: { latitude: number; longitude: number }[] = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < str.length) {
+    let b: number, shift = 0, result = 0;
+    do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lat += dlat;
+    shift = 0; result = 0;
+    do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lng += dlng;
+    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return points;
+}
+
+// Calls Google Directions API for an actual road-following polyline between
+// pickup and dropoff. Falls back gracefully to a straight line if the API
+// is unreachable.
+async function fetchRoutePolyline(
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): Promise<{ latitude: number; longitude: number }[] | null> {
+  if (!GMAPS_KEY) return null;
+  try {
+    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&mode=driving&key=${GMAPS_KEY}`;
+    const r = await fetch(url);
+    const data = await r.json();
+    const enc = data?.routes?.[0]?.overview_polyline?.points;
+    if (!enc) return null;
+    return decodePolyline(enc);
+  } catch {
+    return null;
+  }
+}
+
 export type LatLng = { lat: number; lng: number; heading?: number };
 export type DriverMarker = LatLng & { id?: string; name?: string; vehicle?: string };
 
@@ -71,9 +112,10 @@ function StableMarker({ coordinate, anchor, rotation, flat, zIndex, children }: 
       flat={flat}
       zIndex={zIndex}
       tracksViewChanges={tracking}
-      onLoad={() => setTracking(false)}
     >
-      {/* Give iOS a chance to render the custom view, then stop tracking. */}
+      {/* Give iOS a chance to render the custom view, then stop tracking
+          (tracksViewChanges=true is needed for the initial layout pass; we
+          flip it off afterwards so the marker doesn't re-render every frame). */}
       <View onLayout={() => setTimeout(() => setTracking(false), 500)}>
         {children}
       </View>
@@ -94,18 +136,36 @@ export default function InteractiveMap({
 }: Props) {
   const mapRef = useRef<MapView>(null);
   const [mapReady, setMapReady] = useState(false);
+  // Road-following polyline between pickup and dropoff (from Directions API).
+  const [routeCoords, setRouteCoords] = useState<{ latitude: number; longitude: number }[]>([]);
 
   const allDrivers: DriverMarker[] = drivers && drivers.length
     ? drivers
     : (driver ? [{ id: "me", ...driver }] : []);
+
+  // Fetch real driving route whenever pickup + dropoff are set.
+  useEffect(() => {
+    if (!pickup || !dropoff) { setRouteCoords([]); return; }
+    let cancelled = false;
+    fetchRoutePolyline(
+      { lat: pickup.lat, lng: pickup.lng },
+      { lat: dropoff.lat, lng: dropoff.lng },
+    ).then((pts) => {
+      if (!cancelled && pts && pts.length) setRouteCoords(pts);
+    });
+    return () => { cancelled = true; };
+  }, [pickup?.lat, pickup?.lng, dropoff?.lat, dropoff?.lng]);
 
   const coordinates = useMemo(() => {
     const pts: { latitude: number; longitude: number }[] = [];
     allDrivers.forEach((d) => pts.push({ latitude: d.lat, longitude: d.lng }));
     if (pickup) pts.push({ latitude: pickup.lat, longitude: pickup.lng });
     if (dropoff) pts.push({ latitude: dropoff.lat, longitude: dropoff.lng });
+    // Include intermediate route waypoints so fit zooms wide enough to
+    // contain the actual driving path (which may bow out from a straight line).
+    routeCoords.forEach((p) => pts.push(p));
     return pts;
-  }, [JSON.stringify(allDrivers), JSON.stringify(pickup), JSON.stringify(dropoff)]);
+  }, [JSON.stringify(allDrivers), JSON.stringify(pickup), JSON.stringify(dropoff), routeCoords.length]);
 
   // Fit to all points whenever they change, OR once the map signals ready.
   // We try both paths so a slow/dropped onMapReady event doesn't leave the
@@ -225,15 +285,19 @@ export default function InteractiveMap({
           />
         )}
 
-        {/* Solid gold route pickup→dropoff (booking preview) */}
+        {/* Solid gold route pickup→dropoff. Uses the real road-following
+            polyline from Directions API when available, otherwise falls back
+            to a straight line so the user still sees a connection. */}
         {pickup && dropoff && (
           <Polyline
-            coordinates={[
+            coordinates={routeCoords.length > 0 ? routeCoords : [
               { latitude: pickup.lat, longitude: pickup.lng },
               { latitude: dropoff.lat, longitude: dropoff.lng },
             ]}
             strokeColor="#D4AF37"
             strokeWidth={5}
+            lineCap="round"
+            lineJoin="round"
           />
         )}
       </MapView>
