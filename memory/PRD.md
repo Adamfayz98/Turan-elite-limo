@@ -81,6 +81,25 @@ User created `AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A` under `support@turanelite
 - API restrictions: Maps JS, Places, Geocoding, Directions
 - Billing linked
 
+### 🔧 FIX: Native map pins + route line not rendering on iOS (build #15 follow-up)
+**Symptoms in build #15:** Map looked stunning (dark/gold luxury, full-screen, no error overlays, exactly like IMG_1850) — but pickup/dropoff pins and the route line didn't appear when both addresses were entered.
+
+**Root causes (3 known react-native-maps iOS gotchas):**
+1. **`tracksViewChanges={false}` from the start** → custom `<View>` children inside `<Marker>` render as INVISIBLE on iOS unless tracking starts `true` and is switched to `false` only after `onLoad`/first layout.
+2. **`animateToRegion` with multiple points** is unreliable for fitting bounds — `fitToCoordinates` with `edgePadding` is the documented correct API.
+3. **No `mapPadding` for the bottom form sheet** → auto-fit zoomed pins behind the sheet (out of visible area).
+
+**Fix:** Rewrote `InteractiveMap.tsx`:
+- Introduced `<StableMarker>` wrapper that starts `tracksViewChanges=true` and flips to `false` 500 ms after `onLayout`, so iOS rasterises the custom view.
+- Replaced `animateToRegion` with `fitToCoordinates` with `edgePadding: { top: 120, right: 60, bottom: 320, left: 60 }`.
+- Added `mapPadding={{ top: 80, bottom: 280 }}` so the logical center sits above the bottom form sheet.
+- Larger, higher-contrast pins (gold A pin 32px + black tail, dark B pin 28px + gold ring).
+- Solid gold polyline (5px) pickup→dropoff; dashed driver→pickup for active trips.
+
+**Ship:**
+- iOS build #16 (`ba55b81b-fadf-41ca-8ea6-b8d95c8098fb`) → submitted to TestFlight (submission `b2bd028b`). User should install **1.0.0 (16)**.
+- Android build #10 (`ec52f75c-7802-486d-99d2-3f008e081e30`) → in progress.
+
 ### 🗺️ MAJOR REFACTOR: WebView Maps → Native Google Maps SDK (react-native-maps)
 **Why:** User's previous build (#14) still showed "Can't load Google Maps correctly" error in iOS with web chrome (Keyboard shortcuts/Terms footer). Root cause is fundamental — iOS WKWebView and HTTP-referrer restrictions are not compatible. The whole WebView approach was the wrong tool for the job.
 

@@ -1,28 +1,17 @@
 /**
- * Native Google Maps wrapper for TuranEliteLimo (rider home, live tracking,
- * admin live drivers). Uses `react-native-maps` (which itself uses the
- * Google Maps SDK for iOS / Android on native, and the Google Maps JS API
- * on web). This is the ride-share-app-standard approach — same library
- * powers Uber's RN preview.
+ * Native Google Maps wrapper for TuranEliteLimo. Uses `react-native-maps`
+ * with PROVIDER_GOOGLE on both iOS and Android.
  *
- * Why we left the WebView/iframe approach:
- *   - iOS WKWebView does not reliably send Referer, so HTTP-referrer
- *     restricted keys couldn't be used.
- *   - The WebView showed Google's web-page chrome (Keyboard shortcuts,
- *     Terms, "Map data ©2026 Google") which looks unprofessional on a
- *     luxury app.
- *   - Pan/zoom in a WebView is laggy compared to native.
- *
- * Props (unchanged from old API — drop-in replacement):
- *   - driver:  single driver { lat, lng, heading? }
- *   - drivers: many drivers (admin live view)
- *   - pickup:  rider's pickup pin
- *   - dropoff: rider's destination pin
- *   - showRoute: dashed line driver→pickup
- *   - height: number or "100%" — defaults to "100%" so map fills its parent
- *   - focusDriverId: when set, pan + zoom to that driver (admin row click)
+ * Three iOS-specific gotchas this component handles:
+ *   1. Custom <Marker> children render BLANK on iOS unless tracksViewChanges
+ *      starts `true` and is switched to `false` only AFTER the marker mounts.
+ *   2. fitToCoordinates is far more reliable than animateToRegion when fitting
+ *      multiple points — and it accepts edgePadding so pins are not hidden
+ *      behind the bottom form sheet.
+ *   3. mapPadding must compensate for any UI overlay so the map's logical
+ *      center is the visible center of the map (not the screen center).
  */
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo, useState } from "react";
 import { StyleSheet, View, Platform } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, Region } from "react-native-maps";
 
@@ -37,11 +26,13 @@ type Props = {
   showRoute?: boolean;
   height?: number | string;
   focusDriverId?: string | null;
+  /** Padding (px) added when fitting markers — so pins aren't hidden behind a
+   *  bottom sheet or top bar. Defaults: { top: 120, right: 60, bottom: 320, left: 60 }
+   *  which keeps pins centered above the home-screen form sheet. */
+  fitPadding?: { top: number; right: number; bottom: number; left: number };
   style?: any;
 };
 
-// Same elegant dark/gold theme we had before, just delivered to the
-// native SDK via `customMapStyle` instead of injected into a WebView.
 const DARK_GOLD_MAP_STYLE: any[] = [
   { elementType: "geometry", stylers: [{ color: "#0a0a0a" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#b3a472" }] },
@@ -64,22 +55,30 @@ const DEFAULT_REGION: Region = {
   longitudeDelta: 0.25,
 };
 
-// Compute a region that fits all supplied points with comfortable padding.
-function regionForPoints(points: { lat: number; lng: number }[]): Region | null {
-  if (points.length === 0) return null;
-  const lats = points.map((p) => p.lat);
-  const lngs = points.map((p) => p.lng);
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs);
-  const maxLng = Math.max(...lngs);
-  const midLat = (minLat + maxLat) / 2;
-  const midLng = (minLng + maxLng) / 2;
-  // 30% padding on each side, with sane minimum spans so a single point
-  // doesn't zoom in to street level.
-  const latDelta = Math.max((maxLat - minLat) * 1.6, 0.015);
-  const lngDelta = Math.max((maxLng - minLng) * 1.6, 0.015);
-  return { latitude: midLat, longitude: midLng, latitudeDelta: latDelta, longitudeDelta: lngDelta };
+const DEFAULT_PADDING = { top: 120, right: 60, bottom: 320, left: 60 };
+
+/**
+ * Marker child wrapped so we can flip tracksViewChanges → false after first
+ * render — required so iOS actually rasterises the custom view inside the pin.
+ */
+function StableMarker({ coordinate, anchor, rotation, flat, zIndex, children }: any) {
+  const [tracking, setTracking] = useState(true);
+  return (
+    <Marker
+      coordinate={coordinate}
+      anchor={anchor}
+      rotation={rotation}
+      flat={flat}
+      zIndex={zIndex}
+      tracksViewChanges={tracking}
+      onLoad={() => setTracking(false)}
+    >
+      {/* Give iOS a chance to render the custom view, then stop tracking. */}
+      <View onLayout={() => setTimeout(() => setTracking(false), 500)}>
+        {children}
+      </View>
+    </Marker>
+  );
 }
 
 export default function InteractiveMap({
@@ -90,33 +89,49 @@ export default function InteractiveMap({
   showRoute = false,
   height = "100%" as any,
   focusDriverId,
+  fitPadding = DEFAULT_PADDING,
   style,
 }: Props) {
   const mapRef = useRef<MapView>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   const allDrivers: DriverMarker[] = drivers && drivers.length
     ? drivers
     : (driver ? [{ id: "me", ...driver }] : []);
 
-  // Stable list of points we want to fit on screen.
-  const points = useMemo(() => {
-    const pts: { lat: number; lng: number }[] = [];
-    allDrivers.forEach((d) => pts.push({ lat: d.lat, lng: d.lng }));
-    if (pickup) pts.push({ lat: pickup.lat, lng: pickup.lng });
-    if (dropoff) pts.push({ lat: dropoff.lat, lng: dropoff.lng });
+  const coordinates = useMemo(() => {
+    const pts: { latitude: number; longitude: number }[] = [];
+    allDrivers.forEach((d) => pts.push({ latitude: d.lat, longitude: d.lng }));
+    if (pickup) pts.push({ latitude: pickup.lat, longitude: pickup.lng });
+    if (dropoff) pts.push({ latitude: dropoff.lat, longitude: dropoff.lng });
     return pts;
   }, [JSON.stringify(allDrivers), JSON.stringify(pickup), JSON.stringify(dropoff)]);
 
-  // Auto-fit whenever the visible points change (debounced via deps).
+  // Fit to all points whenever they change.
   useEffect(() => {
-    if (focusDriverId) return; // explicit focus wins
-    if (points.length === 0) return;
-    const r = regionForPoints(points);
-    if (r) mapRef.current?.animateToRegion(r, 600);
-  }, [JSON.stringify(points), focusDriverId]);
+    if (!mapReady) return;
+    if (focusDriverId) return;
+    if (coordinates.length === 0) return;
+    if (coordinates.length === 1) {
+      mapRef.current?.animateToRegion(
+        { latitude: coordinates[0].latitude, longitude: coordinates[0].longitude, latitudeDelta: 0.04, longitudeDelta: 0.04 },
+        700
+      );
+      return;
+    }
+    // Slight delay lets the marker views mount before we fit, so anchors are
+    // measured correctly on iOS.
+    const t = setTimeout(() => {
+      mapRef.current?.fitToCoordinates(coordinates, {
+        edgePadding: fitPadding,
+        animated: true,
+      });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [JSON.stringify(coordinates), focusDriverId, mapReady, JSON.stringify(fitPadding)]);
 
-  // Pan to the explicitly focused driver (admin row click).
   useEffect(() => {
+    if (!mapReady) return;
     if (!focusDriverId) return;
     const d = allDrivers.find((x) => x.id === focusDriverId);
     if (!d) return;
@@ -124,14 +139,12 @@ export default function InteractiveMap({
       { latitude: d.lat, longitude: d.lng, latitudeDelta: 0.02, longitudeDelta: 0.02 },
       500
     );
-  }, [focusDriverId, JSON.stringify(allDrivers)]);
+  }, [focusDriverId, JSON.stringify(allDrivers), mapReady]);
 
   return (
     <View style={[styles.container, { height } as any, style]}>
       <MapView
         ref={mapRef}
-        // iOS supports Apple Maps natively too, but using Google on both
-        // platforms keeps the dark/gold theme identical.
         provider={PROVIDER_GOOGLE}
         style={StyleSheet.absoluteFillObject}
         initialRegion={DEFAULT_REGION}
@@ -145,51 +158,58 @@ export default function InteractiveMap({
         rotateEnabled
         pitchEnabled={false}
         toolbarEnabled={false}
-        mapPadding={{ top: 0, right: 0, bottom: 0, left: 0 }}
+        onMapReady={() => setMapReady(true)}
+        mapPadding={{ top: 80, right: 0, bottom: 280, left: 0 }}
       >
         {/* Driver markers — gold ring + black car */}
         {allDrivers.map((d) => (
-          <Marker
+          <StableMarker
             key={d.id || "me"}
             coordinate={{ latitude: d.lat, longitude: d.lng }}
             anchor={{ x: 0.5, y: 0.5 }}
             rotation={d.heading || 0}
             flat
-            tracksViewChanges={false}
+            zIndex={50}
           >
             <View style={styles.driverMarker}>
               <View style={styles.driverInner} />
             </View>
-          </Marker>
+          </StableMarker>
         ))}
 
-        {/* Pickup pin (gold "A") */}
+        {/* Pickup pin — gold circle "A" */}
         {pickup && (
-          <Marker
+          <StableMarker
             coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
-            anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={false}
+            anchor={{ x: 0.5, y: 1 }}
+            zIndex={100}
           >
-            <View style={styles.pickupPin}>
-              <View style={styles.pickupDot} />
+            <View style={styles.pinStack}>
+              <View style={styles.pickupPin}>
+                <View style={styles.pickupGlyph} />
+              </View>
+              <View style={styles.pinTail} />
             </View>
-          </Marker>
+          </StableMarker>
         )}
 
-        {/* Dropoff pin (dark "B" w/ gold ring) */}
+        {/* Dropoff pin — dark circle "B" w/ gold ring */}
         {dropoff && (
-          <Marker
+          <StableMarker
             coordinate={{ latitude: dropoff.lat, longitude: dropoff.lng }}
-            anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={false}
+            anchor={{ x: 0.5, y: 1 }}
+            zIndex={100}
           >
-            <View style={styles.dropoffPin}>
-              <View style={styles.dropoffDot} />
+            <View style={styles.pinStack}>
+              <View style={styles.dropoffPin}>
+                <View style={styles.dropoffGlyph} />
+              </View>
+              <View style={[styles.pinTail, { backgroundColor: "#D4AF37" }]} />
             </View>
-          </Marker>
+          </StableMarker>
         )}
 
-        {/* Dashed gold route driver→pickup (used in live trip view) */}
+        {/* Dashed route driver→pickup (active trip) */}
         {showRoute && allDrivers.length === 1 && pickup && (
           <Polyline
             coordinates={[
@@ -197,12 +217,12 @@ export default function InteractiveMap({
               { latitude: pickup.lat, longitude: pickup.lng },
             ]}
             strokeColor="#D4AF37"
-            strokeWidth={3}
-            lineDashPattern={Platform.OS === "ios" ? [6, 6] : undefined}
+            strokeWidth={4}
+            lineDashPattern={Platform.OS === "ios" ? [8, 8] : undefined}
           />
         )}
 
-        {/* Solid gold route pickup→dropoff (rider booking flow preview) */}
+        {/* Solid gold route pickup→dropoff (booking preview) */}
         {pickup && dropoff && (
           <Polyline
             coordinates={[
@@ -210,7 +230,7 @@ export default function InteractiveMap({
               { latitude: dropoff.lat, longitude: dropoff.lng },
             ]}
             strokeColor="#D4AF37"
-            strokeWidth={4}
+            strokeWidth={5}
           />
         )}
       </MapView>
@@ -221,29 +241,36 @@ export default function InteractiveMap({
 const styles = StyleSheet.create({
   container: { width: "100%", overflow: "hidden", backgroundColor: "#050505" },
   driverMarker: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: "rgba(212,175,55,0.18)",
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: "rgba(212,175,55,0.2)",
     alignItems: "center", justifyContent: "center",
     borderWidth: 2, borderColor: "#D4AF37",
   },
   driverInner: {
-    width: 14, height: 14, borderRadius: 7,
+    width: 16, height: 16, borderRadius: 8,
     backgroundColor: "#0a0a0a",
     borderWidth: 1, borderColor: "#D4AF37",
   },
+  pinStack: {
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
   pickupPin: {
-    width: 26, height: 26, borderRadius: 13,
+    width: 32, height: 32, borderRadius: 16,
     backgroundColor: "#D4AF37",
     alignItems: "center", justifyContent: "center",
-    borderWidth: 2, borderColor: "#000",
-    shadowColor: "#D4AF37", shadowOpacity: 0.6, shadowRadius: 8,
+    borderWidth: 3, borderColor: "#0a0a0a",
   },
-  pickupDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#000" },
+  pickupGlyph: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#0a0a0a" },
+  pinTail: {
+    width: 4, height: 8, backgroundColor: "#0a0a0a",
+    marginTop: -1,
+  },
   dropoffPin: {
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: "#444",
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: "#1a1a1a",
     alignItems: "center", justifyContent: "center",
-    borderWidth: 2, borderColor: "#D4AF37",
+    borderWidth: 3, borderColor: "#D4AF37",
   },
-  dropoffDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#fff" },
+  dropoffGlyph: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#D4AF37" },
 });
