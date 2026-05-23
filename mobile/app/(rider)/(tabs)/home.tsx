@@ -262,6 +262,15 @@ export default function RiderHome() {
                       <Text style={s.stepTxt}>+</Text>
                     </Pressable>
                   </View>
+                  {/* Inline mileage policy — riders see exactly what they're
+                      getting before they commit. Matches website's "as-directed"
+                      hourly pricing model (20 mi/hour included). */}
+                  <View style={s.hourlyInfo}>
+                    <Text style={s.hourlyInfoTxt}>
+                      <Text style={{ color: colors.gold, fontWeight: "600" }}>{hours * 20} mi included</Text>
+                      {" · "}20 mi/hour · overage billed per-mile at vehicle's rate
+                    </Text>
+                  </View>
                 </>
               )}
               {serviceType === "Airport Transfer" && (
@@ -396,6 +405,18 @@ const s = StyleSheet.create({
     fontWeight: "500",
     letterSpacing: 1,
     paddingVertical: 0,
+  },
+  hourlyInfo: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: "rgba(212,175,55,0.06)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.06)",
+  },
+  hourlyInfoTxt: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 11,
+    lineHeight: 15,
   },
   debugPill: {
     alignSelf: "center",

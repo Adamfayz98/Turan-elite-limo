@@ -1,10 +1,13 @@
 import { Tabs } from "expo-router";
-import { Home as HomeIcon, History, User } from "lucide-react-native";
+import { Home as HomeIcon, MapPin, History, User } from "lucide-react-native";
 import { colors } from "@/theme";
 
 export default function RiderTabsLayout() {
-  // Guests can browse the booking screen and see live quotes.
-  // Auth is enforced at the /pay step (see pay.tsx).
+  // Tab order: Home (welcome / discover) | Book (booking flow w/ map) |
+  // Trips (history) | Profile. The HOME tab gives riders a one-tap path back
+  // to the brand/marketing screen no matter how deep they are. The BOOK tab
+  // uses a map-pin icon to differentiate from Home and convey "make a trip".
+  // Guests can use Book without signing in; auth is enforced at /pay.
   return (
     <Tabs
       screenOptions={{
@@ -22,10 +25,17 @@ export default function RiderTabsLayout() {
       }}
     >
       <Tabs.Screen
+        name="discover"
+        options={{
+          title: "Home",
+          tabBarIcon: ({ color }) => <HomeIcon size={20} color={color} strokeWidth={1.6} />,
+        }}
+      />
+      <Tabs.Screen
         name="home"
         options={{
           title: "Book",
-          tabBarIcon: ({ color }) => <HomeIcon size={20} color={color} strokeWidth={1.6} />,
+          tabBarIcon: ({ color }) => <MapPin size={20} color={color} strokeWidth={1.6} />,
         }}
       />
       <Tabs.Screen

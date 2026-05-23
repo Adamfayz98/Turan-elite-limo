@@ -139,7 +139,7 @@ export default function PayScreen() {
         <Text style={s.stepLabel}>CONFIRM & PAY</Text>
         <Pressable
           testID="pay-home"
-          onPress={() => router.replace("/(rider)/(tabs)/home")}
+          onPress={() => router.replace("/(rider)/(tabs)/discover")}
           style={s.back}
           hitSlop={10}
         >

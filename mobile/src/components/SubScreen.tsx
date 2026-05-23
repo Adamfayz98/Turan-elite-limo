@@ -38,7 +38,7 @@ export default function SubScreen({ title, subtitle, children }: Props) {
               logo-as-home pattern. */}
           <Pressable
             testID="subscreen-home"
-            onPress={() => router.replace("/(rider)/(tabs)/home")}
+            onPress={() => router.replace("/(rider)/(tabs)/discover")}
             hitSlop={12}
             style={s.iconBtn}
           >

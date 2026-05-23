@@ -83,7 +83,7 @@ export default function VehiclePicker() {
         <Text style={s.stepLabel}>STEP 2 OF 3</Text>
         <Pressable
           testID="vehicle-home"
-          onPress={() => router.replace("/(rider)/(tabs)/home")}
+          onPress={() => router.replace("/(rider)/(tabs)/discover")}
           style={s.back}
           hitSlop={10}
         >
