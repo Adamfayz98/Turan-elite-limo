@@ -130,7 +130,16 @@ export default function RiderAuth() {
                   router.replace("/home");
                 } catch (e: any) {
                   const raw = e?.response?.data?.detail;
-                  setError(typeof raw === "string" ? raw : Array.isArray(raw) ? raw.map((d: any) => d?.msg).join(", ") : "Something went wrong. Try again.");
+                  if (typeof raw === "string") {
+                    setError(raw);
+                  } else if (Array.isArray(raw)) {
+                    setError(raw.map((d: any) => d?.msg).filter(Boolean).join(", ") || "Something went wrong. Try again.");
+                  } else if (e?.response?.status) {
+                    setError(`Sign-in failed (HTTP ${e.response.status}). Please try again.`);
+                  } else {
+                    // No HTTP response → network failure / DNS / TLS
+                    setError("Couldn't reach the server. Please check your connection and try again.");
+                  }
                 } finally {
                   setSubmitting(false);
                 }

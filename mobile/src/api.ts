@@ -6,9 +6,20 @@ import axios, { AxiosInstance } from "axios";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
+/**
+ * IMPORTANT: This fallback MUST be the production API URL.
+ * EAS Update sometimes ships JS bundles without `EXPO_PUBLIC_API_URL` baked in
+ * (when env vars in eas.json aren't resolved at update-publish time). When
+ * that happens we silently pointed the app at the dev preview URL and all
+ * auth requests appeared as "Something went wrong" / "Couldn't reach the
+ * server" because the preview environment doesn't hold the user's data.
+ *
+ * Production is the safer default. Builds that need to point elsewhere should
+ * set `EXPO_PUBLIC_API_URL` explicitly (via eas.json env or a local .env).
+ */
 const BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ||
-  "https://limo-experience-1.preview.emergentagent.com";
+  "https://turanelitelimo.com";
 
 let cachedToken: string | null = null;
 
