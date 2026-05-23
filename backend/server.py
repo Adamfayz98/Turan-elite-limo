@@ -5255,10 +5255,15 @@ async def customer_book_and_pay(
         success_url = f"{web_origin}/m/?booking_id={bid}&session_id={{CHECKOUT_SESSION_ID}}"
         cancel_url = f"{web_origin}/m/"
     else:
+        # Use HTTPS URLs so Chrome Custom Tabs (Android) and ASWebAuthenticationSession (iOS)
+        # can both reliably detect the redirect and auto-dismiss. The mobile app sets the
+        # redirectUrl prefix to "https://turanelitelimo.com/thank-you" so any URL starting
+        # with that triggers completion. The /thank-you web page flashes briefly before
+        # the in-app browser closes itself.
         success_url = (
-            f"turanelitelimo://thank-you?booking_id={bid}&session_id={{CHECKOUT_SESSION_ID}}"
+            f"https://turanelitelimo.com/thank-you?booking_id={bid}&session_id={{CHECKOUT_SESSION_ID}}&mobile=1"
         )
-        cancel_url = f"turanelitelimo://pay-cancelled?booking_id={bid}"
+        cancel_url = f"https://turanelitelimo.com/?pay_cancelled=1&booking_id={bid}"
 
     form = [
         ("mode", "payment"),

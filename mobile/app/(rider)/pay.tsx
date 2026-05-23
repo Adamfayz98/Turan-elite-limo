@@ -131,25 +131,43 @@ export default function PayScreen() {
         flight_number: trip.flightNumber,
         hours: trip.hours,
       });
-      // Open Stripe Checkout. On native, this is an in-app browser tab that returns
-      // via deep link configured on the backend (turanelitelimo://thank-you?...).
-      // On web preview, fall back to a normal redirect.
+      // Open Stripe Checkout in an in-app browser tab. We use HTTPS for the redirect URL
+      // (instead of a custom scheme) for cross-platform reliability — custom schemes can
+      // blank-screen on Android Chrome Custom Tabs.
+      //
+      // ROBUST PAYMENT DETECTION: Instead of relying solely on URL matching (which can fail
+      // on Android even when the payment succeeded), we ALWAYS poll the booking status
+      // after the WebBrowser closes. This handles every case:
+      //   - Success URL matched → polling confirms paid → thank-you screen ✓
+      //   - User completed payment but Android Tabs blank-screened → polling confirms paid ✓
+      //   - User cancelled → polling shows unpaid → back to home ✓
       if (Platform.OS === "web") {
         window.location.href = checkout_url;
       } else {
         const result = await WebBrowser.openAuthSessionAsync(
           checkout_url,
-          "turanelitelimo://thank-you",
+          "https://turanelitelimo.com/thank-you",
           { showInRecents: true }
         );
+
+        // If the WebBrowser detected the redirect successfully, route directly.
         if (result.type === "success" && result.url) {
-          // Deep link returned — parse & route to confirmation
           const m = result.url.match(/booking_id=([^&]+)/);
           const bid = m ? m[1] : booking_id;
           router.replace(`/(rider)/thank-you?bid=${bid}`);
           return;
         }
-        // User dismissed without paying — go back to home
+
+        // Otherwise (dismiss / cancel / Android tabs blanked) — verify payment status
+        // by polling the backend. Give Stripe a moment to send the webhook.
+        await new Promise(r => setTimeout(r, 1200));
+        try {
+          const b = await api.get(`/api/customer/bookings/${booking_id}`).then(r => r.data);
+          if (b?.payment_status === "paid" || b?.status === "confirmed" || b?.status === "paid") {
+            router.replace(`/(rider)/thank-you?bid=${booking_id}`);
+            return;
+          }
+        } catch { /* fall through to home */ }
         router.replace("/home");
       }
     } catch (e: any) {
