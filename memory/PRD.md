@@ -28,6 +28,36 @@ Full-stack web application for a Bay Area luxury chauffeur service (TuranEliteLi
   - Tunnel for Expo Go: `exp://wzy--oe-anonymous-8081.exp.direct` (rotates on restart)
 
 
+## Changelog — Feb 23 2026 (current session)
+
+### 🔴→✅ FIX: Mobile sign-in / sign-up / forgot-password silently failing
+**Symptom:** TestFlight users saw "Something went wrong" on signin/signup and "Couldn't reach the server" on forgot-password despite production backend being fully up.
+**Root cause:** OTA JS bundles were silently shipping with the *fallback* preview URL (`limo-experience-1.preview.emergentagent.com`) baked in because `EXPO_PUBLIC_API_URL` wasn't always picked up by `eas update` from the build profile env.
+**Fix:**
+- Hardcoded production URL `https://turanelitelimo.com` as the safe default in `/app/mobile/src/api.ts` (line 19).
+- Created `/app/mobile/.env` with `EXPO_PUBLIC_API_URL=https://turanelitelimo.com` for local + update-time consistency.
+- Improved auth error messages in `/app/mobile/app/(rider)/auth.tsx` (line 131-142): distinguishes between server errors, HTTP-status errors, and pure network failures.
+- Pushed OTA update group `336897eb-894a-4190-9bb8-71923902e378` to `production` branch.
+**Verification:** User confirmed sign-in & sign-up work on TestFlight after force-closing app and reopening.
+
+### ✅ FEATURE VALIDATION: P1 — Live Driver Location Tracking (end-to-end)
+**Validated via** `/app/backend/tests/test_driver_location_flow.py` — 14/14 tests pass.
+Coverage:
+- Driver login → POST `/api/driver-auth/location` upserts driver_locations row.
+- When `active_booking_id` supplied, latest fix mirrors onto the booking doc (only if driver_id matches).
+- Customer GET `/api/customer/bookings/{id}/driver-location` returns driver coords, pickup_coord (lazy geocoded), dropoff_coord, trip_status.
+- Admin GET `/api/admin/drivers/live` returns 200-row list with stale_seconds and is_online flag (<120s).
+- No `_id` leak in any response.
+- Full trip_status lifecycle propagates: assigned → en_route → on_location → passenger_onboard → completed.
+
+### 📦 Refactoring backlog (acknowledged, not in-scope)
+- `server.py` is 6592 lines → recommend splitting (admin, customer, driver, payments, geocoding).
+- `/api/driver-auth/location` could 403-reject spoofed `active_booking_id` instead of silent no-op.
+- `/api/admin/drivers/live` has no pagination contract — fine until fleet >200.
+- Negative-cache TTL for failed geocodes on driver-location polls.
+
+
+
 ## Changelog — May 21 2026 (this session, continued)
 
 ### 🗺️ FIX (TAKE 2): Map "This page can't load Google Maps correctly" — ROOT CAUSE FOUND
