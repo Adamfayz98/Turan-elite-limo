@@ -13,17 +13,18 @@
  *   - No auto-redirect away from this screen (the pre-login screen redirects
  *     logged-in users to /home — here we let them stay).
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { View, Text, StyleSheet, ImageBackground, Pressable, Image, ScrollView, Linking } from "react-native";
 import { useRouter } from "expo-router";
 import {
   Sparkles, Plane, Heart, Briefcase, Clock, Music4, Wine, Star, MapPin,
   Phone, ShieldCheck, ArrowRight, ChevronDown, ChevronUp, Globe, FileText,
-  Calendar, AlertCircle,
+  Calendar, AlertCircle, Tag, Megaphone,
 } from "lucide-react-native";
 import { colors, radius, assets } from "@/theme";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/store/auth";
+import { api } from "@/api";
 
 const FLEET = [
   { name: "Executive Sedan", model: "Cadillac XTS · Mercedes E-Class", img: "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=1200", cap: "1–3" },
@@ -55,6 +56,35 @@ export default function DiscoverTab() {
   const user = useAuth(s => s.user);
   const insets = useSafeAreaInsets();
   const [openPolicy, setOpenPolicy] = useState<string | null>(null);
+
+  // Live promotions banner — admin-controlled via /api/admin/promos. The
+  // active promo (currently "WELCOME20") shows up automatically; changes
+  // on the admin page are reflected within the cache window (~60s).
+  const [promo, setPromo] = useState<{ code: string; description: string; discount_type: string; value: number } | null>(null);
+  // Marketing announcement banners — separate stream from promos, also
+  // editable from admin /api/admin/announcements.
+  const [announcements, setAnnouncements] = useState<{ id: string; title: string; body?: string; cta_label?: string; cta_url?: string }[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    // Fetch both in parallel. Silent fallback — if either endpoint 404s on
+    // an older backend, the banner just doesn't render. No error UI shown.
+    Promise.all([
+      api.get("/api/promos/banner").then((r) => r.data).catch(() => null),
+      api.get("/api/announcements").then((r) => r.data).catch(() => ({ banner: [] })),
+    ]).then(([p, a]) => {
+      if (!alive) return;
+      if (p && p.code) setPromo(p);
+      if (a && Array.isArray(a.banner)) setAnnouncements(a.banner);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const promoLine = promo
+    ? promo.discount_type === "percent"
+      ? `${promo.value}% off`
+      : `$${promo.value} off`
+    : null;
 
   // For logged-in riders: "Book a Ride" goes straight to the booking home.
   // For guests: it goes to sign-in.
@@ -128,6 +158,44 @@ export default function DiscoverTab() {
             </View>
           </SafeAreaView>
         </ImageBackground>
+
+        {/* PROMOTIONS & ANNOUNCEMENTS — admin-managed live banners.
+            Promo card shows whenever /api/promos/banner returns an active
+            promo (admin → Promos page); announcement cards show whenever
+            /api/admin/announcements has an entry with placement="banner". */}
+        {(promo || announcements.length > 0) && (
+          <View style={s.bannerWrap}>
+            {promo && (
+              <View style={s.promoCard}>
+                <View style={s.promoIconWrap}>
+                  <Tag size={14} color="#000" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.promoLine1}>
+                    <Text style={s.promoBold}>{promoLine}</Text>
+                    {promo.description ? ` · ${promo.description}` : ""}
+                  </Text>
+                  <Text style={s.promoLine2}>Use code <Text style={s.promoCode}>{promo.code}</Text> at checkout</Text>
+                </View>
+              </View>
+            )}
+            {announcements.map((a) => (
+              <Pressable
+                key={a.id}
+                testID={`discover-announcement-${a.id}`}
+                onPress={() => a.cta_url && Linking.openURL(a.cta_url).catch(() => {})}
+                style={s.announceCard}
+              >
+                <Megaphone size={14} color={colors.gold} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.announceTitle}>{a.title}</Text>
+                  {a.body ? <Text style={s.announceBody}>{a.body}</Text> : null}
+                </View>
+                {a.cta_label ? <Text style={s.announceCta}>{a.cta_label} ›</Text> : null}
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         {/* FLEET */}
         <View style={s.section}>
@@ -289,4 +357,39 @@ const s = StyleSheet.create({
   contactBtnTxt: { color: "#000", fontSize: 13, fontWeight: "600" },
   websiteLink: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 },
   websiteTxt: { color: colors.gold, fontSize: 11, textDecorationLine: "underline" },
+
+  // Promotions & announcements banner area — sits between hero and fleet.
+  bannerWrap: { paddingHorizontal: 20, paddingTop: 18, gap: 10 },
+  promoCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    backgroundColor: "rgba(212,175,55,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(212,175,55,0.45)",
+    borderRadius: radius.lg,
+  },
+  promoIconWrap: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: colors.gold,
+    alignItems: "center", justifyContent: "center",
+  },
+  promoLine1: { color: "#fff", fontSize: 13, lineHeight: 18 },
+  promoLine2: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 2 },
+  promoBold: { color: colors.gold, fontWeight: "700" },
+  promoCode: { color: colors.gold, fontWeight: "600", letterSpacing: 1 },
+  announceCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: radius.lg,
+  },
+  announceTitle: { color: "#fff", fontSize: 13, fontWeight: "500" },
+  announceBody: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 2, lineHeight: 16 },
+  announceCta: { color: colors.gold, fontSize: 11, fontWeight: "600" },
 });
