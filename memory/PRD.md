@@ -51,6 +51,17 @@ Coverage:
 - Full trip_status lifecycle propagates: assigned → en_route → on_location → passenger_onboard → completed.
 
 ### 📦 Refactoring backlog (acknowledged, not in-scope)
+
+### ✅ DONE: Android Google Play Internal Testing submission
+**Root cause (recap):** `support@turanelitelimo.com` is a Google Workspace account with an org policy (`disableServiceAccountKeyCreation`) that the user couldn't edit, so JSON key creation was blocked.
+**Workaround:** Created a brand-new Google Cloud project `turanelitelimo-play` under the user's personal Google account `adamfayz98@gmail.com` (no Workspace org → no policy → JSON keys allowed). Created service account `eas-submit@turanelitelimo-play.iam.gserviceaccount.com`, generated JSON key, invited into Play Console with "Manage testing tracks" + "Release apps to testing tracks" + "View app information" permissions.
+**Result:** EAS submission `22f640dd-e693-42ed-8907-1bdb7210349a` succeeded. `.aab` build #17 (Android) is now in the Play Internal Testing track for app `com.turanelitelimo.app`.
+**Files added:** `/app/mobile/play-service-account.json` (gitignored), eas.json `submit.production.android.serviceAccountKeyPath` configured.
+
+### ✅ DONE: P2 — Apple Pay (Option A)
+Verified by user: Stripe Checkout (opened in in-app browser from mobile) already shows Apple Pay button on iOS device — no code changes needed. User has enabled Apple Pay in Stripe Dashboard. Google Pay equivalent will work automatically on Android when the Internal Testing build is installed (same Stripe Checkout flow).
+
+
 - `server.py` is 6592 lines → recommend splitting (admin, customer, driver, payments, geocoding).
 - `/api/driver-auth/location` could 403-reject spoofed `active_booking_id` instead of silent no-op.
 - `/api/admin/drivers/live` has no pagination contract — fine until fleet >200.

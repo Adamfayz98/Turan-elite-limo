@@ -60,7 +60,8 @@
         "appleTeamId": "9M7CK4W8HM"
       },
       "android": {
-        "track": "internal"
+        "track": "internal",
+        "serviceAccountKeyPath": "./play-service-account.json"
       }
     }
   }
