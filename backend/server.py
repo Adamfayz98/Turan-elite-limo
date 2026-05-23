@@ -11,7 +11,7 @@ import secrets
 import string
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from urllib.parse import urlencode
 
 import httpx
@@ -1252,6 +1252,21 @@ async def assign_driver(booking_id: str, payload: DriverAssignRequest, request: 
         except Exception as e:
             logger.warning(f"Chauffeur-assigned email failed (non-fatal): {e}")
 
+    # Push notification to the rider (if they have the mobile app installed).
+    try:
+        cust_id = b.get("customer_id")
+        if cust_id:
+            driver_name = update_doc.get("driver_name") or "Your chauffeur"
+            vehicle = b.get("vehicle_type") or ""
+            await _push_to_customer(
+                cust_id,
+                "Chauffeur assigned",
+                f"{driver_name} will be your driver{(' · ' + vehicle) if vehicle else ''}",
+                data={"type": "driver_assigned", "booking_id": booking_id},
+            )
+    except Exception as e:
+        logger.warning(f"Driver-assigned push failed (non-fatal): {e}")
+
     return {"ok": True, "driver_token": token, "driver_url": driver_url}
 
 
@@ -1370,6 +1385,34 @@ async def driver_update_status(driver_token: str, payload: DriverStatusUpdate, r
             )
         except Exception as e:
             logger.warning(f"Admin status SMS failed: {e}")
+
+    # Push notification to the rider's mobile app (in addition to SMS — many
+    # riders silence SMS but allow push for the apps they trust).
+    try:
+        cust_id = b.get("customer_id")
+        if cust_id:
+            title_map = {
+                "en_route": "Driver en route",
+                "arrived": "Driver has arrived",
+                "in_progress": "Trip started",
+                "completed": "Trip completed",
+            }
+            body_map = {
+                "en_route": "Your chauffeur is on the way to pickup",
+                "arrived": "Your chauffeur is waiting at pickup",
+                "in_progress": "Enjoy your ride",
+                "completed": "Thank you for riding with us",
+            }
+            t = title_map.get(new_status)
+            if t:
+                await _push_to_customer(
+                    cust_id,
+                    t,
+                    body_map.get(new_status, ""),
+                    data={"type": f"trip_{new_status}", "booking_id": b["id"]},
+                )
+    except Exception as e:
+        logger.warning(f"Trip-status push failed (non-fatal): {e}")
 
     return {"ok": True, "trip_status": new_status, "trip_status_updated_at": now_iso}
 
@@ -4895,6 +4938,88 @@ async def customer_delete_account(claims: dict = Depends(require_customer)):
     return {"ok": True}
 
 
+# ============================================================================
+# Push notifications — Expo Push Tokens & dispatch helpers
+# ----------------------------------------------------------------------------
+# Riders & drivers register their Expo push token on app launch / login.
+# When dispatch / ride-status events fire, we send pushes via Expo's HTTP API.
+# This module is intentionally fail-soft: a network error never blocks the
+# booking pipeline.
+# ============================================================================
+class PushTokenIn(BaseModel):
+    token: str = Field(..., min_length=10, max_length=200)
+    platform: Optional[str] = Field(None, max_length=20)
+    device_model: Optional[str] = Field(None, max_length=120)
+
+
+@api_router.post("/customer/push-token")
+async def customer_register_push_token(payload: PushTokenIn, claims: dict = Depends(require_customer)):
+    """Save the Expo push token on the rider's customer document. Idempotent."""
+    cid = claims.get("customer_id")
+    await db.customers.update_one(
+        {"id": cid},
+        {"$set": {
+            "push_token": payload.token,
+            "push_platform": payload.platform or "ios",
+            "push_device": payload.device_model or "",
+            "push_registered_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"ok": True}
+
+
+# The driver push-token endpoint is defined later in this file, after
+# `require_driver` is declared (around line 5614).
+
+
+async def _send_expo_push(tokens: List[str], title: str, body: str, data: Optional[Dict] = None, channel_id: str = "ride-updates"):
+    """Best-effort send to Expo Push API. Silent on any failure — pushes are
+    additive UX, never blockers."""
+    if not tokens:
+        return
+    try:
+        import httpx
+        messages = [
+            {
+                "to": t,
+                "title": title,
+                "body": body,
+                "data": data or {},
+                "sound": "default",
+                "channelId": channel_id,
+                "priority": "high",
+            }
+            for t in tokens if t and t.startswith("ExponentPushToken")
+        ]
+        if not messages:
+            return
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(
+                "https://exp.host/--/api/v2/push/send",
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+                json=messages,
+            )
+    except Exception as e:
+        logger.warning(f"Expo push send failed (non-fatal): {e}")
+
+
+async def _push_to_customer(customer_id: str, title: str, body: str, data: Optional[Dict] = None):
+    """Send a ride-update push to a specific rider, by customer_id."""
+    cust = await db.customers.find_one({"id": customer_id}, {"_id": 0, "push_token": 1})
+    if cust and cust.get("push_token"):
+        await _send_expo_push([cust["push_token"]], title, body, data, channel_id="ride-updates")
+
+
+async def _push_to_driver(driver_id: str, title: str, body: str, data: Optional[Dict] = None):
+    """Send a dispatch push to a specific driver, by drivers.id."""
+    drv = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "push_token": 1})
+    if drv and drv.get("push_token"):
+        await _send_expo_push([drv["push_token"]], title, body, data, channel_id="dispatch-alerts")
+
+
+
+
+
 # ----- Help & Support: contact form from inside the app -----
 class CustomerHelpRequest(BaseModel):
     subject: str = Field(..., min_length=2, max_length=120)
@@ -5513,6 +5638,27 @@ async def driver_login(payload: DriverLoginRequest):
     if not d or not d.get("password_hash") or not verify_password(payload.password, d.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     return DriverAuthResponse(token=create_driver_token(d["id"], email), driver=_driver_to_profile(d))
+
+
+@api_router.post("/driver/push-token")
+async def driver_register_push_token(payload: PushTokenIn, claims: dict = Depends(require_driver)):
+    """Save the Expo push token on the driver document. Idempotent — safe to
+    call on every login from the driver mobile app."""
+    did = claims.get("driver_id")
+    if not did:
+        raise HTTPException(status_code=401, detail="Not a driver")
+    await db.drivers.update_one(
+        {"id": did},
+        {"$set": {
+            "push_token": payload.token,
+            "push_platform": payload.platform or "ios",
+            "push_device": payload.device_model or "",
+            "push_registered_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"ok": True}
+
+
 
 
 @api_router.get("/driver-auth/me", response_model=DriverProfileOut)

@@ -8,6 +8,7 @@ import Input from "@/components/Input";
 import { colors, assets } from "@/theme";
 import { loginRider, signupRider } from "@/api";
 import { useAuth } from "@/store/auth";
+import { registerForPushAsync } from "@/push";
 
 export default function RiderAuth() {
   const router = useRouter();
@@ -122,6 +123,10 @@ export default function RiderAuth() {
                     ? await loginRider({ email: email.trim().toLowerCase(), password })
                     : await signupRider({ name: name.trim(), email: email.trim().toLowerCase(), password });
                   setUser(data.user);
+                  // Register for push notifications in the background.
+                  // Non-blocking — if the user denies or the backend endpoint
+                  // isn't deployed yet, login still succeeds.
+                  registerForPushAsync("rider").catch(() => {});
                   router.replace("/home");
                 } catch (e: any) {
                   const raw = e?.response?.data?.detail;

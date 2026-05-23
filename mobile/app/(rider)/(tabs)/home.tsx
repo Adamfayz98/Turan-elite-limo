@@ -418,15 +418,4 @@ const s = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
   },
-  debugPill: {
-    alignSelf: "center",
-    marginTop: 60,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "rgba(0,0,0,0.85)",
-    borderWidth: 1,
-    borderColor: "rgba(212,175,55,0.4)",
-  },
-  debugTxt: { color: "#D4AF37", fontSize: 10, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
 });
