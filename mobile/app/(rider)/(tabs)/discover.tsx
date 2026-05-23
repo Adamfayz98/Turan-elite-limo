@@ -16,6 +16,7 @@
 import { useState, useEffect } from "react";
 import { View, Text, StyleSheet, ImageBackground, Pressable, Image, ScrollView, Linking } from "react-native";
 import { useRouter } from "expo-router";
+import * as Updates from "expo-updates";
 import {
   Sparkles, Plane, Heart, Briefcase, Clock, Music4, Wine, Star, MapPin,
   Phone, ShieldCheck, ArrowRight, ChevronDown, ChevronUp, Globe, FileText,
@@ -277,6 +278,10 @@ export default function DiscoverTab() {
               </View>
             </Pressable>
           </View>
+          {/* OTA debug stamp — lets us verify the JS bundle is the latest. */}
+          <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 9, textAlign: "center", marginTop: 12 }}>
+            v1.0.0 · OTA {String(Updates.updateId || "bundled").slice(0, 8)} · ch {String(Updates.channel || "?")}
+          </Text>
         </View>
       </ScrollView>
     </View>
