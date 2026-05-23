@@ -7,6 +7,7 @@ load_dotenv(ROOT_DIR / '.env')
 import os
 import logging
 import math
+import re
 import secrets
 import string
 import uuid
@@ -1201,12 +1202,27 @@ async def assign_driver(booking_id: str, payload: DriverAssignRequest, request: 
 
     token = b.get("driver_token") or _generate_driver_token()
 
-    # If the driver's phone matches a pre-registered driver (mobile app user), link by ID
-    # so the mobile chauffeur app can pull this trip in /api/driver-auth/trips.
-    linked_driver = await db.drivers.find_one(
-        {"phone": payload.driver_phone.strip()},
-        {"_id": 0, "id": 1},
-    )
+    # Link by phone, email, OR name (more tolerant — admin form input can have
+    # small variations like trailing spaces or different phone formats). The
+    # driver's mobile app fetches trips strictly by driver_id, so failing to
+    # link here means the trip won't appear AND live location won't mirror.
+    linked_driver = None
+    norm_phone = re.sub(r"[^\d+]", "", payload.driver_phone.strip())
+    if norm_phone:
+        linked_driver = await db.drivers.find_one(
+            {"phone": {"$in": [
+                payload.driver_phone.strip(),
+                norm_phone,
+                norm_phone.lstrip("+1") if norm_phone.startswith("+1") else norm_phone,
+                "+1" + norm_phone if norm_phone.isdigit() and len(norm_phone) == 10 else norm_phone,
+            ]}},
+            {"_id": 0, "id": 1},
+        )
+    if not linked_driver and payload.driver_email:
+        linked_driver = await db.drivers.find_one(
+            {"email": {"$regex": f"^{re.escape(payload.driver_email.strip())}$", "$options": "i"}},
+            {"_id": 0, "id": 1},
+        )
 
     update_doc = {
         "driver_name": payload.driver_name.strip(),
@@ -5899,6 +5915,7 @@ async def customer_driver_location(booking_id: str, claims: dict = Depends(requi
     cid = claims.get("customer_id")
     b = await db.bookings.find_one({"id": booking_id, "customer_id": cid}, {
         "_id": 0, "id": 1, "driver_id": 1, "driver_name": 1, "driver_phone": 1, "driver_plate": 1, "driver_vehicle": 1,
+        "driver_email": 1,
         "driver_latitude": 1, "driver_longitude": 1, "driver_heading": 1, "driver_location_updated_at": 1,
         "pickup_location": 1, "dropoff_location": 1, "pickup_coord": 1, "dropoff_coord": 1, "trip_status": 1, "status": 1,
     })
@@ -5918,6 +5935,65 @@ async def customer_driver_location(booking_id: str, claims: dict = Depends(requi
         if dropoff_coord:
             await db.bookings.update_one({"id": b["id"]}, {"$set": {"dropoff_coord": dropoff_coord}})
 
+    # Driver location resolution — tolerant multi-step lookup:
+    #   1. Use the mirrored fields on the booking (fast path, set when the
+    #      driver-auth/location endpoint matched booking.driver_id).
+    #   2. If those are missing, look up the live row in `driver_locations`
+    #      via booking.driver_id (handles dispatch flows where the mirror
+    #      update didn't run yet — e.g. driver started GPS before the trip
+    #      had driver_id, or the dispatch endpoint set driver_id by a
+    #      different identifier).
+    #   3. If still missing AND booking has driver_email/driver_phone, look
+    #      up the drivers collection by those, then re-query driver_locations.
+    #      This catches the case where admin assigned the trip by typing a
+    #      name + phone in the web form that didn't exactly match the
+    #      driver record on the mobile app account.
+    drv_lat = b.get("driver_latitude")
+    drv_lng = b.get("driver_longitude")
+    drv_heading = b.get("driver_heading")
+    drv_updated = b.get("driver_location_updated_at")
+    if drv_lat is None or drv_lng is None:
+        driver_id_to_try = b.get("driver_id")
+        # Fallback 1: try by booking.driver_id
+        if driver_id_to_try:
+            loc = await db.driver_locations.find_one(
+                {"driver_id": driver_id_to_try},
+                {"_id": 0, "latitude": 1, "longitude": 1, "heading": 1, "updated_at": 1},
+            )
+            if loc:
+                drv_lat = loc.get("latitude")
+                drv_lng = loc.get("longitude")
+                drv_heading = loc.get("heading")
+                drv_updated = loc.get("updated_at")
+        # Fallback 2: try by booking.driver_email / driver_phone → drivers row → driver_locations
+        if (drv_lat is None or drv_lng is None) and (b.get("driver_email") or b.get("driver_phone")):
+            drv_lookup: Optional[dict] = None
+            if b.get("driver_email"):
+                drv_lookup = await db.drivers.find_one(
+                    {"email": {"$regex": f"^{re.escape(b['driver_email'])}$", "$options": "i"}},
+                    {"_id": 0, "id": 1},
+                )
+            if not drv_lookup and b.get("driver_phone"):
+                drv_lookup = await db.drivers.find_one(
+                    {"phone": b["driver_phone"]},
+                    {"_id": 0, "id": 1},
+                )
+            if drv_lookup and drv_lookup.get("id"):
+                # Backfill booking.driver_id for next time so the fast path works.
+                await db.bookings.update_one(
+                    {"id": b["id"]},
+                    {"$set": {"driver_id": drv_lookup["id"]}},
+                )
+                loc = await db.driver_locations.find_one(
+                    {"driver_id": drv_lookup["id"]},
+                    {"_id": 0, "latitude": 1, "longitude": 1, "heading": 1, "updated_at": 1},
+                )
+                if loc:
+                    drv_lat = loc.get("latitude")
+                    drv_lng = loc.get("longitude")
+                    drv_heading = loc.get("heading")
+                    drv_updated = loc.get("updated_at")
+
     return {
         "booking_id": b["id"],
         "status": b.get("status"),
@@ -5928,10 +6004,10 @@ async def customer_driver_location(booking_id: str, claims: dict = Depends(requi
             "phone": b.get("driver_phone"),
             "plate": b.get("driver_plate"),
             "vehicle": b.get("driver_vehicle"),
-            "latitude": b.get("driver_latitude"),
-            "longitude": b.get("driver_longitude"),
-            "heading": b.get("driver_heading"),
-            "updated_at": b.get("driver_location_updated_at"),
+            "latitude": drv_lat,
+            "longitude": drv_lng,
+            "heading": drv_heading,
+            "updated_at": drv_updated,
         },
         "pickup_location": b.get("pickup_location"),
         "dropoff_location": b.get("dropoff_location"),
