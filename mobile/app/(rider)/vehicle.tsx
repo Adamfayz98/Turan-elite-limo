@@ -43,11 +43,18 @@ export default function VehiclePicker() {
           hours: isHourly ? trip.hours : undefined,
         });
         if (cancelled) return;
-        setQuotes(d.quotes || []);
+        const incoming = d.quotes || [];
+        setQuotes(incoming);
         setDistance(d.distance_miles || null);
         if (!selected) {
-          const first = (d.quotes || []).find((q: QuoteRow) => q.price && q.price > 0);
+          const first = incoming.find((q: QuoteRow) => q.price && q.price > 0);
           if (first) setSelected(first.vehicle_type);
+        }
+        // If the backend returned zero quotes (e.g. addresses outside the
+        // service area or unresolvable), surface a friendly message instead
+        // of leaving the screen blank.
+        if (incoming.length === 0) {
+          setError("We couldn't find any vehicles for this route. Try a more specific pickup or drop-off address (include city + ZIP).");
         }
       } catch (e: any) {
         const raw = e?.response?.data?.detail;

@@ -1,12 +1,20 @@
 /**
  * Date + time picker modal for the booking flow.
- * Uses @react-native-community/datetimepicker on native and a smart
- * <input type="datetime-local"> on web. Returns an ISO string.
+ *
+ * Cross-platform UX:
+ *  - iOS: a single inline "spinner" wheel showing day + time together (native UX).
+ *  - Android: two tap-to-open pickers (date picker first, then time picker)
+ *    rendered as buttons. The default `mode="datetime"` on Android is broken —
+ *    it spawns two sequential modal dialogs with OK buttons that feel laggy.
+ *    Two explicit buttons + dialogs feel snappier and match Material guidelines.
+ *  - Web: an `<input type="datetime-local">`.
+ *
+ * Returns an ISO string via onConfirm.
  */
 import { useState, useEffect } from "react";
 import { Modal, View, Text, StyleSheet, Pressable, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ChevronLeft } from "lucide-react-native";
+import { ChevronLeft, Calendar as CalendarIcon, Clock as ClockIcon } from "lucide-react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import Button from "@/components/Button";
 import { colors, radius } from "@/theme";
@@ -27,8 +35,25 @@ const QUICKS = [
 
 export default function DateTimeModal({ visible, initial, onClose, onConfirm }: Props) {
   const [date, setDate] = useState<Date>(() => initial ? new Date(initial) : new Date(Date.now() + 60 * 60 * 1000));
+  // Android-only: which sub-picker is currently visible (date or time).
+  // Closed when null. We open them one at a time via tap.
+  const [androidPicker, setAndroidPicker] = useState<null | "date" | "time">(null);
 
   useEffect(() => { if (visible) setDate(initial ? new Date(initial) : new Date(Date.now() + 60 * 60 * 1000)); }, [visible, initial]);
+
+  // Merge a new date-only value into the existing time-of-day.
+  const setDateOnly = (d: Date) => {
+    const merged = new Date(date);
+    merged.setFullYear(d.getFullYear(), d.getMonth(), d.getDate());
+    setDate(merged);
+  };
+
+  // Merge a new time-of-day value into the existing date.
+  const setTimeOnly = (d: Date) => {
+    const merged = new Date(date);
+    merged.setHours(d.getHours(), d.getMinutes(), 0, 0);
+    setDate(merged);
+  };
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
@@ -60,6 +85,7 @@ export default function DateTimeModal({ visible, initial, onClose, onConfirm }: 
           </View>
 
           <Text style={[s.label, { marginTop: 22 }]}>OR PICK EXACTLY</Text>
+
           {Platform.OS === "web" ? (
             <input
               type="datetime-local"
@@ -71,18 +97,77 @@ export default function DateTimeModal({ visible, initial, onClose, onConfirm }: 
                 borderRadius: 12, padding: 14, fontSize: 14, width: "100%", outline: "none", colorScheme: "dark",
               } as any}
             />
-          ) : (
+          ) : Platform.OS === "ios" ? (
+            // iOS: inline spinner wheel — natively shows date + time together.
             <View style={s.pickerWrap}>
               <DateTimePicker
                 testID="dt-native-picker"
                 value={date}
                 mode="datetime"
-                display={Platform.OS === "ios" ? "spinner" : "default"}
+                display="spinner"
                 minimumDate={new Date()}
                 onChange={(_, d) => { if (d) setDate(d); }}
                 themeVariant="dark"
                 textColor="#fff"
               />
+            </View>
+          ) : (
+            // Android: two separate tap-to-open dialogs. This avoids the laggy
+            // "datetime" combo mode and matches Material Design expectations.
+            <View style={s.androidRow}>
+              <Pressable
+                testID="dt-android-date"
+                onPress={() => setAndroidPicker("date")}
+                style={s.androidBtn}
+              >
+                <CalendarIcon size={16} color={colors.gold} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.androidBtnLabel}>DATE</Text>
+                  <Text style={s.androidBtnValue}>
+                    {date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                  </Text>
+                </View>
+              </Pressable>
+              <Pressable
+                testID="dt-android-time"
+                onPress={() => setAndroidPicker("time")}
+                style={s.androidBtn}
+              >
+                <ClockIcon size={16} color={colors.gold} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.androidBtnLabel}>TIME</Text>
+                  <Text style={s.androidBtnValue}>
+                    {date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                  </Text>
+                </View>
+              </Pressable>
+              {androidPicker === "date" && (
+                <DateTimePicker
+                  testID="dt-android-date-picker"
+                  value={date}
+                  mode="date"
+                  display="default"
+                  minimumDate={new Date()}
+                  onChange={(event, d) => {
+                    setAndroidPicker(null);
+                    // event.type === "dismissed" → user canceled, don't apply
+                    if (event?.type === "set" && d) setDateOnly(d);
+                  }}
+                />
+              )}
+              {androidPicker === "time" && (
+                <DateTimePicker
+                  testID="dt-android-time-picker"
+                  value={date}
+                  mode="time"
+                  display="default"
+                  is24Hour={false}
+                  onChange={(event, d) => {
+                    setAndroidPicker(null);
+                    if (event?.type === "set" && d) setTimeOnly(d);
+                  }}
+                />
+              )}
             </View>
           )}
 
@@ -119,6 +204,10 @@ const s = StyleSheet.create({
   chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: "rgba(212,175,55,0.4)", backgroundColor: "rgba(212,175,55,0.05)" },
   chipTxt: { color: colors.gold, fontSize: 12, fontWeight: "500" },
   pickerWrap: { backgroundColor: colors.surfaceElevated, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, alignItems: "center", paddingVertical: 6 },
+  androidRow: { gap: 10 },
+  androidBtn: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: colors.surfaceElevated, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 14 },
+  androidBtnLabel: { color: "rgba(255,255,255,0.45)", fontSize: 9, letterSpacing: 1.5, fontWeight: "600" },
+  androidBtnValue: { color: "#fff", fontSize: 14, fontWeight: "500", marginTop: 2 },
   summary: { marginTop: 18, padding: 14, borderRadius: radius.lg, borderWidth: 1, borderColor: "rgba(212,175,55,0.3)", backgroundColor: "rgba(212,175,55,0.04)" },
   summaryLabel: { color: "rgba(255,255,255,0.45)", fontSize: 9, letterSpacing: 1.5, fontWeight: "600" },
   summaryValue: { color: colors.gold, fontSize: 16, fontWeight: "600", marginTop: 4, fontStyle: "italic" },

@@ -106,13 +106,30 @@ export default function RiderHome() {
     return () => { cancelled = true; clearTimeout(t); };
   }, [dropoff]);
 
+  const [formError, setFormError] = useState<string | null>(null);
+
   const onContinue = () => {
     const isHourly = serviceType === "Hourly Chauffeur";
-    // Hourly only needs pickup; A to B and Airport need both pickup + dropoff.
-    if (!pickup.trim()) return;
-    if (!isHourly && !dropoff.trim()) return;
-    if (serviceType === "Airport Transfer" && flightNumber.trim().length < 2) return;
-    if (isHourly && (hours < 2 || hours > 24)) return;
+    // Validate with VISIBLE feedback. Silent returns were leaving users
+    // staring at a blank screen after pressing Continue, confusing them
+    // into thinking the app had crashed.
+    if (!pickup.trim()) {
+      setFormError("Please enter your pickup address.");
+      return;
+    }
+    if (!isHourly && !dropoff.trim()) {
+      setFormError("Please enter your drop-off address.");
+      return;
+    }
+    if (serviceType === "Airport Transfer" && flightNumber.trim().length < 2) {
+      setFormError("Please enter your flight number for airport pickups (e.g. UA123).");
+      return;
+    }
+    if (isHourly && (hours < 2 || hours > 24)) {
+      setFormError("Hourly bookings must be between 2 and 24 hours.");
+      return;
+    }
+    setFormError(null);
     const when = datetime || new Date(Date.now() + 60 * 60 * 1000).toISOString();
     setTrip({
       pickup: pickup.trim(),
@@ -317,6 +334,14 @@ export default function RiderHome() {
             >
               Continue
             </Button>
+            {formError && (
+              <Text
+                testID="home-form-error"
+                style={{ color: colors.error, fontSize: 12, marginTop: 10, textAlign: "center" }}
+              >
+                {formError}
+              </Text>
+            )}
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
