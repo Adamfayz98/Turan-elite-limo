@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Linking, Platform, TextInput, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -8,7 +8,7 @@ import Button from "@/components/Button";
 import { colors, radius } from "@/theme";
 import { useBooking } from "@/store/booking";
 import { useAuth } from "@/store/auth";
-import { bookAndPay, validatePromo } from "@/api";
+import { bookAndPay, validatePromo, api } from "@/api";
 
 export default function PayScreen() {
   const router = useRouter();
@@ -24,6 +24,37 @@ export default function PayScreen() {
   const [damageConsent, setDamageConsent] = useState(false);
   const [cancelConsent, setCancelConsent] = useState(false);
   const allConsentsGiven = waitConsent && damageConsent && cancelConsent;
+
+  // Auto-apply the active banner promo (e.g. WELCOME20) on mount so the rider
+  // doesn't have to remember and type the code. Runs once, silently — if the
+  // promo is invalid for this rider (e.g. they've already used it, or it
+  // doesn't apply to their vehicle type), nothing happens and they can still
+  // enter a code manually.
+  useEffect(() => {
+    if (promoApplied || promo) return;          // user already has a code
+    if (!user || !trip.quoteAmount) return;     // wait until we have everything
+    let alive = true;
+    (async () => {
+      try {
+        const banner = await api.get("/api/promos/banner").then(r => r.data).catch(() => null);
+        if (!alive || !banner?.code) return;
+        const res = await validatePromo({
+          code: banner.code,
+          amount: trip.quoteAmount!,
+          email: user.email,
+          vehicle_type: trip.vehicleType,
+        });
+        if (!alive) return;
+        if (res?.ok) {
+          setPromoApplied({ code: res.code, discount: res.discount, description: res.description });
+          setPromo(res.code);
+        }
+        // Silent: if the promo doesn't apply, we just don't auto-fill.
+      } catch { /* network errors are non-fatal here */ }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email, trip.quoteAmount, trip.vehicleType]);
 
   // Guests must sign in or create an account before paying.
   if (!user) {
