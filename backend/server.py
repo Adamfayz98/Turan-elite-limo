@@ -5285,6 +5285,11 @@ async def customer_book_and_pay(
         ("mode", "payment"),
         ("success_url", success_url),
         ("cancel_url", cancel_url),
+        # Save the customer's card for future off-session charges (wait-time,
+        # mid-trip detour, damages). Matches the web /book flow behavior so
+        # admin/dispatch can pull the saved card from the booking later.
+        ("customer_creation", "always"),
+        ("payment_intent_data[setup_future_usage]", "off_session"),
         ("line_items[0][quantity]", "1"),
         ("line_items[0][price_data][currency]", settings.currency),
         ("line_items[0][price_data][unit_amount]", str(amount_cents)),

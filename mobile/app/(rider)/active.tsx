@@ -64,10 +64,12 @@ export default function RiderActiveTrip() {
             <Text style={s.mapHint}>Waiting for driver to share location…</Text>
           </View>
         )}
-        <View style={s.mapDim} />
+        {/* Subtle dim layer — pointerEvents="none" so it doesn't intercept
+            pan/zoom touches on the map underneath. */}
+        <View pointerEvents="none" style={s.mapDim} />
 
-        <SafeAreaView style={{ paddingHorizontal: 16 }} edges={["top"]}>
-          <View style={s.topRow}>
+        <SafeAreaView pointerEvents="box-none" style={{ paddingHorizontal: 16 }} edges={["top"]}>
+          <View pointerEvents="box-none" style={s.topRow}>
             <Pressable testID="active-back" onPress={() => router.back()} style={s.iconBtn}>
               <ChevronLeft size={18} color="#fff" />
             </Pressable>
@@ -156,7 +158,7 @@ function MapImage_DEPRECATED() { return null; }
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  mapWrap: { height: "50%", backgroundColor: "#0a0a0a" },
+  mapWrap: { height: "62%", backgroundColor: "#0a0a0a" },
   mapDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.25)" },
   mapHint: { color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 12 },
   topRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 },

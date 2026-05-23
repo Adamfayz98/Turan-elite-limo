@@ -131,35 +131,28 @@ export default function PayScreen() {
         flight_number: trip.flightNumber,
         hours: trip.hours,
       });
-      // Open Stripe Checkout in an in-app browser tab. We use HTTPS for the redirect URL
-      // (instead of a custom scheme) for cross-platform reliability — custom schemes can
-      // blank-screen on Android Chrome Custom Tabs.
+      // Open Stripe Checkout in an in-app browser tab. We use `openBrowserAsync`
+      // (Safari View Controller on iOS, Chrome Custom Tabs on Android) which
+      // works identically on both platforms and doesn't require any specific
+      // redirect URL scheme. After it closes, we poll the booking status to
+      // determine if payment succeeded.
       //
-      // ROBUST PAYMENT DETECTION: Instead of relying solely on URL matching (which can fail
-      // on Android even when the payment succeeded), we ALWAYS poll the booking status
-      // after the WebBrowser closes. This handles every case:
-      //   - Success URL matched → polling confirms paid → thank-you screen ✓
-      //   - User completed payment but Android Tabs blank-screened → polling confirms paid ✓
-      //   - User cancelled → polling shows unpaid → back to home ✓
+      // We previously used `openAuthSessionAsync` with an HTTPS callback URL,
+      // but iOS's ASWebAuthenticationSession refused to open when the callback
+      // URL wasn't a registered custom scheme — which manifested as the app
+      // silently returning the user to /home (looked like a payment loop).
       if (Platform.OS === "web") {
         window.location.href = checkout_url;
       } else {
-        const result = await WebBrowser.openAuthSessionAsync(
-          checkout_url,
-          "https://turanelitelimo.com/thank-you",
-          { showInRecents: true }
-        );
+        await WebBrowser.openBrowserAsync(checkout_url, {
+          showInRecents: true,
+          dismissButtonStyle: "close",
+          presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+        });
 
-        // If the WebBrowser detected the redirect successfully, route directly.
-        if (result.type === "success" && result.url) {
-          const m = result.url.match(/booking_id=([^&]+)/);
-          const bid = m ? m[1] : booking_id;
-          router.replace(`/(rider)/thank-you?bid=${bid}`);
-          return;
-        }
-
-        // Otherwise (dismiss / cancel / Android tabs blanked) — verify payment status
-        // by polling the backend. Give Stripe a moment to send the webhook.
+        // After the browser closes — whether the user paid, cancelled, or
+        // dismissed — verify the booking's payment status via the backend.
+        // Give Stripe ~1.2s to deliver the webhook to our server.
         await new Promise(r => setTimeout(r, 1200));
         try {
           const b = await api.get(`/api/customer/bookings/${booking_id}`).then(r => r.data);
