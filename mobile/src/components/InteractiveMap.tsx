@@ -122,7 +122,11 @@ const DEFAULT_REGION: Region = {
   longitudeDelta: 0.25,
 };
 
-const DEFAULT_PADDING = { top: 140, right: 60, bottom: 380, left: 60 };
+// Compact padding tuned for the home screen — the bottom form sheet covers
+// roughly the lower ~32% of the screen, so we keep pins inside the visible
+// upper portion plus a small breathing margin all around. These values are
+// the SOLE source of edge offset (no mapPadding stacking on top).
+const DEFAULT_PADDING = { top: 90, right: 50, bottom: 320, left: 50 };
 
 function StableMarker({ coordinate, anchor, rotation, zIndex, children }: any) {
   const [tracking, setTracking] = useState(true);
@@ -263,7 +267,12 @@ export default function InteractiveMap({
         rotateEnabled
         pitchEnabled={false}
         toolbarEnabled={false}
-        mapPadding={{ top: 80, right: 0, bottom: 280, left: 0 }}
+        // Note: NOT using mapPadding here — it stacked with the
+        // fitToCoordinates edgePadding and caused the camera to zoom
+        // way out (sometimes to continent level) because the combined
+        // padding exceeded the visible viewport on tall iPhones.
+        // The form sheet at the bottom is small enough that edgePadding
+        // alone handles all offset we need.
       >
         {allDrivers.map((d) => (
           <StableMarker

@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, KeyboardAvoidingView, Platform, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Calendar, Clock, ArrowRight, Settings, User as UserIcon, MapPin, Sparkles, Home, Briefcase } from "lucide-react-native";
@@ -50,10 +50,30 @@ export default function RiderHome() {
   const [pickupCoord, setPickupCoord] = useState<{ lat: number; lng: number } | null>(null);
   const [dropoffCoord, setDropoffCoord] = useState<{ lat: number; lng: number } | null>(null);
 
+  // Booking service type. Defaults to point-to-point ("A to B Transfer").
+  // Switches to "Airport Transfer" automatically when either pickup or
+  // dropoff contains airport keywords — riders can still tap to override.
+  const [serviceType, setServiceType] = useState<"A to B Transfer" | "Airport Transfer" | "Hourly Chauffeur">("A to B Transfer");
+  const [flightNumber, setFlightNumber] = useState("");
+  const [hours, setHours] = useState(3);
+
   // Logged-in rider's saved addresses (for one-tap Home / Work quick actions)
   const [saved, setSaved] = useState<SavedAddress[]>([]);
 
   const firstName = user?.name?.split(" ")[0] || "there";
+
+  // Detect airport address heuristic — flips service type automatically.
+  // Riders can still tap a different chip to override.
+  const isAirport = (addr: string) =>
+    /\bairport\b|\bSFO\b|\bOAK\b|\bSJC\b|\bSMF\b|\bterminal\b/i.test(addr);
+
+  useEffect(() => {
+    // Don't override an explicit Hourly choice; only auto-toggle between
+    // A-to-B and Airport.
+    if (serviceType === "Hourly Chauffeur") return;
+    const airport = isAirport(pickup) || isAirport(dropoff);
+    setServiceType(airport ? "Airport Transfer" : "A to B Transfer");
+  }, [pickup, dropoff]);
 
   // Load saved addresses once (silently fail if not logged in)
   useEffect(() => {
@@ -87,9 +107,21 @@ export default function RiderHome() {
   }, [dropoff]);
 
   const onContinue = () => {
-    if (!pickup.trim() || !dropoff.trim()) return;
+    const isHourly = serviceType === "Hourly Chauffeur";
+    // Hourly only needs pickup; A to B and Airport need both pickup + dropoff.
+    if (!pickup.trim()) return;
+    if (!isHourly && !dropoff.trim()) return;
+    if (serviceType === "Airport Transfer" && flightNumber.trim().length < 2) return;
+    if (isHourly && (hours < 2 || hours > 24)) return;
     const when = datetime || new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    setTrip({ pickup: pickup.trim(), dropoff: dropoff.trim(), datetime: when });
+    setTrip({
+      pickup: pickup.trim(),
+      dropoff: isHourly ? "Hourly Chauffeur Service" : dropoff.trim(),
+      datetime: when,
+      serviceType,
+      flightNumber: serviceType === "Airport Transfer" ? flightNumber.trim().toUpperCase() : undefined,
+      hours: isHourly ? hours : undefined,
+    });
     router.push("/(rider)/vehicle");
   };
 
@@ -181,6 +213,24 @@ export default function RiderHome() {
               Where to, <Text style={s.h2Em}>{firstName}?</Text>
             </Text>
 
+            {/* Service type chips — quick switch between A to B / Airport / Hourly */}
+            <View style={s.svcRow}>
+              {(["A to B Transfer", "Airport Transfer", "Hourly Chauffeur"] as const).map((st) => {
+                const active = serviceType === st;
+                const label = st === "A to B Transfer" ? "A → B" : st === "Airport Transfer" ? "Airport" : "Hourly";
+                return (
+                  <Pressable
+                    key={st}
+                    testID={`home-svc-${st.split(" ")[0].toLowerCase()}`}
+                    onPress={() => setServiceType(st)}
+                    style={[s.svcChip, active && s.svcChipActive]}
+                  >
+                    <Text style={[s.svcTxt, active && s.svcTxtActive]}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
             <View style={s.formCard}>
               <Pressable testID="home-pickup" onPress={() => setPicker("pickup")} style={s.row}>
                 <View style={[s.dot, { backgroundColor: colors.gold }]} />
@@ -188,13 +238,50 @@ export default function RiderHome() {
                   {pickup || "Pickup address"}
                 </Text>
               </Pressable>
-              <View style={s.rowDivider} />
-              <Pressable testID="home-dropoff" onPress={() => setPicker("dropoff")} style={s.row}>
-                <View style={[s.dot, { backgroundColor: "rgba(255,255,255,0.4)" }]} />
-                <Text style={[s.rowText, !dropoff && s.rowPlaceholder]} numberOfLines={1}>
-                  {dropoff || "Where to?"}
-                </Text>
-              </Pressable>
+              {serviceType !== "Hourly Chauffeur" && (
+                <>
+                  <View style={s.rowDivider} />
+                  <Pressable testID="home-dropoff" onPress={() => setPicker("dropoff")} style={s.row}>
+                    <View style={[s.dot, { backgroundColor: "rgba(255,255,255,0.4)" }]} />
+                    <Text style={[s.rowText, !dropoff && s.rowPlaceholder]} numberOfLines={1}>
+                      {dropoff || "Where to?"}
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+              {serviceType === "Hourly Chauffeur" && (
+                <>
+                  <View style={s.rowDivider} />
+                  <View style={s.row}>
+                    <View style={[s.dot, { backgroundColor: colors.gold, opacity: 0.6 }]} />
+                    <Text style={[s.rowText, { flex: 1 }]}>{hours} hour{hours === 1 ? "" : "s"}</Text>
+                    <Pressable testID="home-hours-dec" onPress={() => setHours(h => Math.max(2, h - 1))} style={s.stepBtn}>
+                      <Text style={s.stepTxt}>−</Text>
+                    </Pressable>
+                    <Pressable testID="home-hours-inc" onPress={() => setHours(h => Math.min(24, h + 1))} style={s.stepBtn}>
+                      <Text style={s.stepTxt}>+</Text>
+                    </Pressable>
+                  </View>
+                </>
+              )}
+              {serviceType === "Airport Transfer" && (
+                <>
+                  <View style={s.rowDivider} />
+                  <View style={s.row}>
+                    <Text style={s.flightLbl}>Flight #</Text>
+                    <TextInput
+                      testID="home-flight"
+                      value={flightNumber}
+                      onChangeText={(t) => setFlightNumber(t.toUpperCase())}
+                      placeholder="UA1234"
+                      placeholderTextColor="rgba(255,255,255,0.35)"
+                      autoCapitalize="characters"
+                      maxLength={10}
+                      style={s.flightInput}
+                    />
+                  </View>
+                </>
+              )}
             </View>
 
             <View style={s.chipsRow}>
@@ -213,7 +300,11 @@ export default function RiderHome() {
               onPress={onContinue}
               icon={<ArrowRight size={14} color="#000" />}
               style={{ marginTop: 14 }}
-              disabled={!pickup.trim() || !dropoff.trim()}
+              disabled={
+                !pickup.trim() ||
+                (serviceType !== "Hourly Chauffeur" && !dropoff.trim()) ||
+                (serviceType === "Airport Transfer" && flightNumber.trim().length < 2)
+              }
             >
               Continue
             </Button>
@@ -268,6 +359,44 @@ const s = StyleSheet.create({
   chipTxt: { color: "rgba(255,255,255,0.85)", fontSize: 12 },
   quickChip: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: "rgba(212,175,55,0.1)", borderWidth: 1, borderColor: "rgba(212,175,55,0.35)" },
   quickTxt: { color: colors.gold, fontSize: 12, fontWeight: "500", maxWidth: 150 },
+  svcRow: { flexDirection: "row", gap: 8, marginTop: 12, marginBottom: 2 },
+  svcChip: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+  },
+  svcChipActive: {
+    backgroundColor: "rgba(212,175,55,0.15)",
+    borderColor: colors.gold,
+  },
+  svcTxt: { color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "500" },
+  svcTxtActive: { color: colors.gold, fontWeight: "600" },
+  stepBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: "rgba(212,175,55,0.15)",
+    alignItems: "center", justifyContent: "center",
+    marginLeft: 6,
+  },
+  stepTxt: { color: colors.gold, fontSize: 18, fontWeight: "500", marginTop: -2 },
+  flightLbl: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+    fontWeight: "500",
+    minWidth: 70,
+    marginRight: 4,
+  },
+  flightInput: {
+    flex: 1,
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "500",
+    letterSpacing: 1,
+    paddingVertical: 0,
+  },
   debugPill: {
     alignSelf: "center",
     marginTop: 60,

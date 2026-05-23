@@ -10,6 +10,14 @@ export interface Trip {
   vehicleType?: string;
   quoteAmount?: number;
   promoCode?: string;
+  // "Airport Transfer" | "A to B Transfer" | "Hourly Chauffeur"
+  // Defaults to A to B Transfer when omitted.
+  serviceType?: string;
+  // Required only when serviceType === "Airport Transfer".
+  flightNumber?: string;
+  airline?: string;
+  // Required only when serviceType === "Hourly Chauffeur" (2–24).
+  hours?: number;
 }
 
 interface BookingState {

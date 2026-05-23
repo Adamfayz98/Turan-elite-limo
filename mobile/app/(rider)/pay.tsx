@@ -2,7 +2,7 @@ import { useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Linking, Platform, TextInput, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { ChevronLeft, CreditCard, Sparkles, Apple, Check, Tag, X } from "lucide-react-native";
+import { ChevronLeft, CreditCard, Sparkles, Apple, Check, Tag, X, Home } from "lucide-react-native";
 import * as WebBrowser from "expo-web-browser";
 import Button from "@/components/Button";
 import { colors, radius } from "@/theme";
@@ -96,6 +96,9 @@ export default function PayScreen() {
         quote_amount: trip.quoteAmount,
         passenger_count: trip.passengerCount,
         promo_code: promoApplied?.code || promo || undefined,
+        service_type: trip.serviceType,
+        flight_number: trip.flightNumber,
+        hours: trip.hours,
       });
       // Open Stripe Checkout. On native, this is an in-app browser tab that returns
       // via deep link configured on the backend (turanelitelimo://thank-you?...).
@@ -134,7 +137,14 @@ export default function PayScreen() {
           <ChevronLeft size={16} color="#fff" />
         </Pressable>
         <Text style={s.stepLabel}>CONFIRM & PAY</Text>
-        <View style={{ width: 36 }} />
+        <Pressable
+          testID="pay-home"
+          onPress={() => router.replace("/(rider)/(tabs)/home")}
+          style={s.back}
+          hitSlop={10}
+        >
+          <Home size={16} color={colors.gold} strokeWidth={1.8} />
+        </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={s.scroll}>

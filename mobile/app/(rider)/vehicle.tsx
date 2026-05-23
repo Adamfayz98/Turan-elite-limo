@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, ActivityIndicator, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { ChevronLeft, Users, ArrowRight, Phone } from "lucide-react-native";
+import { ChevronLeft, Users, ArrowRight, Phone, Home } from "lucide-react-native";
 import Button from "@/components/Button";
 import { colors, radius } from "@/theme";
 import { useBooking } from "@/store/booking";
@@ -33,11 +33,14 @@ export default function VehiclePicker() {
     let cancelled = false;
     (async () => {
       try {
+        const isHourly = trip.serviceType === "Hourly Chauffeur";
         const d = await getQuote({
           pickup_address: trip.pickup,
           dropoff_address: trip.dropoff,
           pickup_datetime: trip.datetime,
           passenger_count: trip.passengerCount,
+          is_hourly: isHourly,
+          hours: isHourly ? trip.hours : undefined,
         });
         if (cancelled) return;
         setQuotes(d.quotes || []);
@@ -78,7 +81,14 @@ export default function VehiclePicker() {
           <ChevronLeft size={16} color="#fff" />
         </Pressable>
         <Text style={s.stepLabel}>STEP 2 OF 3</Text>
-        <View style={{ width: 36 }} />
+        <Pressable
+          testID="vehicle-home"
+          onPress={() => router.replace("/(rider)/(tabs)/home")}
+          style={s.back}
+          hitSlop={10}
+        >
+          <Home size={16} color={colors.gold} strokeWidth={1.8} />
+        </Pressable>
       </View>
 
       <Text style={s.h1}>

@@ -114,11 +114,20 @@ export async function bookAndPay(payload: {
   passenger_count?: number;
   promo_code?: string;
   notes?: string;
+  service_type?: string;
+  flight_number?: string;
+  hours?: number;
 }) {
-  const { data } = await api.post("/api/customer/book-and-pay", {
+  // Strip undefined / empty optional fields so the backend treats them as
+  // absent (matches the website's payload shape exactly).
+  const cleaned: any = {
     passenger_count: 1,
     ...payload,
-  });
+  };
+  if (!cleaned.service_type) delete cleaned.service_type;
+  if (!cleaned.flight_number) delete cleaned.flight_number;
+  if (cleaned.hours == null) delete cleaned.hours;
+  const { data } = await api.post("/api/customer/book-and-pay", cleaned);
   return data as { booking_id: string; checkout_url: string; session_id: string };
 }
 

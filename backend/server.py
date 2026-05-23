@@ -5023,6 +5023,12 @@ class CustomerBookingCreate(BaseModel):
     passenger_count: int = Field(1, ge=1, le=60)
     promo_code: Optional[str] = None
     notes: Optional[str] = ""
+    # Mobile-only optional fields — mirror the website BookingCreate schema so
+    # airport transfers and hourly chauffeur bookings can be created from the
+    # phone without falling back to the web form.
+    service_type: Optional[str] = None  # "A to B Transfer" | "Airport Transfer" | "Hourly Chauffeur"
+    flight_number: Optional[str] = Field(None, max_length=20)
+    hours: Optional[int] = Field(None, ge=2, le=24)
 
 
 class CustomerCheckoutResponse(BaseModel):
@@ -5054,6 +5060,17 @@ async def customer_book_and_pay(
     pickup_date = dt.date().isoformat()
     pickup_time = dt.strftime("%H:%M")
 
+    # Validate optional service_type & extras (mobile flow). Fall back to the
+    # default "A to B Transfer" when not specified for backwards compatibility
+    # with older app builds.
+    svc_type = (payload.service_type or "A to B Transfer").strip()
+    if svc_type not in SERVICE_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid service_type. Must be one of {SERVICE_TYPES}")
+    if svc_type == "Airport Transfer" and not (payload.flight_number or "").strip():
+        raise HTTPException(status_code=400, detail="Flight number is required for Airport Transfer")
+    if svc_type == "Hourly Chauffeur" and (not payload.hours or payload.hours < 2):
+        raise HTTPException(status_code=400, detail="Hours (>=2) required for Hourly Chauffeur")
+
     bid = str(uuid.uuid4())
     doc = {
         "id": bid,
@@ -5061,7 +5078,7 @@ async def customer_book_and_pay(
         "full_name": user["name"],
         "email": user["email"],
         "phone": user.get("phone") or "",
-        "service_type": "A to B Transfer",
+        "service_type": svc_type,
         "pickup_date": pickup_date,
         "pickup_time": pickup_time,
         "pickup_location": payload.pickup_location,
@@ -5078,6 +5095,11 @@ async def customer_book_and_pay(
         "wait_time_consent": True,  # Mobile flow shows policy at signup time
         "quote_amount": float(payload.quote_amount),
         "status": "pending",
+        # Airport-specific
+        "flight_number": (payload.flight_number or "").strip().upper() or None,
+        "meet_and_greet": False,
+        # Hourly-specific
+        "hours": payload.hours if svc_type == "Hourly Chauffeur" else None,
         "payment_status": "unpaid",
         "manage_token": _generate_manage_token(),
         "source": "mobile_app",
