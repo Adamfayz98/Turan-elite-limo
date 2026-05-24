@@ -55,9 +55,10 @@
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "6771610380",
-        "appleId": "abdulkhafizfayzullaev@gmail.com",
-        "appleTeamId": "9M7CK4W8HM"
+        "ascApiKeyPath": "./AuthKey_S6ZN2K2TN4.p8",
+        "ascApiKeyId": "S6ZN2K2TN4",
+        "ascApiKeyIssuerId": "c7a389fa-d6e1-43d5-b2d6-3a5048e85f31",
+        "ascAppId": "6771610380"
       },
       "android": {
         "track": "internal",
