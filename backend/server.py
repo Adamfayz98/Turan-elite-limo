@@ -43,7 +43,7 @@ from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
 
 
 # MongoDB connection
@@ -5983,10 +5983,32 @@ async def driver_jwt_get_booking(booking_id: str, claims: dict = Depends(require
 class DriverLocationUpdate(BaseModel):
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
-    heading: Optional[float] = Field(None, ge=0, le=360)
-    speed: Optional[float] = Field(None, ge=0)  # m/s
+    # heading/speed validators are intentionally PERMISSIVE.
+    # expo-location returns -1 (and sometimes NaN) when the device is stationary
+    # or the sensor can't determine direction/speed yet. Strict ge=0 validation
+    # turned those legitimate "unknown" sentinels into 422 errors that broke
+    # the driver app's location stream. We accept any number and normalise on
+    # write (negatives → None).
+    heading: Optional[float] = None
+    speed: Optional[float] = None
     accuracy: Optional[float] = None
     active_booking_id: Optional[str] = None
+
+    @field_validator("heading", "speed", "accuracy", mode="before")
+    @classmethod
+    def _drop_negative_sentinels(cls, v):
+        # expo/native sentinels for "unknown" come through as -1 (sometimes
+        # very large negative numbers). Map those to None so they don't end
+        # up in the DB and confuse rider-side rendering.
+        if v is None:
+            return None
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        if f < 0:
+            return None
+        return f
 
 
 @api_router.post("/driver-auth/location")

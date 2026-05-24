@@ -56,12 +56,19 @@ export function useDriverLocationStream({ bookingId, intervalMs = 15000 }: UseLo
         sendingRef.current = true;
         try {
           const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+          // expo-location uses -1 (and sometimes NaN) as "unknown" sentinels
+          // for heading and speed when stationary. Normalise to null so the
+          // backend doesn't reject them with a 422 validation error.
+          const clean = (n: number | null | undefined): number | null => {
+            if (n == null || Number.isNaN(n) || n < 0) return null;
+            return n;
+          };
           const payload = {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
-            heading: pos.coords.heading ?? null,
-            speed: pos.coords.speed ?? null,
-            accuracy: pos.coords.accuracy ?? null,
+            heading: clean(pos.coords.heading),
+            speed: clean(pos.coords.speed),
+            accuracy: clean(pos.coords.accuracy),
             active_booking_id: bookingId,
           };
           await driverPostLocation(payload);
