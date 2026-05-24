@@ -13,7 +13,7 @@
  */
 import { useState, useEffect } from "react";
 import { Modal, View, Text, StyleSheet, Pressable, Platform } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft, Calendar as CalendarIcon, Clock as ClockIcon } from "lucide-react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import Button from "@/components/Button";
@@ -34,6 +34,7 @@ const QUICKS = [
 ];
 
 export default function DateTimeModal({ visible, initial, onClose, onConfirm }: Props) {
+  const insets = useSafeAreaInsets();
   const [date, setDate] = useState<Date>(() => initial ? new Date(initial) : new Date(Date.now() + 60 * 60 * 1000));
   // Android-only: which sub-picker is currently visible (date or time).
   // Closed when null. We open them one at a time via tap.
@@ -65,7 +66,7 @@ export default function DateTimeModal({ visible, initial, onClose, onConfirm }: 
          respects safe-area insets on both platforms. */
       statusBarTranslucent
     >
-      <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
+      <View style={[s.safe, { paddingTop: Math.max(insets.top, Platform.OS === "ios" ? 50 : 24) }]}>
         <View style={s.header}>
           <Pressable testID="dt-close" onPress={onClose} hitSlop={10} style={s.iconBtn}>
             <ChevronLeft size={20} color="#fff" />
@@ -192,7 +193,7 @@ export default function DateTimeModal({ visible, initial, onClose, onConfirm }: 
             Confirm
           </Button>
         </View>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }

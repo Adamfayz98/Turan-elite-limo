@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Modal, View, Text, StyleSheet, Pressable, TextInput, FlatList, ActivityIndicator, KeyboardAvoidingView, Platform } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft, MapPin, Search, X } from "lucide-react-native";
 import { colors, radius } from "@/theme";
 import { placesAutocomplete } from "@/api";
@@ -33,6 +33,13 @@ export default function AddressPicker({ visible, initialValue = "", label, onClo
   const [loading, setLoading] = useState(false);
   const sessionRef = useRef<string>(Math.random().toString(36).slice(2));
   const inputRef = useRef<TextInput>(null);
+  // SafeAreaView inside a React Native Modal occasionally returns 0 for the
+  // top inset on iOS (a long-standing RN quirk — the modal renders in a
+  // separate window that doesn't always inherit the SafeAreaProvider tree).
+  // We grab insets via the hook AND apply them as paddingTop ourselves,
+  // guaranteed to lift the back chevron clear of the status bar / Dynamic
+  // Island regardless of how the Modal hierarchy resolves.
+  const insets = useSafeAreaInsets();
 
   // Reset when opened
   useEffect(() => {
@@ -76,7 +83,7 @@ export default function AddressPicker({ visible, initialValue = "", label, onClo
          area on both platforms. */
       statusBarTranslucent
     >
-      <SafeAreaView style={s.safe} edges={["top", "left", "right", "bottom"]}>
+      <View style={[s.safe, { paddingTop: Math.max(insets.top, Platform.OS === "ios" ? 50 : 24) }]}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <View style={s.header}>
             <Pressable testID="address-picker-close" onPress={onClose} hitSlop={10} style={s.iconBtn}>
@@ -140,7 +147,7 @@ export default function AddressPicker({ visible, initialValue = "", label, onClo
             )}
           />
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }
