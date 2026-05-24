@@ -278,6 +278,17 @@ export default function DiscoverTab() {
               </View>
             </Pressable>
           </View>
+          {/* Drivers can also access their portal directly from inside the
+              rider app. Some drivers use the same device for both modes. */}
+          <Pressable
+            testID="discover-driver-signin"
+            onPress={() => router.push("/(driver)/auth")}
+            hitSlop={6}
+            style={{ marginTop: 18, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 6, padding: 6 }}
+          >
+            <Briefcase size={11} color="rgba(255,255,255,0.55)" />
+            <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>I'm a driver — sign in</Text>
+          </Pressable>
           {/* OTA debug stamp — lets us verify the JS bundle is the latest. */}
           <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 9, textAlign: "center", marginTop: 12 }}>
             v1.0.0 · OTA {String(Updates.updateId || "bundled").slice(0, 8)} · ch {String(Updates.channel || "?")}
