@@ -106,8 +106,12 @@ export default function HomeTab() {
 
   return (
     <View style={s.root}>
-      {/* paddingBottom leaves room for both the sticky CTA and the bottom tab bar */}
-      <ScrollView contentContainerStyle={{ paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
+      {/* The in-app Home tab does NOT need a sticky bottom CTA — there's
+          already a "Book a ride" button in the hero AND a permanent "Book"
+          tab in the bottom navigation. Adding a third button created a
+          tall sticky bar that pushed content into a weird floating layout
+          with a black gap above it. We rely on the tab bar instead. */}
+      <ScrollView contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
         {/* HERO */}
         <ImageBackground source={{ uri: assets.abstractGold }} style={s.hero} resizeMode="cover" imageStyle={{ opacity: 0.45 }}>
           <View style={s.heroDim} />
@@ -123,6 +127,39 @@ export default function HomeTab() {
                 </Pressable>
               </View>
             </View>
+
+            {/* PROMO + ANNOUNCEMENTS — placed at the very top of the hero
+                so it's the first thing the user sees. Pulls the active
+                admin-managed promo from /api/promos/banner. */}
+            {(promo || announcements.length > 0) && (
+              <View style={s.bannerWrap}>
+                {promo && (
+                  <Pressable testID="home-promo-banner" onPress={goBook} style={s.promoBanner}>
+                    <View style={s.promoIcon}><Tag size={14} color={colors.gold} /></View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.promoCode}>{promo.code} · {promoLine}</Text>
+                      <Text style={s.promoDesc} numberOfLines={2}>{promo.description}</Text>
+                    </View>
+                    <ArrowRight size={14} color={colors.gold} />
+                  </Pressable>
+                )}
+                {announcements.map((a, i) => (
+                  <Pressable
+                    key={a.id || i}
+                    testID={`home-announcement-${i}`}
+                    onPress={() => openAnnouncementCta(a.cta_url)}
+                    style={s.announceBanner}
+                  >
+                    <View style={s.announceIcon}><Megaphone size={14} color={colors.gold} /></View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.announceTitle}>{a.title}</Text>
+                      {a.body ? <Text style={s.announceBody} numberOfLines={2}>{a.body}</Text> : null}
+                    </View>
+                    {a.cta_url ? <ArrowRight size={13} color={colors.gold} /> : null}
+                  </Pressable>
+                ))}
+              </View>
+            )}
 
             <View style={s.heroBody}>
               <View style={s.tagRow}>
@@ -161,41 +198,6 @@ export default function HomeTab() {
             </View>
           </SafeAreaView>
         </ImageBackground>
-
-        {/* PROMO + ANNOUNCEMENTS — rendered between hero and FLEET. */}
-        {(promo || announcements.length > 0) && (
-          <View style={s.bannerWrap}>
-            {promo && (
-              <Pressable testID="home-promo-banner" onPress={goBook} style={s.promoBanner}>
-                <View style={s.promoIcon}>
-                  <Tag size={14} color={colors.gold} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.promoCode}>{promo.code} · {promoLine}</Text>
-                  <Text style={s.promoDesc} numberOfLines={2}>{promo.description}</Text>
-                </View>
-                <ArrowRight size={14} color={colors.gold} />
-              </Pressable>
-            )}
-            {announcements.map((a, i) => (
-              <Pressable
-                key={a.id || i}
-                testID={`home-announcement-${i}`}
-                onPress={() => openAnnouncementCta(a.cta_url)}
-                style={s.announceBanner}
-              >
-                <View style={s.announceIcon}>
-                  <Megaphone size={14} color={colors.gold} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.announceTitle}>{a.title}</Text>
-                  {a.body ? <Text style={s.announceBody} numberOfLines={2}>{a.body}</Text> : null}
-                </View>
-                {a.cta_url ? <ArrowRight size={13} color={colors.gold} /> : null}
-              </Pressable>
-            ))}
-          </View>
-        )}
 
         {/* FLEET */}
         <View style={s.section}>
@@ -342,18 +344,6 @@ export default function HomeTab() {
           </Text>
         </View>
       </ScrollView>
-
-      {/* Sticky bottom CTA — floats above the tab bar */}
-      <View style={[s.stickyBar, { paddingBottom: insets.bottom + 70 }]}>
-        <Pressable
-          testID="home-sticky-book"
-          onPress={goBook}
-          style={({ pressed }) => [s.stickyBtn, pressed && { opacity: 0.88 }]}
-        >
-          <Text style={s.stickyBtnTxt}>Book a Ride</Text>
-          <ArrowRight size={15} color="#000" />
-        </Pressable>
-      </View>
     </View>
   );
 }
@@ -371,7 +361,7 @@ const s = StyleSheet.create({
   callBtn: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(212,175,55,0.4)", backgroundColor: "rgba(212,175,55,0.08)" },
   signInPill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.25)", backgroundColor: "rgba(255,255,255,0.06)" },
   signInPillTxt: { color: "#fff", fontSize: 12, fontWeight: "600", letterSpacing: 0.3 },
-  heroBody: { marginTop: 44 },
+  heroBody: { marginTop: 26 },
   tagRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 },
   tag: { color: colors.gold, fontSize: 10, letterSpacing: 3, fontWeight: "600" },
   h1: { color: "#fff", fontSize: 38, lineHeight: 42, fontWeight: "400" },
@@ -387,7 +377,11 @@ const s = StyleSheet.create({
   heroPrimaryTxt: { color: "#000", fontSize: 13, fontWeight: "600" },
 
   // BANNERS
-  bannerWrap: { paddingHorizontal: 22, paddingTop: 22, gap: 10 },
+  // Banners now live INSIDE the hero, directly under the logo row,
+  // so they're the first thing the user reads. Negative side margins
+  // pull the banners flush to the hero edges; the gap creates space
+  // before the "BAY AREA · NORCAL" tag.
+  bannerWrap: { marginTop: 18, gap: 10 },
   promoBanner: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: "rgba(212,175,55,0.35)", backgroundColor: "rgba(212,175,55,0.08)" },
   promoIcon: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(212,175,55,0.18)" },
   promoCode: { color: colors.gold, fontSize: 13, fontWeight: "700", letterSpacing: 0.5 },
@@ -454,9 +448,4 @@ const s = StyleSheet.create({
   driverLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 18 },
   driverLinkTxt: { color: "rgba(255,255,255,0.5)", fontSize: 11 },
   footerTxt: { color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 16, textAlign: "center" },
-
-  // STICKY CTA
-  stickyBar: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 12, backgroundColor: "rgba(5,5,5,0.96)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
-  stickyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 15, borderRadius: 999, backgroundColor: colors.gold },
-  stickyBtnTxt: { color: "#000", fontSize: 14, fontWeight: "600" },
 });

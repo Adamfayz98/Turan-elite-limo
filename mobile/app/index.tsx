@@ -146,6 +146,39 @@ export default function WelcomeScreen() {
               </View>
             </View>
 
+            {/* PROMO + ANNOUNCEMENTS — placed at the top of the hero so a
+                first-time visitor sees the active offer before anything else.
+                Same data source as the signed-in Home tab. */}
+            {(promo || announcements.length > 0) && (
+              <View style={s.bannerWrap}>
+                {promo && (
+                  <Pressable testID="welcome-promo-banner" onPress={goBrowse} style={s.promoBanner}>
+                    <View style={s.promoIcon}><Tag size={14} color={colors.gold} /></View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.promoCode}>{promo.code} · {promoLine}</Text>
+                      <Text style={s.promoDesc} numberOfLines={2}>{promo.description}</Text>
+                    </View>
+                    <ArrowRight size={14} color={colors.gold} />
+                  </Pressable>
+                )}
+                {announcements.map((a, i) => (
+                  <Pressable
+                    key={a.id || i}
+                    testID={`welcome-announcement-${i}`}
+                    onPress={() => openAnnouncementCta(a.cta_url)}
+                    style={s.announceBanner}
+                  >
+                    <View style={s.announceIcon}><Megaphone size={14} color={colors.gold} /></View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.announceTitle}>{a.title}</Text>
+                      {a.body ? <Text style={s.announceBody} numberOfLines={2}>{a.body}</Text> : null}
+                    </View>
+                    {a.cta_url ? <ArrowRight size={13} color={colors.gold} /> : null}
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
             <View style={s.heroBody}>
               <View style={s.tagRow}>
                 <Sparkles size={11} color={colors.gold} />
@@ -187,38 +220,6 @@ export default function WelcomeScreen() {
             </View>
           </SafeAreaView>
         </ImageBackground>
-
-        {/* PROMO + ANNOUNCEMENTS — admin-managed banners shown to visitors
-            and signed-in users alike. Mirrors the in-app Home tab. */}
-        {(promo || announcements.length > 0) && (
-          <View style={s.bannerWrap}>
-            {promo && (
-              <Pressable testID="welcome-promo-banner" onPress={goBrowse} style={s.promoBanner}>
-                <View style={s.promoIcon}><Tag size={14} color={colors.gold} /></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.promoCode}>{promo.code} · {promoLine}</Text>
-                  <Text style={s.promoDesc} numberOfLines={2}>{promo.description}</Text>
-                </View>
-                <ArrowRight size={14} color={colors.gold} />
-              </Pressable>
-            )}
-            {announcements.map((a, i) => (
-              <Pressable
-                key={a.id || i}
-                testID={`welcome-announcement-${i}`}
-                onPress={() => openAnnouncementCta(a.cta_url)}
-                style={s.announceBanner}
-              >
-                <View style={s.announceIcon}><Megaphone size={14} color={colors.gold} /></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.announceTitle}>{a.title}</Text>
-                  {a.body ? <Text style={s.announceBody} numberOfLines={2}>{a.body}</Text> : null}
-                </View>
-                {a.cta_url ? <ArrowRight size={13} color={colors.gold} /> : null}
-              </Pressable>
-            ))}
-          </View>
-        )}
 
         {/* FLEET */}
         <View style={s.section}>
@@ -396,7 +397,7 @@ const s = StyleSheet.create({
   callBtn: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(212,175,55,0.4)", backgroundColor: "rgba(212,175,55,0.08)" },
   signInPill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.25)", backgroundColor: "rgba(255,255,255,0.06)" },
   signInPillTxt: { color: "#fff", fontSize: 12, fontWeight: "600", letterSpacing: 0.3 },
-  heroBody: { marginTop: 44 },
+  heroBody: { marginTop: 26 },
   tagRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 },
   tag: { color: colors.gold, fontSize: 10, letterSpacing: 3, fontWeight: "600" },
   h1: { color: "#fff", fontSize: 38, lineHeight: 42, fontWeight: "400" },
@@ -413,9 +414,9 @@ const s = StyleSheet.create({
   heroSecondary: { marginTop: 10, paddingVertical: 6, alignSelf: "flex-start" },
   heroSecondaryTxt: { color: "rgba(255,255,255,0.65)", fontSize: 12, textDecorationLine: "underline", textDecorationColor: "rgba(255,255,255,0.3)" },
 
-  // BANNERS — admin-managed promo + announcements row, rendered between
-  // hero and Fleet section. Mirrors the in-app Home tab visual style.
-  bannerWrap: { paddingHorizontal: 22, paddingTop: 22, gap: 10 },
+  // BANNERS — admin-managed promo + announcements row, rendered INSIDE the
+  // hero directly below the logo row so it's the first thing visitors see.
+  bannerWrap: { marginTop: 18, gap: 10 },
   promoBanner: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: "rgba(212,175,55,0.35)", backgroundColor: "rgba(212,175,55,0.08)" },
   promoIcon: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(212,175,55,0.18)" },
   promoCode: { color: colors.gold, fontSize: 13, fontWeight: "700", letterSpacing: 0.5 },
