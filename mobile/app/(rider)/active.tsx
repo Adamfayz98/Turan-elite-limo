@@ -4,8 +4,8 @@
  * the driver's current position on an interactive Google Map.
  */
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Linking, ScrollView, ActivityIndicator } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { View, Text, StyleSheet, Pressable, Linking, ScrollView, ActivityIndicator, Platform } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft, Phone, MessageSquare, Star, ShieldCheck, Wifi, WifiOff } from "lucide-react-native";
 import { colors, radius } from "@/theme";
@@ -18,6 +18,7 @@ export default function RiderActiveTrip() {
   const router = useRouter();
   const params = useLocalSearchParams<{ bid: string }>();
   const bid = params.bid as string;
+  const insets = useSafeAreaInsets();
   const [state, setState] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
@@ -68,9 +69,15 @@ export default function RiderActiveTrip() {
             pan/zoom touches on the map underneath. */}
         <View pointerEvents="none" style={s.mapDim} />
 
-        <SafeAreaView pointerEvents="box-none" style={{ paddingHorizontal: 16 }} edges={["top"]}>
+        {/* Top safe-area container — we apply insets.top manually instead of
+            using SafeAreaView's edges prop. On iOS the screen sits underneath
+            a transparent status bar so the back chevron was being painted
+            BEHIND the time/battery, making it visually invisible (it WAS
+            tappable though). Manual padding guarantees a 44pt+ buffer that
+            keeps the chevron visible on both notch and Dynamic Island phones. */}
+        <View pointerEvents="box-none" style={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, Platform.OS === "ios" ? 50 : 12) }}>
           <View pointerEvents="box-none" style={s.topRow}>
-            <Pressable testID="active-back" onPress={() => router.back()} style={s.iconBtn}>
+            <Pressable testID="active-back" onPress={() => router.back()} style={s.iconBtn} hitSlop={10}>
               <ChevronLeft size={18} color="#fff" />
             </Pressable>
             <View style={s.etaPill}>
@@ -79,7 +86,7 @@ export default function RiderActiveTrip() {
             </View>
             <View style={{ width: 38 }} />
           </View>
-        </SafeAreaView>
+        </View>
       </View>
 
       {/* Driver info sheet */}
