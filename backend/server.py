@@ -1372,8 +1372,16 @@ async def driver_update_status(driver_token: str, payload: DriverStatusUpdate, r
     # When driver marks trip completed, also stamp booking-level fields
     if new_status == "completed":
         set_doc["completed_at"] = now_iso
-        # Only flip booking status to 'completed' if it was 'confirmed' or 'pending'
-        if b.get("status") in ("confirmed", "pending"):
+        # Flip booking.status to 'completed' from ANY non-terminal state.
+        # We support multiple legitimate "pre-completion" status values that
+        # different code paths leave bookings in:
+        #   - 'confirmed' (mobile book-and-pay after Stripe webhook)
+        #   - 'paid'      (web /api/book after Stripe payment)
+        #   - 'pending'   (driver assigned before payment cleared)
+        # Without this widening, mobile bookings that paid via Stripe stayed
+        # as 'paid' forever while trip_status was 'completed', so the rider
+        # Trips screen kept showing the trip as 'Reserved'.
+        if b.get("status") in ("confirmed", "pending", "paid", "reserved", "active", "in_progress"):
             set_doc["status"] = "completed"
     await db.bookings.update_one({"id": b["id"]}, {"$set": set_doc})
 
@@ -5772,6 +5780,34 @@ async def admin_clear_driver_password(driver_id: str, _: dict = Depends(require_
          "$set": {"password_cleared_by_admin_at": datetime.now(timezone.utc).isoformat()}},
     )
     return {"ok": True, "driver_email": d.get("email"), "message": "Driver password cleared. They can now use the 'Set password' flow."}
+
+
+@api_router.post("/admin/bookings/sync-completed")
+async def admin_sync_completed_bookings(_: dict = Depends(require_admin)):
+    """Backfill helper: finds bookings whose driver marked trip_status='completed'
+    but whose booking.status was left as 'paid'/'confirmed'/etc. (an old bug),
+    and stamps them as 'completed'. Idempotent."""
+    cursor = db.bookings.find(
+        {
+            "trip_status": "completed",
+            "status": {"$nin": ["completed", "cancelled", "refunded"]},
+        },
+        {"_id": 0, "id": 1, "status": 1, "completed_at": 1},
+    )
+    rows = await cursor.to_list(1000)
+    fixed = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for r in rows:
+        await db.bookings.update_one(
+            {"id": r["id"]},
+            {"$set": {
+                "status": "completed",
+                "completed_at": r.get("completed_at") or now_iso,
+                "backfilled_to_completed_at": now_iso,
+            }},
+        )
+        fixed.append(r["id"])
+    return {"ok": True, "fixed_count": len(fixed), "booking_ids": fixed}
 
 
 @api_router.post("/driver/push-token")
