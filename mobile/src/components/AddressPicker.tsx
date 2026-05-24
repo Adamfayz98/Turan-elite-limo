@@ -64,8 +64,19 @@ export default function AddressPicker({ visible, initialValue = "", label, onClo
   }, [query, visible]);
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
-      <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+      /* presentationStyle defaults to "fullScreen" on Android and a card
+         style on iOS. We intentionally don't force "fullScreen" because on
+         iOS that mode breaks SafeAreaView's status-bar inset handling —
+         which caused the back chevron to render inside the status bar /
+         under the Dynamic Island. The default presentation respects safe
+         area on both platforms. */
+      statusBarTranslucent
+    >
+      <SafeAreaView style={s.safe} edges={["top", "left", "right", "bottom"]}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <View style={s.header}>
             <Pressable testID="address-picker-close" onPress={onClose} hitSlop={10} style={s.iconBtn}>

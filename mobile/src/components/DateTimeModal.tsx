@@ -56,7 +56,15 @@ export default function DateTimeModal({ visible, initial, onClose, onConfirm }: 
   };
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+      /* See AddressPicker.tsx — `presentationStyle="fullScreen"` on iOS
+         broke SafeAreaView's status-bar inset. Default modal presentation
+         respects safe-area insets on both platforms. */
+      statusBarTranslucent
+    >
       <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
         <View style={s.header}>
           <Pressable testID="dt-close" onPress={onClose} hitSlop={10} style={s.iconBtn}>
