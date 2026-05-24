@@ -1,28 +1,32 @@
 /**
- * Discover / Welcome tab — the marketing & brand-storytelling home screen.
+ * In-app Home tab — shown to signed-in riders inside the (rider)/(tabs) shell.
  *
- * This is the FIRST tab in the bottom bar. It reuses the same content as the
- * pre-login landing page (/app/index.tsx) so logged-in riders can come back
- * to read about the fleet, services, policies, and dispatch number any time
- * by tapping the HOME tab.
+ * IMPORTANT: This screen is a 1:1 visual clone of the pre-login welcome page
+ * at `/app/index.tsx`. The user explicitly asked for a single, unified
+ * "Home" design across both pre-login and signed-in states (Option A in
+ * the merge discussion).
  *
- * Differences from the pre-login landing page:
- *   - Sign-in pill is hidden when the user is already authenticated.
- *   - Primary CTA ("Book a Ride") routes to the booking home (`/home` tab)
- *     instead of the auth flow.
- *   - No auto-redirect away from this screen (the pre-login screen redirects
- *     logged-in users to /home — here we let them stay).
+ * Differences from the pre-login landing:
+ *   - Live promo banner + admin-managed announcement banners are injected
+ *     between the hero CTA and the FLEET section.
+ *   - The top-right "Sign In" pill is hidden (rider is already signed in).
+ *   - The hero CTAs route to /(rider)/(tabs)/home (the booking screen)
+ *     instead of a fresh auth flow.
+ *   - The sticky bottom "Book a Ride" sits above the tab bar, so we add
+ *     extra bottom padding to the scroll content.
+ *
+ * The "I'm a driver — sign in" link is preserved at the footer.
  */
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ImageBackground, Pressable, Image, ScrollView, Linking } from "react-native";
 import { useRouter } from "expo-router";
 import * as Updates from "expo-updates";
 import {
   Sparkles, Plane, Heart, Briefcase, Clock, Music4, Wine, Star, MapPin,
   Phone, ShieldCheck, ArrowRight, ChevronDown, ChevronUp, Globe, FileText,
-  Calendar, AlertCircle, Tag, Megaphone,
+  Calendar, Tag, Megaphone,
 } from "lucide-react-native";
-import { colors, radius, assets } from "@/theme";
+import { colors, assets } from "@/theme";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/store/auth";
 import { api } from "@/api";
@@ -45,34 +49,42 @@ const SERVICES = [
   { icon: Music4, title: "Nightlife", text: "Prom & parties" },
 ];
 
-const POLICIES = [
-  { id: "cancel", icon: Calendar, title: "Cancellation & changes", body: "Free cancellation up to 24 hours before pickup — full refund. Inside 24 hours, 50% fee. Inside 2 hours of pickup, non-refundable. Schedule changes are free anytime, subject to availability." },
-  { id: "wait", icon: Clock, title: "Wait time & damages", body: "Airport pickups include a 45-minute grace period after your flight lands. All other trips include a 15-minute grace period. Beyond that, per-minute wait fee applies based on vehicle class." },
-  { id: "privacy", icon: ShieldCheck, title: "Privacy & data", body: "We collect only what's needed to confirm and fulfill your ride. Payments processed by Stripe. We never sell your data." },
-  { id: "terms", icon: FileText, title: "Terms of service", body: "All chauffeurs are TSA-screened, licensed, and fully insured. Service subject to availability. Surge pricing shown transparently at quote time." },
+const CITIES = [
+  "San Francisco", "Oakland", "Palo Alto", "San Jose", "Napa", "Sonoma",
+  "Berkeley", "Sausalito", "Half Moon Bay", "Monterey", "Sacramento", "Livermore",
 ];
 
-export default function DiscoverTab() {
+const REVIEWS = [
+  { name: "Sarah K.", text: "Showed up early for our SFO red-eye. Spotless car, gracious driver. Will only use TuranEliteLimo from now on.", initials: "SK" },
+  { name: "Marcus T.", text: "Booked a Sprinter for our wedding party. Champagne ready, ribbons on the door. Worth every dollar.", initials: "MT" },
+  { name: "Priya R.", text: "Napa wine tour was flawless. Driver knew every winery. Best $ we spent on the trip.", initials: "PR" },
+];
+
+const POLICIES = [
+  { id: "cancel", icon: Calendar, title: "Cancellation & changes", body: "Free cancellation up to 24 hours before pickup — full refund, no questions asked. Inside 24 hours, a 50% cancellation fee applies. Inside 2 hours of pickup, the reservation is non-refundable. Schedule changes are free anytime, subject to availability." },
+  { id: "wait", icon: Clock, title: "Wait time & damages", body: "Airport pickups include a 45-minute grace period after your flight lands. All other trips include a 15-minute grace period. Beyond that, a per-minute wait fee applies based on the selected vehicle class. If we wait 45 minutes beyond grace without contact, the reservation is treated as a no-show — no refund.\n\nDamages: If the vehicle is damaged, soiled, or requires special cleaning during your trip, the actual repair/cleaning cost may be charged to the card on file. Every charge is itemized with the reason and emailed to you." },
+  { id: "privacy", icon: ShieldCheck, title: "Privacy & data", body: "We collect only what's needed to confirm and fulfill your ride: name, contact info, pickup & drop-off, and payment details (processed by Stripe). We never sell your data. Location sharing during an active trip is optional and ends when the trip ends." },
+  { id: "terms", icon: FileText, title: "Terms of service", body: "By booking, you agree to TuranEliteLimo's Terms of Service. All chauffeurs are TSA-screened, licensed, and fully insured. Service is subject to availability. Surge pricing may apply on peak dates and is shown transparently at quote time." },
+];
+
+export default function HomeTab() {
   const router = useRouter();
-  const user = useAuth(s => s.user);
   const insets = useSafeAreaInsets();
+  const user = useAuth(s => s.user);
   const [openPolicy, setOpenPolicy] = useState<string | null>(null);
 
-  // Live promotions banner — admin-controlled via /api/admin/promos. The
-  // active promo (currently "WELCOME20") shows up automatically; changes
-  // on the admin page are reflected within the cache window (~60s).
+  // Admin-managed promo banner (active code shown at top of screen).
+  // Same data source as the previous discover.tsx, just re-rendered with
+  // the welcome-page visual treatment.
   const [promo, setPromo] = useState<{ code: string; description: string; discount_type: string; value: number } | null>(null);
-  // Marketing announcement banners — separate stream from promos, also
-  // editable from admin /api/admin/announcements.
+  // Admin-managed announcement banners (separate from promos).
   const [announcements, setAnnouncements] = useState<{ id: string; title: string; body?: string; cta_label?: string; cta_url?: string }[]>([]);
 
   useEffect(() => {
     let alive = true;
-    // Fetch both in parallel. Silent fallback — if either endpoint 404s on
-    // an older backend, the banner just doesn't render. No error UI shown.
     Promise.all([
-      api.get("/api/promos/banner").then((r) => r.data).catch(() => null),
-      api.get("/api/announcements").then((r) => r.data).catch(() => ({ banner: [] })),
+      api.get("/api/promos/banner").then(r => r.data).catch(() => null),
+      api.get("/api/announcements").then(r => r.data).catch(() => ({ banner: [] })),
     ]).then(([p, a]) => {
       if (!alive) return;
       if (p && p.code) setPromo(p);
@@ -82,21 +94,20 @@ export default function DiscoverTab() {
   }, []);
 
   const promoLine = promo
-    ? promo.discount_type === "percent"
-      ? `${promo.value}% off`
-      : `$${promo.value} off`
+    ? promo.discount_type === "percent" ? `${promo.value}% off` : `$${promo.value} off`
     : null;
 
-  // For logged-in riders: "Book a Ride" goes straight to the booking home.
-  // For guests: it goes to sign-in.
-  const goBook = () => router.push(user ? "/(rider)/(tabs)/home" : "/(rider)/auth");
-  const goSignIn = () => router.push("/(rider)/auth");
+  const goBook = () => router.push("/(rider)/(tabs)/home");
+  const goProfile = () => router.push("/(rider)/(tabs)/profile");
+  const goDriver = () => router.push("/(driver)/auth");
   const callDispatch = () => Linking.openURL("tel:+16504100687");
   const openWebsite = () => Linking.openURL("https://www.turanelitelimo.com");
+  const openAnnouncementCta = (url?: string) => { if (url) Linking.openURL(url); };
 
   return (
     <View style={s.root}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+      {/* paddingBottom leaves room for both the sticky CTA and the bottom tab bar */}
+      <ScrollView contentContainerStyle={{ paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
         {/* HERO */}
         <ImageBackground source={{ uri: assets.abstractGold }} style={s.hero} resizeMode="cover" imageStyle={{ opacity: 0.45 }}>
           <View style={s.heroDim} />
@@ -104,95 +115,83 @@ export default function DiscoverTab() {
             <View style={s.heroTopRow}>
               <Image source={{ uri: assets.logoMark }} style={s.logo} resizeMode="contain" />
               <View style={s.heroTopRight}>
-                <Pressable testID="discover-call" onPress={callDispatch} style={s.callBtn} hitSlop={8}>
+                <Pressable testID="home-call" onPress={callDispatch} style={s.callBtn} hitSlop={8}>
                   <Phone size={11} color={colors.gold} />
                 </Pressable>
-                {/* Sign-in pill only shown to guests. Logged-in riders see
-                    nothing here — they're already authenticated. */}
-                {!user && (
-                  <Pressable testID="discover-signin" onPress={goSignIn} style={s.signInPill} hitSlop={8}>
-                    <Text style={s.signInPillTxt}>Sign In</Text>
-                  </Pressable>
-                )}
+                <Pressable testID="home-profile-top" onPress={goProfile} style={s.signInPill} hitSlop={8}>
+                  <Text style={s.signInPillTxt}>{user?.name ? user.name.split(" ")[0] : "Profile"}</Text>
+                </Pressable>
               </View>
             </View>
 
             <View style={s.heroBody}>
-              <View style={s.eyebrow}>
+              <View style={s.tagRow}>
                 <Sparkles size={11} color={colors.gold} />
-                <Text style={s.eyebrowTxt}>BAY AREA · NORCAL</Text>
+                <Text style={s.tag}>BAY AREA · NORCAL</Text>
               </View>
               <Text style={s.h1}>Arrive in</Text>
               <Text style={s.h1Em}>unspoken luxury.</Text>
-              <Text style={s.heroLede}>
+              <Text style={s.heroSub}>
                 A private chauffeur service for those who measure travel by composure. Black-car sedans, luxury SUVs and stretch limousines across the Bay & beyond.
               </Text>
 
-              <View style={s.trustRow}>
-                <View style={s.trustItem}>
-                  <View style={{ flexDirection: "row", gap: 1 }}>
-                    {[0, 1, 2, 3, 4].map(i => <Star key={i} size={12} color={colors.gold} fill={colors.gold} />)}
+              <View style={s.heroStats}>
+                <View style={s.statBlock}>
+                  <View style={s.starRow}>
+                    {[...Array(5)].map((_, i) => <Star key={i} size={10} color={colors.gold} fill={colors.gold} />)}
                   </View>
-                  <Text style={s.trustTxt}>5.0 · 1,200+ rides</Text>
+                  <Text style={s.statTxt}>5.0 · 1,200+ rides</Text>
                 </View>
-                <Text style={s.trustSep}>|</Text>
-                <Text style={s.trustEm}><Text style={s.trustGold}>24/7</Text>  Dispatch</Text>
-                <Text style={s.trustSep}>|</Text>
-                <View style={s.trustItem}>
-                  <ShieldCheck size={12} color={colors.gold} />
-                  <Text style={s.trustTxt}>Fully insured</Text>
+                <View style={s.statDivider} />
+                <View style={s.statBlock}>
+                  <Text style={s.statBig}>24/7</Text>
+                  <Text style={s.statTxt}>Dispatch</Text>
+                </View>
+                <View style={s.statDivider} />
+                <View style={s.statBlock}>
+                  <ShieldCheck size={14} color={colors.gold} />
+                  <Text style={s.statTxt}>Fully insured</Text>
                 </View>
               </View>
 
-              <Pressable testID="discover-book" onPress={goBook} style={s.ctaPrimary}>
-                <Text style={s.ctaPrimaryTxt}>
-                  {user ? "Book a Ride" : "See pricing — no sign-up needed"}
-                </Text>
+              <Pressable testID="home-book-cta" onPress={goBook} style={({ pressed }) => [s.heroPrimary, pressed && { opacity: 0.85 }]}>
+                <Text style={s.heroPrimaryTxt}>Book a ride</Text>
                 <ArrowRight size={14} color="#000" />
               </Pressable>
-
-              {!user && (
-                <Pressable onPress={goSignIn} hitSlop={8}>
-                  <Text style={s.signLink}>Already have an account? <Text style={{ textDecorationLine: "underline" }}>Sign in</Text></Text>
-                </Pressable>
-              )}
             </View>
           </SafeAreaView>
         </ImageBackground>
 
-        {/* PROMOTIONS & ANNOUNCEMENTS — admin-managed live banners.
-            Promo card shows whenever /api/promos/banner returns an active
-            promo (admin → Promos page); announcement cards show whenever
-            /api/admin/announcements has an entry with placement="banner". */}
+        {/* PROMO + ANNOUNCEMENTS — rendered between hero and FLEET. */}
         {(promo || announcements.length > 0) && (
           <View style={s.bannerWrap}>
             {promo && (
-              <View style={s.promoCard}>
-                <View style={s.promoIconWrap}>
-                  <Tag size={14} color="#000" />
+              <Pressable testID="home-promo-banner" onPress={goBook} style={s.promoBanner}>
+                <View style={s.promoIcon}>
+                  <Tag size={14} color={colors.gold} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.promoLine1}>
-                    <Text style={s.promoBold}>{promoLine}</Text>
-                    {promo.description ? ` · ${promo.description}` : ""}
-                  </Text>
-                  <Text style={s.promoLine2}>Use code <Text style={s.promoCode}>{promo.code}</Text> at checkout</Text>
+                  <Text style={s.promoCode}>{promo.code} · {promoLine}</Text>
+                  <Text style={s.promoDesc} numberOfLines={2}>{promo.description}</Text>
                 </View>
-              </View>
+                <ArrowRight size={14} color={colors.gold} />
+              </Pressable>
             )}
-            {announcements.map((a) => (
+            {announcements.map((a, i) => (
               <Pressable
-                key={a.id}
-                testID={`discover-announcement-${a.id}`}
-                onPress={() => a.cta_url && Linking.openURL(a.cta_url).catch(() => {})}
-                style={s.announceCard}
+                key={a.id || i}
+                testID={`home-announcement-${i}`}
+                onPress={() => openAnnouncementCta(a.cta_url)}
+                style={s.announceBanner}
               >
-                <Megaphone size={14} color={colors.gold} />
+                <View style={s.announceIcon}>
+                  <Megaphone size={14} color={colors.gold} />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.announceTitle}>{a.title}</Text>
-                  {a.body ? <Text style={s.announceBody}>{a.body}</Text> : null}
+                  {a.body ? <Text style={s.announceBody} numberOfLines={2}>{a.body}</Text> : null}
                 </View>
-                {a.cta_label ? <Text style={s.announceCta}>{a.cta_label} ›</Text> : null}
+                {a.cta_url ? <ArrowRight size={13} color={colors.gold} /> : null}
               </Pressable>
             ))}
           </View>
@@ -200,212 +199,264 @@ export default function DiscoverTab() {
 
         {/* FLEET */}
         <View style={s.section}>
-          <Text style={s.sectionNum}>01 — THE FLEET</Text>
-          <Text style={s.sectionH2}>A class for <Text style={{ color: colors.gold, fontStyle: "italic" }}>every journey.</Text></Text>
-          <Text style={s.sectionLede}>
+          <Text style={s.sectionLabel}>01 — THE FLEET</Text>
+          <Text style={s.sectionH2}>
+            A class for <Text style={s.italic}>every journey.</Text>
+          </Text>
+          <Text style={s.sectionSub}>
             From discreet executive sedans to celebration coaches — every vehicle in our network is under three years old, fully insured, and detailed before each ride.
           </Text>
-          <View style={s.fleetGrid}>
-            {FLEET.map((v) => (
-              <View key={v.name} style={s.fleetCard}>
-                <ImageBackground source={{ uri: v.img }} style={s.fleetImg} imageStyle={{ borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg }}>
-                  <View style={s.fleetCap}><Text style={s.fleetCapTxt}>{v.cap} pax</Text></View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.fleetScroll}>
+            {FLEET.map((v, i) => (
+              <View key={v.name} testID={`home-fleet-${i}`} style={s.fleetCard}>
+                <ImageBackground source={{ uri: v.img }} style={s.fleetImg} imageStyle={{ borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
+                  <View style={s.fleetImgDim} />
+                  <Text style={s.fleetCap}>{v.cap} pax</Text>
                 </ImageBackground>
-                <View style={s.fleetMeta}>
+                <View style={s.fleetBody}>
                   <Text style={s.fleetName}>{v.name}</Text>
                   <Text style={s.fleetModel}>{v.model}</Text>
                 </View>
               </View>
             ))}
-          </View>
+          </ScrollView>
         </View>
 
         {/* SERVICES */}
         <View style={s.section}>
-          <Text style={s.sectionNum}>02 — SERVICES</Text>
-          <Text style={s.sectionH2}>From the runway to the <Text style={{ color: colors.gold, fontStyle: "italic" }}>vineyard.</Text></Text>
-          <View style={s.svcGrid}>
-            {SERVICES.map((sv) => (
-              <View key={sv.title} style={s.svcCard}>
-                <sv.icon size={16} color={colors.gold} />
-                <Text style={s.svcTitle}>{sv.title}</Text>
-                <Text style={s.svcTxt}>{sv.text}</Text>
+          <Text style={s.sectionLabel}>02 — SERVICES</Text>
+          <Text style={s.sectionH2}>
+            Six ways we keep you <Text style={s.italic}>moving.</Text>
+          </Text>
+          <View style={s.servicesGrid}>
+            {SERVICES.map((srv, i) => {
+              const Icon = srv.icon;
+              return (
+                <View key={srv.title} testID={`home-service-${i}`} style={s.serviceCard}>
+                  <View style={s.serviceIcon}><Icon size={16} color={colors.gold} strokeWidth={1.6} /></View>
+                  <Text style={s.serviceTitle}>{srv.title}</Text>
+                  <Text style={s.serviceTxt}>{srv.text}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* COVERAGE */}
+        <View style={s.section}>
+          <Text style={s.sectionLabel}>03 — COVERAGE</Text>
+          <Text style={s.sectionH2}>
+            All of <Text style={s.italic}>Northern California.</Text>
+          </Text>
+          <Text style={s.sectionSub}>From Marin to Monterey, curbside to door — across thirty-plus cities.</Text>
+          <View style={s.airportRow}>
+            {["SFO", "OAK", "SJC"].map(code => (
+              <View key={code} style={s.airportPill}>
+                <Plane size={11} color={colors.gold} />
+                <Text style={s.airportTxt}>{code}</Text>
+              </View>
+            ))}
+          </View>
+          <View style={s.citiesWrap}>
+            {CITIES.map(c => (
+              <View key={c} style={s.cityChip}>
+                <MapPin size={9} color="rgba(255,255,255,0.4)" />
+                <Text style={s.cityTxt}>{c}</Text>
               </View>
             ))}
           </View>
         </View>
 
-        {/* POLICIES — collapsible */}
+        {/* REVIEWS */}
         <View style={s.section}>
-          <Text style={s.sectionNum}>03 — POLICIES</Text>
-          <Text style={s.sectionH2}>Clear & <Text style={{ color: colors.gold, fontStyle: "italic" }}>upfront.</Text></Text>
-          {POLICIES.map((p) => {
-            const open = openPolicy === p.id;
-            return (
-              <Pressable
-                key={p.id}
-                testID={`discover-policy-${p.id}`}
-                onPress={() => setOpenPolicy(open ? null : p.id)}
-                style={s.policyRow}
-              >
-                <View style={s.policyHead}>
-                  <p.icon size={14} color={colors.gold} />
-                  <Text style={s.policyTitle}>{p.title}</Text>
-                  {open
-                    ? <ChevronUp size={14} color="rgba(255,255,255,0.5)" />
-                    : <ChevronDown size={14} color="rgba(255,255,255,0.5)" />}
+          <Text style={s.sectionLabel}>04 — REVIEWS</Text>
+          <Text style={s.sectionH2}>
+            What riders <Text style={s.italic}>say.</Text>
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.reviewScroll}>
+            {REVIEWS.map((r, i) => (
+              <View key={r.name} testID={`home-review-${i}`} style={s.reviewCard}>
+                <View style={s.reviewStars}>
+                  {[...Array(5)].map((_, k) => <Star key={k} size={10} color={colors.gold} fill={colors.gold} />)}
                 </View>
-                {open && <Text style={s.policyBody}>{p.body}</Text>}
-              </Pressable>
-            );
-          })}
+                <Text style={s.reviewTxt}>“{r.text}”</Text>
+                <View style={s.reviewAuthor}>
+                  <View style={s.avatar}><Text style={s.avatarTxt}>{r.initials}</Text></View>
+                  <Text style={s.reviewName}>{r.name}</Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
         </View>
 
-        {/* CONTACT */}
-        <View style={[s.section, { paddingBottom: 28 }]}>
-          <View style={s.contactCard}>
-            <Sparkles size={16} color={colors.gold} />
-            <Text style={s.contactTitle}>24/7 Dispatch</Text>
-            <Text style={s.contactSub}>Talk to a human, any hour. We answer in under 30 seconds.</Text>
-            <Pressable testID="discover-call-cta" onPress={callDispatch} style={s.contactBtn}>
-              <Phone size={13} color="#000" />
-              <Text style={s.contactBtnTxt}>(650) 410-0687</Text>
+        {/* POLICIES & TRUST */}
+        <View style={s.section}>
+          <Text style={s.sectionLabel}>05 — POLICIES & TRUST</Text>
+          <Text style={s.sectionH2}>
+            Transparent <Text style={s.italic}>terms.</Text>
+          </Text>
+          <Text style={s.sectionSub}>Plain-English policies. Tap any card to read the details.</Text>
+          <View style={s.policyList}>
+            {POLICIES.map(p => {
+              const Icon = p.icon;
+              const isOpen = openPolicy === p.id;
+              return (
+                <Pressable
+                  key={p.id}
+                  testID={`home-policy-${p.id}`}
+                  onPress={() => setOpenPolicy(isOpen ? null : p.id)}
+                  style={s.policyCard}
+                >
+                  <View style={s.policyHead}>
+                    <View style={s.policyIcon}><Icon size={14} color={colors.gold} /></View>
+                    <Text style={s.policyTitle}>{p.title}</Text>
+                    {isOpen ? <ChevronUp size={14} color="rgba(255,255,255,0.5)" /> : <ChevronDown size={14} color="rgba(255,255,255,0.5)" />}
+                  </View>
+                  {isOpen && <Text style={s.policyBody}>{p.body}</Text>}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* FOOTER */}
+        <View style={[s.section, { paddingBottom: 30 }]}>
+          <View style={s.footerRow}>
+            <Pressable testID="home-website-link" onPress={openWebsite} style={s.footerLink} hitSlop={6}>
+              <Globe size={11} color={colors.gold} />
+              <Text style={s.footerLinkTxt}>turanelitelimo.com</Text>
             </Pressable>
-            <Pressable testID="discover-website" onPress={openWebsite} hitSlop={8}>
-              <View style={s.websiteLink}>
-                <Globe size={11} color={colors.gold} />
-                <Text style={s.websiteTxt}>www.turanelitelimo.com</Text>
-              </View>
+            <Pressable testID="home-call-footer" onPress={callDispatch} style={s.footerLink} hitSlop={6}>
+              <Phone size={11} color={colors.gold} />
+              <Text style={s.footerLinkTxt}>(650) 410-0687</Text>
             </Pressable>
           </View>
-          {/* Drivers can also access their portal directly from inside the
-              rider app. Some drivers use the same device for both modes. */}
-          <Pressable
-            testID="discover-driver-signin"
-            onPress={() => router.push("/(driver)/auth")}
-            hitSlop={6}
-            style={{ marginTop: 18, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 6, padding: 6 }}
-          >
-            <Briefcase size={11} color="rgba(255,255,255,0.55)" />
-            <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>I'm a driver — sign in</Text>
+          <Pressable testID="home-driver-link" onPress={goDriver} hitSlop={6} style={s.driverLink}>
+            <Briefcase size={11} color="rgba(255,255,255,0.45)" />
+            <Text style={s.driverLinkTxt}>I'm a driver — sign in</Text>
           </Pressable>
-          {/* OTA debug stamp — lets us verify the JS bundle is the latest. */}
-          <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 9, textAlign: "center", marginTop: 12 }}>
+          <Text style={s.footerTxt}>© {new Date().getFullYear()} TuranEliteLimo · Bay Area & Northern California</Text>
+          {/* OTA debug stamp */}
+          <Text style={{ color: "rgba(255,255,255,0.22)", fontSize: 9, marginTop: 8, textAlign: "center" }}>
             v1.0.0 · OTA {String(Updates.updateId || "bundled").slice(0, 8)} · ch {String(Updates.channel || "?")}
           </Text>
         </View>
       </ScrollView>
+
+      {/* Sticky bottom CTA — floats above the tab bar */}
+      <View style={[s.stickyBar, { paddingBottom: insets.bottom + 70 }]}>
+        <Pressable
+          testID="home-sticky-book"
+          onPress={goBook}
+          style={({ pressed }) => [s.stickyBtn, pressed && { opacity: 0.88 }]}
+        >
+          <Text style={s.stickyBtnTxt}>Book a Ride</Text>
+          <ArrowRight size={15} color="#000" />
+        </Pressable>
+      </View>
     </View>
   );
 }
 
-// Reusable styles — kept inline so the discover screen stays self-contained.
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#050505" },
-  hero: { paddingBottom: 24 },
-  heroDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.65)" },
-  heroSafe: { paddingHorizontal: 20 },
-  heroTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 32 },
-  logo: { width: 44, height: 44 },
+  root: { flex: 1, backgroundColor: colors.bg },
+
+  // HERO
+  hero: { width: "100%", minHeight: 600, position: "relative" },
+  heroDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(5,5,5,0.62)" },
+  heroSafe: { flex: 1, paddingHorizontal: 22, paddingBottom: 32 },
+  heroTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 },
   heroTopRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-  callBtn: {
-    width: 32, height: 32, borderRadius: 16,
-    borderWidth: 1, borderColor: "rgba(212,175,55,0.4)",
-    alignItems: "center", justifyContent: "center",
-  },
-  signInPill: {
-    paddingHorizontal: 14, paddingVertical: 7,
-    borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
-  },
-  signInPillTxt: { color: "#fff", fontSize: 12, fontWeight: "500" },
-  heroBody: { paddingTop: 4 },
-  eyebrow: { flexDirection: "row", gap: 6, alignItems: "center", marginBottom: 16 },
-  eyebrowTxt: { color: colors.gold, fontSize: 11, letterSpacing: 2, fontWeight: "500" },
-  h1: { color: "#fff", fontSize: 44, fontWeight: "300", lineHeight: 48 },
-  h1Em: { color: colors.gold, fontSize: 44, fontStyle: "italic", fontWeight: "300", lineHeight: 50, marginBottom: 16 },
-  heroLede: { color: "rgba(255,255,255,0.65)", fontSize: 14, lineHeight: 22, marginBottom: 22 },
-  trustRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 20, flexWrap: "wrap" },
-  trustItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  trustTxt: { color: "rgba(255,255,255,0.7)", fontSize: 11 },
-  trustEm: { color: "#fff", fontSize: 11 },
-  trustGold: { color: colors.gold, fontWeight: "600", fontSize: 13 },
-  trustSep: { color: "rgba(255,255,255,0.2)" },
-  ctaPrimary: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    backgroundColor: colors.gold, paddingVertical: 14, borderRadius: 999, gap: 8,
-    marginBottom: 12,
-  },
-  ctaPrimaryTxt: { color: "#000", fontSize: 14, fontWeight: "600" },
-  signLink: { color: "rgba(255,255,255,0.6)", textAlign: "center", fontSize: 12, paddingTop: 4 },
+  logo: { width: 42, height: 42 },
+  callBtn: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(212,175,55,0.4)", backgroundColor: "rgba(212,175,55,0.08)" },
+  signInPill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.25)", backgroundColor: "rgba(255,255,255,0.06)" },
+  signInPillTxt: { color: "#fff", fontSize: 12, fontWeight: "600", letterSpacing: 0.3 },
+  heroBody: { marginTop: 44 },
+  tagRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 },
+  tag: { color: colors.gold, fontSize: 10, letterSpacing: 3, fontWeight: "600" },
+  h1: { color: "#fff", fontSize: 38, lineHeight: 42, fontWeight: "400" },
+  h1Em: { color: colors.gold, fontSize: 38, lineHeight: 42, fontStyle: "italic", marginTop: 2 },
+  heroSub: { color: "rgba(255,255,255,0.65)", fontSize: 13, lineHeight: 19, marginTop: 18, maxWidth: 320 },
+  heroStats: { flexDirection: "row", alignItems: "center", marginTop: 22, gap: 14 },
+  statBlock: { flexDirection: "row", alignItems: "center", gap: 6 },
+  starRow: { flexDirection: "row", gap: 1 },
+  statBig: { color: colors.gold, fontSize: 13, fontWeight: "700" },
+  statTxt: { color: "rgba(255,255,255,0.6)", fontSize: 10, letterSpacing: 0.5 },
+  statDivider: { width: 1, height: 14, backgroundColor: "rgba(255,255,255,0.15)" },
+  heroPrimary: { marginTop: 24, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, paddingHorizontal: 22, borderRadius: 999, backgroundColor: colors.gold, alignSelf: "flex-start" },
+  heroPrimaryTxt: { color: "#000", fontSize: 13, fontWeight: "600" },
 
-  section: { paddingHorizontal: 20, paddingTop: 36 },
-  sectionNum: { color: colors.gold, fontSize: 10, letterSpacing: 2, marginBottom: 10 },
-  sectionH2: { color: "#fff", fontSize: 28, fontWeight: "300", lineHeight: 32, marginBottom: 12 },
-  sectionLede: { color: "rgba(255,255,255,0.6)", fontSize: 13, lineHeight: 20, marginBottom: 20 },
+  // BANNERS
+  bannerWrap: { paddingHorizontal: 22, paddingTop: 22, gap: 10 },
+  promoBanner: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: "rgba(212,175,55,0.35)", backgroundColor: "rgba(212,175,55,0.08)" },
+  promoIcon: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(212,175,55,0.18)" },
+  promoCode: { color: colors.gold, fontSize: 13, fontWeight: "700", letterSpacing: 0.5 },
+  promoDesc: { color: "rgba(255,255,255,0.7)", fontSize: 11, marginTop: 2, lineHeight: 15 },
+  announceBanner: { flexDirection: "row", alignItems: "center", gap: 12, padding: 13, borderRadius: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", backgroundColor: colors.surface },
+  announceIcon: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(212,175,55,0.12)" },
+  announceTitle: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  announceBody: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 2, lineHeight: 15 },
 
-  fleetGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  fleetCard: { width: "48%", backgroundColor: "rgba(255,255,255,0.04)", borderRadius: radius.lg, overflow: "hidden" },
-  fleetImg: { height: 110, justifyContent: "flex-end", alignItems: "flex-start", padding: 8 },
-  fleetCap: { backgroundColor: "rgba(0,0,0,0.7)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-  fleetCapTxt: { color: "#fff", fontSize: 10, fontWeight: "500" },
-  fleetMeta: { padding: 10 },
+  // SECTIONS
+  section: { paddingHorizontal: 22, paddingTop: 40, paddingBottom: 8 },
+  sectionLabel: { color: colors.gold, fontSize: 10, letterSpacing: 3, fontWeight: "600", marginBottom: 10 },
+  sectionH2: { color: "#fff", fontSize: 26, lineHeight: 30, fontWeight: "400" },
+  italic: { color: colors.gold, fontStyle: "italic" },
+  sectionSub: { color: "rgba(255,255,255,0.55)", fontSize: 12, lineHeight: 18, marginTop: 10, maxWidth: 320 },
+
+  // FLEET
+  fleetScroll: { paddingTop: 18, paddingRight: 22, gap: 12 },
+  fleetCard: { width: 220, borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", backgroundColor: colors.surface, overflow: "hidden" },
+  fleetImg: { height: 130, justifyContent: "flex-end" },
+  fleetImgDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.18)" },
+  fleetCap: { position: "absolute", top: 10, left: 10, color: "#fff", fontSize: 10, fontWeight: "600", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: "rgba(0,0,0,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  fleetBody: { padding: 12 },
   fleetName: { color: "#fff", fontSize: 13, fontWeight: "500" },
-  fleetModel: { color: "rgba(255,255,255,0.5)", fontSize: 10, marginTop: 2 },
+  fleetModel: { color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 2 },
 
-  svcGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 4 },
-  svcCard: { width: "31.5%", padding: 12, backgroundColor: "rgba(255,255,255,0.04)", borderRadius: radius.lg, alignItems: "flex-start" },
-  svcTitle: { color: "#fff", fontSize: 12, fontWeight: "500", marginTop: 8 },
-  svcTxt: { color: "rgba(255,255,255,0.5)", fontSize: 10, marginTop: 2 },
+  // SERVICES
+  servicesGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 18 },
+  serviceCard: { width: "47.5%", padding: 14, borderRadius: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", backgroundColor: colors.surface },
+  serviceIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(212,175,55,0.1)", borderWidth: 1, borderColor: "rgba(212,175,55,0.25)", marginBottom: 10 },
+  serviceTitle: { color: "#fff", fontSize: 13, fontWeight: "500" },
+  serviceTxt: { color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 2 },
 
-  policyRow: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  // COVERAGE
+  airportRow: { flexDirection: "row", gap: 8, marginTop: 18 },
+  airportPill: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: "rgba(212,175,55,0.08)", borderWidth: 1, borderColor: "rgba(212,175,55,0.3)" },
+  airportTxt: { color: colors.gold, fontSize: 11, fontWeight: "700", letterSpacing: 1.5 },
+  citiesWrap: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 14 },
+  cityChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" },
+  cityTxt: { color: "rgba(255,255,255,0.65)", fontSize: 10 },
+
+  // REVIEWS
+  reviewScroll: { paddingTop: 18, paddingRight: 22, gap: 12 },
+  reviewCard: { width: 260, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", backgroundColor: colors.surface },
+  reviewStars: { flexDirection: "row", gap: 2, marginBottom: 10 },
+  reviewTxt: { color: "rgba(255,255,255,0.78)", fontSize: 12, lineHeight: 18 },
+  reviewAuthor: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
+  avatar: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(212,175,55,0.15)", borderWidth: 1, borderColor: "rgba(212,175,55,0.3)" },
+  avatarTxt: { color: colors.gold, fontSize: 10, fontWeight: "700" },
+  reviewName: { color: "rgba(255,255,255,0.7)", fontSize: 11 },
+
+  // POLICIES
+  policyList: { marginTop: 16, gap: 8 },
+  policyCard: { padding: 14, borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", backgroundColor: colors.surface },
   policyHead: { flexDirection: "row", alignItems: "center", gap: 10 },
-  policyTitle: { color: "#fff", fontSize: 13, flex: 1 },
-  policyBody: { color: "rgba(255,255,255,0.55)", fontSize: 12, lineHeight: 18, marginTop: 10, paddingRight: 8 },
+  policyIcon: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(212,175,55,0.1)", borderWidth: 1, borderColor: "rgba(212,175,55,0.25)" },
+  policyTitle: { color: "#fff", fontSize: 12, fontWeight: "500", flex: 1 },
+  policyBody: { color: "rgba(255,255,255,0.65)", fontSize: 11, lineHeight: 17, marginTop: 10 },
 
-  contactCard: {
-    padding: 20, backgroundColor: "rgba(212,175,55,0.06)",
-    borderWidth: 1, borderColor: "rgba(212,175,55,0.2)",
-    borderRadius: radius.lg, alignItems: "center",
-  },
-  contactTitle: { color: "#fff", fontSize: 18, fontWeight: "400", marginTop: 8 },
-  contactSub: { color: "rgba(255,255,255,0.6)", fontSize: 12, textAlign: "center", marginTop: 4, marginBottom: 14 },
-  contactBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 22, paddingVertical: 11, backgroundColor: colors.gold, borderRadius: 999 },
-  contactBtnTxt: { color: "#000", fontSize: 13, fontWeight: "600" },
-  websiteLink: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 },
-  websiteTxt: { color: colors.gold, fontSize: 11, textDecorationLine: "underline" },
+  // FOOTER
+  footerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 18, marginTop: 4 },
+  footerLink: { flexDirection: "row", alignItems: "center", gap: 6 },
+  footerLinkTxt: { color: colors.gold, fontSize: 12, fontWeight: "500" },
+  driverLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 18 },
+  driverLinkTxt: { color: "rgba(255,255,255,0.5)", fontSize: 11 },
+  footerTxt: { color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 16, textAlign: "center" },
 
-  // Promotions & announcements banner area — sits between hero and fleet.
-  bannerWrap: { paddingHorizontal: 20, paddingTop: 18, gap: 10 },
-  promoCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 14,
-    backgroundColor: "rgba(212,175,55,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(212,175,55,0.45)",
-    borderRadius: radius.lg,
-  },
-  promoIconWrap: {
-    width: 34, height: 34, borderRadius: 17,
-    backgroundColor: colors.gold,
-    alignItems: "center", justifyContent: "center",
-  },
-  promoLine1: { color: "#fff", fontSize: 13, lineHeight: 18 },
-  promoLine2: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 2 },
-  promoBold: { color: colors.gold, fontWeight: "700" },
-  promoCode: { color: colors.gold, fontWeight: "600", letterSpacing: 1 },
-  announceCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 14,
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    borderRadius: radius.lg,
-  },
-  announceTitle: { color: "#fff", fontSize: 13, fontWeight: "500" },
-  announceBody: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 2, lineHeight: 16 },
-  announceCta: { color: colors.gold, fontSize: 11, fontWeight: "600" },
+  // STICKY CTA
+  stickyBar: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 12, backgroundColor: "rgba(5,5,5,0.96)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
+  stickyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 15, borderRadius: 999, backgroundColor: colors.gold },
+  stickyBtnTxt: { color: "#000", fontSize: 14, fontWeight: "600" },
 });
