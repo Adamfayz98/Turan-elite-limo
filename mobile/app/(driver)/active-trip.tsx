@@ -8,7 +8,7 @@
  *   - Live GPS streaming every 15s
  */
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Linking, Alert, ScrollView, TextInput, ActivityIndicator, Modal } from "react-native";
+import { View, Text, StyleSheet, Pressable, Linking, Alert, ScrollView, TextInput, ActivityIndicator, Modal, KeyboardAvoidingView, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft, Phone, MessageSquare, Navigation, Check, User as UserIcon, Wifi, WifiOff, Clock, Plus, X, MapPin } from "lucide-react-native";
@@ -306,68 +306,83 @@ export default function DriverActiveTrip() {
 
       {/* Wait time modal */}
       <Modal visible={waitOpen} animationType="slide" transparent>
-        <Pressable onPress={() => setWaitOpen(false)} style={s.modalBackdrop}>
-          <Pressable onPress={(e) => e.stopPropagation()} style={s.modalSheet}>
-            <View style={s.modalHandle} />
-            <Text style={s.modalTitle}>Record wait time</Text>
-            <Text style={s.modalSub}>
-              Enter the total minutes you waited. Airport pickups get a 45-min grace; other rides get 15 min. Admin reviews and charges before billing the card on file.
-            </Text>
-            <TextInput
-              testID="driver-wait-input"
-              value={waitMinutes}
-              onChangeText={setWaitMinutes}
-              keyboardType="number-pad"
-              placeholder="e.g. 25"
-              placeholderTextColor="rgba(255,255,255,0.3)"
-              style={s.modalInput}
-              autoFocus
-            />
-            <Pressable testID="driver-wait-submit" onPress={submitWaitTime} disabled={working} style={[s.modalBtn, working && { opacity: 0.6 }]}>
-              {working ? <ActivityIndicator color="#000" size="small" /> : <Text style={s.modalBtnTxt}>Submit</Text>}
-            </Pressable>
-            <Pressable onPress={() => setWaitOpen(false)} style={{ marginTop: 12 }}>
-              <Text style={{ color: "rgba(255,255,255,0.55)", textAlign: "center", fontSize: 12 }}>Cancel</Text>
+        {/*
+          Wrap the modal contents in KeyboardAvoidingView so the bottom sheet
+          slides up when the soft keyboard appears, keeping the input field
+          visible above the keyboard on both iOS and Android.
+        */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1 }}
+        >
+          <Pressable onPress={() => setWaitOpen(false)} style={s.modalBackdrop}>
+            <Pressable onPress={(e) => e.stopPropagation()} style={s.modalSheet}>
+              <View style={s.modalHandle} />
+              <Text style={s.modalTitle}>Record wait time</Text>
+              <Text style={s.modalSub}>
+                Enter the total minutes you waited. Airport pickups get a 45-min grace; other rides get 15 min. Admin reviews and charges before billing the card on file.
+              </Text>
+              <TextInput
+                testID="driver-wait-input"
+                value={waitMinutes}
+                onChangeText={setWaitMinutes}
+                keyboardType="number-pad"
+                placeholder="e.g. 25"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                style={s.modalInput}
+                autoFocus
+              />
+              <Pressable testID="driver-wait-submit" onPress={submitWaitTime} disabled={working} style={[s.modalBtn, working && { opacity: 0.6 }]}>
+                {working ? <ActivityIndicator color="#000" size="small" /> : <Text style={s.modalBtnTxt}>Submit</Text>}
+              </Pressable>
+              <Pressable onPress={() => setWaitOpen(false)} style={{ marginTop: 12 }}>
+                <Text style={{ color: "rgba(255,255,255,0.55)", textAlign: "center", fontSize: 12 }}>Cancel</Text>
+              </Pressable>
             </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Mid-trip stop modal */}
       <Modal visible={stopOpen} animationType="slide" transparent>
-        <Pressable onPress={() => setStopOpen(false)} style={s.modalBackdrop}>
-          <Pressable onPress={(e) => e.stopPropagation()} style={s.modalSheet}>
-            <View style={s.modalHandle} />
-            <Text style={s.modalTitle}>Add unplanned stop</Text>
-            <Text style={s.modalSub}>
-              Logs the detour + extra wait time. Detour billed at the vehicle's per-mile rate; wait time over 10 min billed at the per-minute rate.
-            </Text>
-            <TextInput
-              testID="driver-stop-addr"
-              value={stopAddr}
-              onChangeText={setStopAddr}
-              placeholder="Stop address (e.g. Starbucks · 350 California St)"
-              placeholderTextColor="rgba(255,255,255,0.3)"
-              style={s.modalInput}
-              autoFocus
-            />
-            <TextInput
-              testID="driver-stop-mins"
-              value={stopMinutes}
-              onChangeText={setStopMinutes}
-              keyboardType="number-pad"
-              placeholder="Minutes at this stop (e.g. 15)"
-              placeholderTextColor="rgba(255,255,255,0.3)"
-              style={s.modalInput}
-            />
-            <Pressable testID="driver-stop-submit" onPress={submitMidTripStop} disabled={working} style={[s.modalBtn, working && { opacity: 0.6 }]}>
-              {working ? <ActivityIndicator color="#000" size="small" /> : <Text style={s.modalBtnTxt}>Add stop</Text>}
-            </Pressable>
-            <Pressable onPress={() => setStopOpen(false)} style={{ marginTop: 12 }}>
-              <Text style={{ color: "rgba(255,255,255,0.55)", textAlign: "center", fontSize: 12 }}>Cancel</Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1 }}
+        >
+          <Pressable onPress={() => setStopOpen(false)} style={s.modalBackdrop}>
+            <Pressable onPress={(e) => e.stopPropagation()} style={s.modalSheet}>
+              <View style={s.modalHandle} />
+              <Text style={s.modalTitle}>Add unplanned stop</Text>
+              <Text style={s.modalSub}>
+                Logs the detour + extra wait time. Detour billed at the vehicle's per-mile rate; wait time over 10 min billed at the per-minute rate.
+              </Text>
+              <TextInput
+                testID="driver-stop-addr"
+                value={stopAddr}
+                onChangeText={setStopAddr}
+                placeholder="Stop address (e.g. Starbucks · 350 California St)"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                style={s.modalInput}
+                autoFocus
+              />
+              <TextInput
+                testID="driver-stop-mins"
+                value={stopMinutes}
+                onChangeText={setStopMinutes}
+                keyboardType="number-pad"
+                placeholder="Minutes at this stop (e.g. 15)"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                style={s.modalInput}
+              />
+              <Pressable testID="driver-stop-submit" onPress={submitMidTripStop} disabled={working} style={[s.modalBtn, working && { opacity: 0.6 }]}>
+                {working ? <ActivityIndicator color="#000" size="small" /> : <Text style={s.modalBtnTxt}>Add stop</Text>}
+              </Pressable>
+              <Pressable onPress={() => setStopOpen(false)} style={{ marginTop: 12 }}>
+                <Text style={{ color: "rgba(255,255,255,0.55)", textAlign: "center", fontSize: 12 }}>Cancel</Text>
+              </Pressable>
             </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
