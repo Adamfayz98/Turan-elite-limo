@@ -269,6 +269,13 @@ export async function driverSetPassword(payload: { email: string; password: stri
   return data as { token: string; driver: any };
 }
 
+export async function driverForgotPassword(email: string) {
+  // Lenient endpoint: returns 200 whether or not the email exists, to prevent
+  // user enumeration. We don't need the response body — the UI just shows
+  // "if an account exists, an email was sent."
+  await driverApi.post("/api/driver-auth/forgot-password", { email });
+}
+
 export async function driverGetMe() {
   const { data } = await driverApi.get("/api/driver-auth/me");
   return data;

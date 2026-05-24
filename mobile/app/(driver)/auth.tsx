@@ -119,6 +119,19 @@ export default function DriverAuth() {
             >
               {mode === "login" ? "Sign In to Drive" : "Set Password & Sign In"}
             </Button>
+
+            {/* Forgot password — only shown in login mode. First-time mode
+                doesn't need it (they're setting password for the first time). */}
+            {mode === "login" && (
+              <Pressable
+                testID="driver-auth-forgot"
+                onPress={() => router.push("/(driver)/forgot")}
+                hitSlop={10}
+                style={{ alignSelf: "center", marginTop: 14, padding: 4 }}
+              >
+                <Text style={{ color: colors.gold, fontSize: 12 }}>Forgot password?</Text>
+              </Pressable>
+            )}
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>

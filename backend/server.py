@@ -5589,6 +5589,15 @@ class DriverSetPasswordRequest(BaseModel):
     password: str = Field(..., min_length=8, max_length=128)
 
 
+class DriverForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class DriverResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=10)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
 class DriverProfileOut(BaseModel):
     id: str
     name: str
@@ -5664,6 +5673,105 @@ async def driver_login(payload: DriverLoginRequest):
     if not d or not d.get("password_hash") or not verify_password(payload.password, d.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     return DriverAuthResponse(token=create_driver_token(d["id"], email), driver=_driver_to_profile(d))
+
+
+@api_router.post("/driver-auth/forgot-password")
+async def driver_forgot_password(payload: DriverForgotPasswordRequest):
+    """Email the driver a one-time password-reset link.
+    Always returns 200 even if the email is unknown — prevents user enumeration.
+    Reset tokens are stored in `password_reset_tokens` with role='driver' so the
+    customer + driver flows can share the same collection + TTL index but
+    /api/driver-auth/reset-password only accepts driver-role tokens."""
+    email = payload.email.lower().strip()
+    d = await db.drivers.find_one(
+        {"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}},
+        {"_id": 0, "id": 1, "name": 1},
+    )
+    if d:
+        token = secrets.token_urlsafe(32)
+        expires = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+        await db.password_reset_tokens.insert_one({
+            "token": token,
+            "driver_id": d["id"],
+            "role": "driver",
+            "email": email,
+            "expires_at": expires,
+            "used": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        reset_url = f"{SITE_BASE_URL}/driver-reset-password?token={token}"
+        try:
+            from email_service import send_email
+            html = f"""
+            <div style="background:#050505;padding:40px 20px;font-family:Helvetica,Arial,sans-serif;color:#fff;">
+              <div style="max-width:520px;margin:0 auto;background:#0e0e0e;border:1px solid rgba(212,175,55,0.2);border-radius:16px;padding:32px;">
+                <div style="text-align:center;margin-bottom:24px;">
+                  <img src="{SITE_BASE_URL}/logo-mark.png" alt="TuranEliteLimo" style="height:60px;">
+                </div>
+                <h1 style="color:#D4AF37;font-size:22px;font-weight:400;margin:0 0 12px;">Reset your driver password</h1>
+                <p style="color:rgba(255,255,255,0.7);font-size:14px;line-height:1.6;">
+                  Hi {d.get('name') or 'there'}, we received a request to reset your TuranEliteLimo driver password.
+                  Click the button below to choose a new one. This link expires in 2 hours.
+                </p>
+                <div style="text-align:center;margin:28px 0;">
+                  <a href="{reset_url}" style="display:inline-block;background:#D4AF37;color:#000;text-decoration:none;padding:14px 26px;border-radius:999px;font-weight:600;font-size:14px;">Reset password</a>
+                </div>
+                <p style="color:rgba(255,255,255,0.45);font-size:12px;line-height:1.6;">
+                  If you didn't ask to reset your password, you can safely ignore this email. The link will expire on its own.
+                </p>
+                <p style="color:rgba(255,255,255,0.3);font-size:11px;line-height:1.5;margin-top:24px;border-top:1px solid rgba(255,255,255,0.08);padding-top:16px;">
+                  TuranEliteLimo · Bay Area &amp; Northern California · (650) 410-0687
+                </p>
+              </div>
+            </div>
+            """
+            await send_email(to=email, subject="Reset your TuranEliteLimo driver password", html=html)
+        except Exception as e:
+            logger.error(f"Driver forgot-password email send failed for {email}: {e}")
+    return {"ok": True, "message": "If a driver account exists for this email, a reset link has been sent."}
+
+
+@api_router.post("/driver-auth/reset-password")
+async def driver_reset_password(payload: DriverResetPasswordRequest):
+    """Complete the driver password reset flow using a token from
+    /driver-auth/forgot-password."""
+    rec = await db.password_reset_tokens.find_one(
+        {"token": payload.token, "used": False, "role": "driver"},
+        {"_id": 0},
+    )
+    if not rec:
+        raise HTTPException(status_code=400, detail="Reset link is invalid or has already been used.")
+    if rec.get("expires_at") and rec["expires_at"] < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(status_code=400, detail="Reset link has expired. Please request a new one.")
+    await db.drivers.update_one(
+        {"id": rec["driver_id"]},
+        {"$set": {
+            "password_hash": hash_password(payload.new_password),
+            "password_reset_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    await db.password_reset_tokens.update_one(
+        {"token": payload.token},
+        {"$set": {"used": True, "used_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True, "message": "Password updated. Please sign in with your new password."}
+
+
+@api_router.post("/admin/drivers/{driver_id}/clear-password")
+async def admin_clear_driver_password(driver_id: str, _: dict = Depends(require_admin)):
+    """Admin force-reset: wipe a driver's password_hash so they can use the
+    one-time /driver-auth/set-password flow again from the mobile app. Useful
+    when a driver is locked out and email delivery is unreliable, or for
+    onboarding flow re-runs."""
+    d = await db.drivers.find_one({"id": driver_id}, {"_id": 0, "id": 1, "email": 1})
+    if not d:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    await db.drivers.update_one(
+        {"id": driver_id},
+        {"$unset": {"password_hash": "", "password_set_at": ""},
+         "$set": {"password_cleared_by_admin_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True, "driver_email": d.get("email"), "message": "Driver password cleared. They can now use the 'Set password' flow."}
 
 
 @api_router.post("/driver/push-token")
