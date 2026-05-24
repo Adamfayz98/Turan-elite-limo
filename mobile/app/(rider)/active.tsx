@@ -69,13 +69,24 @@ export default function RiderActiveTrip() {
             pan/zoom touches on the map underneath. */}
         <View pointerEvents="none" style={s.mapDim} />
 
-        {/* Top safe-area container — we apply insets.top manually instead of
-            using SafeAreaView's edges prop. On iOS the screen sits underneath
-            a transparent status bar so the back chevron was being painted
-            BEHIND the time/battery, making it visually invisible (it WAS
-            tappable though). Manual padding guarantees a 44pt+ buffer that
-            keeps the chevron visible on both notch and Dynamic Island phones. */}
-        <View pointerEvents="box-none" style={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, Platform.OS === "ios" ? 50 : 12) }}>
+        {/* Top controls row — anchored to absolute top so it always floats
+            ABOVE the native map view. Without position: absolute, native
+            iOS MKMapView renders on top of sibling Views in some cases
+            and the back button silently disappears. Z-index alone isn't
+            enough — absolute positioning is the reliable fix. */}
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            paddingHorizontal: 16,
+            paddingTop: Math.max(insets.top, Platform.OS === "ios" ? 50 : 12),
+            zIndex: 10,
+            elevation: 10,
+          }}
+        >
           <View pointerEvents="box-none" style={s.topRow}>
             <Pressable testID="active-back" onPress={() => router.back()} style={s.iconBtn} hitSlop={10}>
               <ChevronLeft size={18} color="#fff" />
