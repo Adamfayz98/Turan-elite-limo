@@ -20,10 +20,13 @@ import {
   FileText,
   Calendar,
   AlertCircle,
+  Tag,
+  Megaphone,
 } from "lucide-react-native";
 import { colors, radius, assets } from "@/theme";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/store/auth";
+import { api } from "@/api";
 
 const FLEET = [
   { name: "Executive Sedan", model: "Cadillac XTS · Mercedes E-Class", img: "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=1200", cap: "1–3" },
@@ -87,6 +90,31 @@ export default function WelcomeScreen() {
   const insets = useSafeAreaInsets();
   const [openPolicy, setOpenPolicy] = useState<string | null>(null);
 
+  // Live promo + announcement banners — same admin-managed data shown to
+  // signed-in riders on the in-app Home tab. Surfacing this to first-time
+  // visitors too is critical: a "WELCOME20 · 20% off" banner in front of
+  // someone deciding whether to sign up converts dramatically better than
+  // hiding it until after sign-up.
+  const [promo, setPromo] = useState<{ code: string; description: string; discount_type: string; value: number } | null>(null);
+  const [announcements, setAnnouncements] = useState<{ id: string; title: string; body?: string; cta_label?: string; cta_url?: string }[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      api.get("/api/promos/banner").then(r => r.data).catch(() => null),
+      api.get("/api/announcements").then(r => r.data).catch(() => ({ banner: [] })),
+    ]).then(([p, a]) => {
+      if (!alive) return;
+      if (p && p.code) setPromo(p);
+      if (a && Array.isArray(a.banner)) setAnnouncements(a.banner);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const promoLine = promo
+    ? promo.discount_type === "percent" ? `${promo.value}% off` : `$${promo.value} off`
+    : null;
+
   useEffect(() => {
     if (user) router.replace("/home");
   }, [user]);
@@ -96,6 +124,7 @@ export default function WelcomeScreen() {
   const goDriver = () => router.push("/(driver)/auth");
   const callDispatch = () => Linking.openURL("tel:+16504100687");
   const openWebsite = () => Linking.openURL("https://www.turanelitelimo.com");
+  const openAnnouncementCta = (url?: string) => { if (url) Linking.openURL(url); };
 
   return (
     <View style={s.root}>
@@ -158,6 +187,38 @@ export default function WelcomeScreen() {
             </View>
           </SafeAreaView>
         </ImageBackground>
+
+        {/* PROMO + ANNOUNCEMENTS — admin-managed banners shown to visitors
+            and signed-in users alike. Mirrors the in-app Home tab. */}
+        {(promo || announcements.length > 0) && (
+          <View style={s.bannerWrap}>
+            {promo && (
+              <Pressable testID="welcome-promo-banner" onPress={goBrowse} style={s.promoBanner}>
+                <View style={s.promoIcon}><Tag size={14} color={colors.gold} /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.promoCode}>{promo.code} · {promoLine}</Text>
+                  <Text style={s.promoDesc} numberOfLines={2}>{promo.description}</Text>
+                </View>
+                <ArrowRight size={14} color={colors.gold} />
+              </Pressable>
+            )}
+            {announcements.map((a, i) => (
+              <Pressable
+                key={a.id || i}
+                testID={`welcome-announcement-${i}`}
+                onPress={() => openAnnouncementCta(a.cta_url)}
+                style={s.announceBanner}
+              >
+                <View style={s.announceIcon}><Megaphone size={14} color={colors.gold} /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.announceTitle}>{a.title}</Text>
+                  {a.body ? <Text style={s.announceBody} numberOfLines={2}>{a.body}</Text> : null}
+                </View>
+                {a.cta_url ? <ArrowRight size={13} color={colors.gold} /> : null}
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         {/* FLEET */}
         <View style={s.section}>
@@ -351,6 +412,18 @@ const s = StyleSheet.create({
   heroPrimaryTxt: { color: "#000", fontSize: 13, fontWeight: "600" },
   heroSecondary: { marginTop: 10, paddingVertical: 6, alignSelf: "flex-start" },
   heroSecondaryTxt: { color: "rgba(255,255,255,0.65)", fontSize: 12, textDecorationLine: "underline", textDecorationColor: "rgba(255,255,255,0.3)" },
+
+  // BANNERS — admin-managed promo + announcements row, rendered between
+  // hero and Fleet section. Mirrors the in-app Home tab visual style.
+  bannerWrap: { paddingHorizontal: 22, paddingTop: 22, gap: 10 },
+  promoBanner: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: "rgba(212,175,55,0.35)", backgroundColor: "rgba(212,175,55,0.08)" },
+  promoIcon: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(212,175,55,0.18)" },
+  promoCode: { color: colors.gold, fontSize: 13, fontWeight: "700", letterSpacing: 0.5 },
+  promoDesc: { color: "rgba(255,255,255,0.7)", fontSize: 11, marginTop: 2, lineHeight: 15 },
+  announceBanner: { flexDirection: "row", alignItems: "center", gap: 12, padding: 13, borderRadius: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", backgroundColor: colors.surface },
+  announceIcon: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(212,175,55,0.12)" },
+  announceTitle: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  announceBody: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 2, lineHeight: 15 },
 
   // SECTIONS
   section: { paddingHorizontal: 22, paddingTop: 40, paddingBottom: 8 },
