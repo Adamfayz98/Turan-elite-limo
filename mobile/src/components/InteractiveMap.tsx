@@ -201,9 +201,26 @@ export default function InteractiveMap({
 
   // Fit to visible points; retry once after a short delay so iOS has time
   // to mount the markers before we measure.
+  // IMPORTANT: We only auto-fit ONCE per "scene change" — i.e. when the set of
+  // pinned places changes (pickup/dropoff geocoded, driver assigned, etc.).
+  // Subsequent driver-location updates (every 15s) do NOT re-fit, otherwise the
+  // camera keeps yanking back to the bounding box and a rider who pinch-zooms
+  // can't stay zoomed in.
+  const lastFitSignature = useRef<string>("");
   useEffect(() => {
     if (focusDriverId) return;
     if (fitPoints.length === 0) return;
+    // Signature changes only when WHICH points exist changes, not when they
+    // move slightly. We round to 3 decimals (~111m) so tiny driver GPS jitter
+    // doesn't trigger a refit, but a brand-new driver pin or a different
+    // pickup address does.
+    const sig = fitPoints
+      .map((p) => `${p.latitude.toFixed(3)},${p.longitude.toFixed(3)}`)
+      .sort()
+      .join("|");
+    if (sig === lastFitSignature.current) return;
+    lastFitSignature.current = sig;
+
     const fit = () => {
       try {
         if (fitPoints.length === 1) {
