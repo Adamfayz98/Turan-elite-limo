@@ -6281,6 +6281,50 @@ async def admin_assign_driver(payload: AdminAssignDriverRequest, claims: dict = 
     return {"ok": True}
 
 
+# ---------- Account deletion request (Google Play / GDPR compliance) ----------
+class AccountDeletionRequest(BaseModel):
+    email: EmailStr
+    reason: Optional[str] = ""
+
+
+@api_router.post("/account/deletion-request")
+async def request_account_deletion(payload: AccountDeletionRequest):
+    """Public endpoint. Anyone can request deletion of their own account.
+    We record the request and email support; deletion is processed manually
+    within 30 days to allow ID verification (prevents malicious deletion of
+    someone else's account by an attacker who knows their email).
+    """
+    req_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    rec = {
+        "id": req_id,
+        "email": payload.email.lower().strip(),
+        "reason": (payload.reason or "")[:1000],
+        "requested_at": now,
+        "status": "pending",
+    }
+    try:
+        await db.account_deletion_requests.insert_one(rec)
+    except Exception as e:
+        logger.error(f"Failed to record deletion request: {e}")
+    # Notify support so a human can verify and process
+    try:
+        from email_service import SUPPORT_EMAIL
+        subject = f"Account deletion request — {payload.email}"
+        html = (
+            f"<p>A new account deletion request was submitted.</p>"
+            f"<p><strong>Email:</strong> {payload.email}<br/>"
+            f"<strong>Reason:</strong> {payload.reason or '(none)'}<br/>"
+            f"<strong>Request ID:</strong> {req_id}<br/>"
+            f"<strong>Submitted at:</strong> {now}</p>"
+            f"<p>Please verify identity within 30 days and process via admin panel.</p>"
+        )
+        await send_email(to=SUPPORT_EMAIL, subject=subject, html=html)
+    except Exception as e:
+        logger.warning(f"Could not email support about deletion request {req_id}: {e}")
+    return {"ok": True, "request_id": req_id, "message": "Deletion request received. We will process within 30 days."}
+
+
 # Register router
 app.include_router(api_router)
 

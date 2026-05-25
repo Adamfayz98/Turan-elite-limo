@@ -15,6 +15,7 @@ import MobileMockup from "@/pages/MobileMockup";
 import ResetPassword from "@/pages/ResetPassword";
 import DriverResetPassword from "@/pages/DriverResetPassword";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
+import AccountDeletion from "@/pages/AccountDeletion";
 import TermsOfService from "@/pages/TermsOfService";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
 
@@ -40,6 +41,8 @@ function App() {
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/driver-reset-password" element={<DriverResetPassword />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/account-deletion" element={<AccountDeletion />} />
+          <Route path="/delete-account" element={<AccountDeletion />} />
           <Route path="/terms" element={<TermsOfService />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
