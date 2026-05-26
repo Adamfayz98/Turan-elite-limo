@@ -52,6 +52,7 @@ Build a fully functioning website and a native mobile application (iOS/Android) 
 - Mobile UX polish: rename "Book" tab to "Home", swap icon, add back button on booking page
 - In-app Settings (notifications, change password, delete account)
 - Tech debt: split `server.py` (>6800 lines) into modular routers
+- **[Web DONE 2026-05-25] Sprinter trim split: Standard / Executive / Jet Sprinter cards** — *Reminder:* Replicate in mobile app `/app/mobile/src/lib/fleet.ts` (if exists) or the equivalent vehicle list. JS-only OTA-able change.
 
 ### P4
 - "Refer a Friend" $25 credit flow (bumped consideration to P1 post-launch for viral growth)
