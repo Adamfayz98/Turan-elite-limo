@@ -130,6 +130,8 @@ VEHICLE_TYPES = [
     "Luxury SUV",
     "Stretch Limousine",
     "Sprinter Van",
+    "Executive Sprinter",
+    "Jet Sprinter",
     "Party Bus",
 ]
 
@@ -140,6 +142,8 @@ DEFAULT_VEHICLE_PRICING = {
     "Luxury SUV":         {"base": 115.0, "per_mile": 4.75, "minimum": 135.0, "hourly_rate": 145.0, "wait_minute_rate": 1.50, "call_only": False},
     "Stretch Limousine":  {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.00, "call_only": True},
     "Sprinter Van":       {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.00, "call_only": True},
+    "Executive Sprinter": {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.00, "call_only": True},
+    "Jet Sprinter":       {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.25, "call_only": True},
     "Party Bus":          {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.50, "call_only": True},
 }
 
