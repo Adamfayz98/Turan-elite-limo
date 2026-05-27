@@ -1,69 +1,79 @@
 # TuranEliteLimo — Product Requirements (PRD)
 
 ## Original problem statement
-Build a fully functioning website and a native mobile application (iOS/Android) for a limo business (TuranEliteLimo) operating in the Bay Area. Includes admin page, live price quotes, direct-to-Stripe payment flow, Google Places autocomplete, custom zone surcharges, driver dispatch, and real-time driver location tracking.
+Full-stack web app + native mobile apps (iOS/Android) for a Bay Area chauffeur service with admin, live quotes, Stripe payments, Google Places, custom zones, driver dispatch, and live GPS tracking.
 
-## Personas
-- **Rider**: Books rides, pays via Stripe (Apple Pay supported), tracks driver live.
-- **Driver**: Receives dispatch, navigates to pickup, shares GPS during trip.
-- **Admin**: Manages bookings, pricing, drivers, promos, refunds.
+## Business
+- Sole proprietor: Abdulkhafiz Fayzullaev (DBA TuranEliteLimo)
+- Address: 501 Broadway #251, Millbrae CA 94030
+- Phone: +1 650-410-0687 / Email: support@turanelitelimo.com
+- Apple Developer: Individual; Copyright "2026 Abdulkhafiz Fayzullaev"
 
-## Core architecture
-- **Web**: React + Tailwind + Shadcn (frontend) → FastAPI backend → MongoDB.
-- **Mobile**: Expo SDK 54 React Native, native maps, EAS builds & OTA updates.
-- **Integrations**: Stripe (payments), Resend (email), Twilio (SMS), Google Maps / Places, Expo Push.
+## Architecture
+- Web: React + Tailwind + Shadcn → FastAPI → MongoDB
+- Mobile: Expo SDK 54 (EAS builds + OTA updates)
+- Integrations: Stripe, Resend, Twilio, Google Maps/Places, Expo Push, Google Ads (AW-18168374727)
 
-## Legal/Business entity
-- Operating as a **sole proprietor** under personal EIN: **Abdulkhafiz Fayzullaev**
-- Trade name (DBA): TuranEliteLimo
-- Apple Developer enrollment: Individual (Abdulkhafiz Fayzullaev)
-- Copyright: `2026 Abdulkhafiz Fayzullaev`
-- Apple DSA Trader info submitted with sole-prop details
+## What's Live / Done (2026-05-25 → 26)
+### iOS App
+- iOS Build #26 submitted to App Store Connect — **Waiting for Review** (Submission ID: a1b938eb-38ec-4432-87ec-e637885c3d78)
+- Pricing: Free, US only; Manual release; Age rating 12+
 
-## Implemented (Done)
-- Full web app (turanelitelimo.com) with admin 2FA dashboard
-- Mobile app: Rider + Driver modes
-- Stripe Checkout with `setup_future_usage=off_session` (card saved for Phase 2 charges)
-- Google Maps native, Apple Pay button, Promo code engine (WELCOME20 20% off)
-- Live GPS driver tracking with polling fallback
-- Driver "Forgot Password" flow (web + mobile)
-- iOS map z-indexing fixed, SafeAreaInsets patched
-- Android Stripe redirect fixed (OTA polling)
-- Android app built + submitted to Google Play Internal Testing
-- iOS Build #26 submitted to App Store Connect
-- **iOS App Store submission — Waiting for Review (submitted 2026-05-24)**
-  - Submission ID: a1b938eb-38ec-4432-87ec-e637885c3d78
-  - DSA Trader info submitted under personal legal name
-  - All metadata (description, keywords, screenshots, demo credentials) populated
-  - Pricing: Free tier, US only
-  - Manual release enabled
+### Android App
+- Build #22 (versionCode 22) built and submitted to Play Console Internal Testing
+- `ACCESS_BACKGROUND_LOCATION` permission **removed** → bypassed Google's prominent-disclosure / video requirement
+- Closed Test track set up — needs 12 Gmail testers, 14-day clock starts on approval
+- Production form filled: privacy, ads, content rating (12+), target audience 18+, data safety, financial features, government/health = N/A
+- Store listing: name, descriptions (75 / ~2,180 chars), keywords, app icon 512×512, feature graphic 1024×500, 4 phone screenshots + 4 tablet shots uploaded
+
+### Stripe checkout
+- **Bug fixed (2026-05-25)**: Mobile `/api/customer/book-and-pay` was charging full quote + 3.5% fee without applying promo discount → fixed; now mirrors web flow exactly. Mobile UI also fetches `/api/settings/public` for real service-fee % (was hardcoded to 2%).
+- Receipt fields persisted: `original_quote_amount`, `discount_amount`, `quote_amount` (post-discount), `promo_code`
+
+### Fleet — Sprinter trims
+- Split single "Sprinter Van" → **Sprinter Van / Executive Sprinter / Jet Sprinter** on web (`/app/frontend/src/lib/fleet.js`) and mobile (`vehicle.tsx`, `discover.tsx`, `index.tsx`)
+- Backend `VEHICLE_TYPES` + `DEFAULT_VEHICLE_PRICING` updated → auto-seeded to MongoDB on restart
+- **TODO**: replace shared photo with 3 distinct fleet photos when available
+
+### Google Ads
+- Google site tag (`GoogleSiteTag` component) loaded via env var on every page
+- Conversion tracking (`GoogleAdsConversion` component) fires `gtag('event', 'conversion')` on `/thank-you` with real `value` and `transaction_id`
+- Env: `REACT_APP_GADS_CONVERSION_ID=AW-18168374727`, `REACT_APP_GADS_CONVERSION_LABEL=JFulCI61t64cEMfLrddD`
+- Negative keyword list (29 keywords) applied to campaign
+- Bidding: Maximize Conversion Value, Target ROAS 300%
+
+### Mobile bug fixes (OTAs shipped)
+- Driver auto-logout on app background → root layout now calls `useDriverAuth.hydrate()`, driver profile persisted to SecureStore
+- iPhone map zoom-out → `InteractiveMap` only auto-fits on `fitPoints` signature change (3-decimal rounding), not every GPS tick
 
 ## Pending / Roadmap
 ### P0
-- **Wait for Apple App Store review** (~2–4 days, holiday weekend factor)
-- Once approved → click "Release This Version" in App Store Connect
+- Wait for Apple App Store review (submitted 2026-05-24, ~2-4 days)
+- Once approved → click "Release This Version"
+- Google Ads conversion label snippet wired but waiting for production deploy to fully validate
+- **FIFA 2026 prep (June 11 – July 6)**: customer-acquisition +30%, +Spanish/Russian/Mandarin, +Levi's Stadium location, FIFA headlines + negatives, call extension
 
 ### P1
-- Google Play Console "Set up your app" checklist (App access, Privacy policy, Data safety, Content rating)
-- Android rebuild with corrected app icon padding (`eas build --platform android`)
+- Collect 12 Gmail testers for Play Console closed test → 14-day clock starts on approval
+- Apply for Google Play Production access after 14 days of closed testing
+- Android rebuild with corrected app icon padding (P2 backlog)
+- Pause duplicate "Purchase (2)" Google Ads conversion action
 
 ### P3
-- Saved Addresses (Home/Work) for riders → one-tap rebooking
-- Mobile UX polish: rename "Book" tab to "Home", swap icon, add back button on booking page
+- Saved Addresses (Home/Work) for one-tap rebooking
+- Mobile UX polish: rename "Book" tab → "Home", swap icon, add back button on booking page
 - In-app Settings (notifications, change password, delete account)
-- Tech debt: split `server.py` (>6800 lines) into modular routers
-- **[Web DONE 2026-05-25] Sprinter trim split: Standard / Executive / Jet Sprinter cards** — *Reminder:* Replicate in mobile app `/app/mobile/src/lib/fleet.ts` (if exists) or the equivalent vehicle list. JS-only OTA-able change.
+- Tech debt: split `server.py` (>6900 lines) into modular routers
+- Replace shared Sprinter photo with 3 unique fleet photos
+- Add "prominent disclosure" screen + reinstate `ACCESS_BACKGROUND_LOCATION` for proper Android background GPS (v1.1)
+- Refer-a-Friend $25 credit flow (P1 post-launch for viral growth)
 
-### P4
-- "Refer a Friend" $25 credit flow (bumped consideration to P1 post-launch for viral growth)
-- Add `403` validation for spoofed `active_booking_id` in driver location POST
-
-## Health check
+## Health
 - Broken: None
 - Mocked: None
-- All production flows tested working
 
-## Key credentials
+## Credentials
 - Admin: support@turanelitelimo.com / TuronAdmin@2025
 - Test Driver: driver.test@turanelitelimo.com / DriverPass123!
 - Test Rider: rider.test@turanelitelimo.com / RiderPass123!
+- Expo: adamfayz98
