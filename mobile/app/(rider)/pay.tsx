@@ -23,7 +23,27 @@ export default function PayScreen() {
   const [waitConsent, setWaitConsent] = useState(false);
   const [damageConsent, setDamageConsent] = useState(false);
   const [cancelConsent, setCancelConsent] = useState(false);
+  // Backend service-fee % comes from /api/settings (admin-tunable). We default
+  // to 3.5% so the displayed total matches Stripe even before settings load,
+  // since that's the actual seeded value in production. Overwritten on mount.
+  const [serviceFeePct, setServiceFeePct] = useState<number>(3.5);
   const allConsentsGiven = waitConsent && damageConsent && cancelConsent;
+
+  // Fetch current service-fee % from backend so the displayed total matches
+  // exactly what Stripe will charge (was hardcoded at 2% causing a small
+  // mismatch).
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await api.get("/api/settings/public").then(x => x.data);
+        if (!alive) return;
+        const pct = Number(r?.service_fee_percent);
+        if (!Number.isNaN(pct) && pct >= 0) setServiceFeePct(pct);
+      } catch { /* keep default */ }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   // Auto-apply the active banner promo (e.g. WELCOME20) on mount so the rider
   // doesn't have to remember and type the code. Runs once, silently — if the
@@ -80,7 +100,7 @@ export default function PayScreen() {
   const baseFare = trip.quoteAmount || 0;
   const promoDiscount = promoApplied?.discount || 0;
   const fareAfterPromo = Math.max(0, baseFare - promoDiscount);
-  const serviceFee = +(fareAfterPromo * 0.02).toFixed(2);
+  const serviceFee = +(fareAfterPromo * (serviceFeePct / 100)).toFixed(2);
   const total = +(fareAfterPromo + serviceFee).toFixed(2);
 
   const applyPromo = async () => {

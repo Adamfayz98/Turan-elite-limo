@@ -5266,10 +5266,44 @@ async def customer_book_and_pay(
         raise HTTPException(status_code=500, detail="Stripe is not configured")
 
     settings = await _load_settings()
+
+    # ----- Apply promo code (matches web flow at /checkout/session) -----
+    # Discount is applied to the BASE fare; service fee is added AFTER discount,
+    # so a customer using WELCOME20 pays fee on the discounted total — same as web.
+    original_amount = float(payload.quote_amount)
+    discount_amount = 0.0
+    applied_promo = None
+    code_raw = (payload.promo_code or "").strip()
+    if code_raw:
+        promo = await _validate_promo_for_booking(
+            code_raw, original_amount, user["email"], payload.vehicle_type,
+        )
+        if promo.get("ok"):
+            discount_amount = round(promo["discount"], 2)
+            applied_promo = promo["code"]
+        else:
+            logger.warning(f"Mobile promo '{code_raw}' rejected for {bid}: {promo.get('reason')}")
+
+    fare_after_discount = round(original_amount - discount_amount, 2)
+    if fare_after_discount < 0.5:
+        fare_after_discount = 0.5
+        discount_amount = round(original_amount - fare_after_discount, 2)
+
     fee_pct = float(settings.service_fee_percent or 0)
-    fee = round(float(payload.quote_amount) * fee_pct / 100.0, 2)
-    total = round(float(payload.quote_amount) + fee, 2)
+    fee = round(fare_after_discount * fee_pct / 100.0, 2)
+    total = round(fare_after_discount + fee, 2)
     amount_cents = int(round(total * 100))
+
+    # Persist final amounts onto the booking so the receipt + admin views show the
+    # actual numbers (not the pre-discount quote).
+    booking_updates = {}
+    if applied_promo:
+        booking_updates["promo_code"] = applied_promo
+        booking_updates["discount_amount"] = discount_amount
+        booking_updates["original_quote_amount"] = original_amount
+        booking_updates["quote_amount"] = fare_after_discount
+    if booking_updates:
+        await db.bookings.update_one({"id": bid}, {"$set": booking_updates})
 
     # Deep-link back into the native app (registered via app.json scheme + universal links).
     # Stripe interpolates {CHECKOUT_SESSION_ID} into the success_url at redirect time.
