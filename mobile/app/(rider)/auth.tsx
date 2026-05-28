@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View, Text, StyleSheet, Pressable, Image, ScrollView, KeyboardAvoidingView, Platform, ImageBackground } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronLeft, Mail, Lock, Eye, EyeOff, Apple, ArrowRight, User as UserIcon } from "lucide-react-native";
+import { ChevronLeft, Mail, Lock, Eye, EyeOff, ArrowRight, User as UserIcon } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
@@ -149,17 +149,6 @@ export default function RiderAuth() {
             >
               {mode === "signin" ? "Continue" : "Create Account"}
             </Button>
-
-            <View style={s.divider}>
-              <View style={s.dividerLine} />
-              <Text style={s.dividerTxt}>OR</Text>
-              <View style={s.dividerLine} />
-            </View>
-
-            <Pressable testID="rider-auth-apple" style={s.apple}>
-              <Apple size={16} color="#000" />
-              <Text style={s.appleTxt}>Continue with Apple</Text>
-            </Pressable>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -197,10 +186,5 @@ const s = StyleSheet.create({
   tabTxt: { color: "rgba(255,255,255,0.55)", fontSize: 11, letterSpacing: 1.5, fontWeight: "600" },
   tabTxtActive: { color: "#000" },
   forgot: { color: colors.gold, fontSize: 11, alignSelf: "flex-end" },
-  divider: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 22, marginBottom: 14 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.1)" },
-  dividerTxt: { color: "rgba(255,255,255,0.35)", fontSize: 10, letterSpacing: 2 },
-  apple: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, backgroundColor: "#fff", paddingVertical: 14, borderRadius: 999 },
-  appleTxt: { color: "#000", fontSize: 13, fontWeight: "500" },
   error: { color: colors.error, fontSize: 12, marginTop: 4 },
 });
