@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 const NAV_LINKS = [
   { label: "Fleet", href: "#fleet" },
   { label: "Services", href: "#services" },
-  { label: "About", href: "#about" },
+  { label: "App", href: "/app" },
   { label: "Coverage", href: "#coverage" },
   { label: "Reviews", href: "#testimonials" },
   { label: "Contact", href: "#contact" },

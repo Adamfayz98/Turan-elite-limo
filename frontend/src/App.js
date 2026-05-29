@@ -16,6 +16,7 @@ import ResetPassword from "@/pages/ResetPassword";
 import DriverResetPassword from "@/pages/DriverResetPassword";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import AccountDeletion from "@/pages/AccountDeletion";
+import AppDownload from "@/pages/AppDownload";
 import TermsOfService from "@/pages/TermsOfService";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
 
@@ -43,6 +44,8 @@ function App() {
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/account-deletion" element={<AccountDeletion />} />
           <Route path="/delete-account" element={<AccountDeletion />} />
+          <Route path="/app" element={<AppDownload />} />
+          <Route path="/download" element={<AppDownload />} />
           <Route path="/terms" element={<TermsOfService />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
