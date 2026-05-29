@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
 import GoogleAdsConversion from "@/components/GoogleAdsConversion";
+import AppDownloadCTA from "@/components/AppDownloadCTA";
 import CheckoutRedirectOverlay from "@/components/CheckoutRedirectOverlay";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
@@ -213,6 +214,7 @@ export default function PayBooking() {
                 Confirmation
                 <span className="text-[#D4AF37] font-mono">{booking.confirmation_number}</span>
               </div>
+              <AppDownloadCTA />
             </>
           ) : pollMsg === "processing" || (returnedFromStripe && !isPaid && pollMsg !== "timeout") ? (
             <>
@@ -245,6 +247,7 @@ export default function PayBooking() {
                   <span className="text-[#D4AF37] font-mono">{booking.confirmation_number}</span>
                 </div>
               )}
+              <AppDownloadCTA />
             </>
           ) : (
             <>
