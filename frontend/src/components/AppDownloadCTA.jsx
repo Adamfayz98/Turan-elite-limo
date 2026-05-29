@@ -39,12 +39,31 @@ export default function AppDownloadCTA() {
             Get the iPhone app.
           </h3>
           <p className="text-white/55 text-sm mt-2 leading-relaxed">
-            Book your next ride in under sixty seconds. Save your card. Track
-            your chauffeur on a live map. Apple Pay at checkout.
+            Track this ride and every future ride right from your phone.
           </p>
 
+          {/* Specific value props */}
+          <ul className="mt-4 space-y-1.5 text-sm text-white/70">
+            <li className="flex items-start gap-2">
+              <span className="text-[#D4AF37] mt-[2px]">›</span>
+              <span><strong className="text-white">Track your chauffeur live</strong> — watch the car move toward your pickup on a map.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-[#D4AF37] mt-[2px]">›</span>
+              <span><strong className="text-white">Push notifications</strong> when your driver is on the way and arriving.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-[#D4AF37] mt-[2px]">›</span>
+              <span><strong className="text-white">One-tap rebook</strong> your favorite trips — Apple Pay at checkout.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-[#D4AF37] mt-[2px]">›</span>
+              <span><strong className="text-white">All your trips in one place</strong> — receipts, upcoming rides, history.</span>
+            </li>
+          </ul>
+
           {/* CTAs */}
-          <div className="mt-5 flex flex-wrap items-center gap-3">
+          <div className="mt-6 flex flex-wrap items-center gap-3">
             {isIOS ? (
               <a
                 data-testid="post-pay-ios-download"
@@ -56,7 +75,6 @@ export default function AppDownloadCTA() {
                 <img src={APPLE_BADGE} alt="Download on the App Store" className="h-12" />
               </a>
             ) : isMobile ? (
-              // Android user — Play Store isn't live yet
               <a
                 data-testid="post-pay-android-book"
                 href="/"
