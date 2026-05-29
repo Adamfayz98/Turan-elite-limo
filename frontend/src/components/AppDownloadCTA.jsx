@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from "react";
 
-const APP_STORE_URL = "https://apps.apple.com/app/turanelitelimo/id6747929016"; // ← updated post-release
+const APP_STORE_URL = "https://apps.apple.com/us/app/turanelitelimo/id6771610380";
 const APPLE_BADGE = "https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83";
 const QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(APP_STORE_URL)}&color=D4AF37&bgcolor=050505&qzone=2`;
 

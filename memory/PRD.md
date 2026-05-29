@@ -16,8 +16,10 @@ Full-stack web app + native mobile apps (iOS/Android) for a Bay Area chauffeur s
 
 ## What's Live / Done (2026-05-25 → 26)
 ### iOS App
-- iOS Build #26 submitted to App Store Connect — **Waiting for Review** (Submission ID: a1b938eb-38ec-4432-87ec-e637885c3d78)
-- Pricing: Free, US only; Manual release; Age rating 12+
+- **🎉 LIVE ON THE APP STORE (2026-05-29):** https://apps.apple.com/us/app/turanelitelimo/id6771610380
+- iOS Build #26 — Approved 2026-05-28, released manually 2026-05-29 02:58 PT
+- Pricing: Free, US only; Age rating 12+
+- 12 phone screenshots + 5 metadata blocks live
 
 ### Android App
 - Build #22 (versionCode 22) built and submitted to Play Console Internal Testing

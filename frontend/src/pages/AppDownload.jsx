@@ -7,7 +7,7 @@ const APPLE_BADGE = "https://tools.applemediaservices.com/api/badges/download-on
 const PLAY_BADGE = "https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png";
 
 // QR code via free API — encodes the App Store URL on the fly.
-const APP_STORE_URL = "https://apps.apple.com/app/turanelitelimo/id6747929016"; // ← TODO: replace with real ID after release
+const APP_STORE_URL = "https://apps.apple.com/us/app/turanelitelimo/id6771610380";
 const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.turanelitelimo.app";
 const QR = (url) => `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(url)}&color=D4AF37&bgcolor=050505&qzone=2`;
 
