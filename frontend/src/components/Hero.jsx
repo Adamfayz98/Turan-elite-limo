@@ -27,7 +27,7 @@ export default function Hero() {
               className="text-xs tracking-[0.3em] uppercase text-[#D4AF37] font-medium"
               data-testid="hero-eyebrow"
             >
-              Northern California · Bay Area
+              Northern California · Bay Area · SFO · OAK · SJC
             </span>
           </div>
 

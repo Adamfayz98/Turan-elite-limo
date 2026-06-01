@@ -14,7 +14,21 @@ Full-stack web app + native mobile apps (iOS/Android) for a Bay Area chauffeur s
 - Mobile: Expo SDK 54 (EAS builds + OTA updates)
 - Integrations: Stripe, Resend, Twilio, Google Maps/Places, Expo Push, Google Ads (AW-18168374727)
 
-## What's Live / Done (2026-05-25 → 26)
+## What's Live / Done (2026-05-25 → 31)
+
+### Landing page conversion upgrades (2026-05-31)
+- **TrustBanner**: 4-badge bar under hero — 5-Star Rated, Licensed & Insured (TCP), Live Driver Tracking, Free Cancellation 24h+ (`/app/frontend/src/components/TrustBanner.jsx`)
+- **StickyMobileCTA**: floating "Get Instant Quote" button on mobile after hero scroll (`/app/frontend/src/components/StickyMobileCTA.jsx`)
+- **Hero eyebrow**: rewritten to "Northern California · Bay Area · SFO · OAK · SJC" for high-intent ad-keyword visibility
+- **Status**: shipped to preview, needs Deploy to push to production
+- **Why**: 120 ad clicks → 0 attributed conversions in 15 days; landing page funnel was the bottleneck
+
+### Google Ads — Account fixed (2026-05-31)
+- **Final URL expansion**: turned BACK ON (had been off → impressions dropped 99% May 28)
+- **Bid strategy**: switched from "Maximize Conv Value + 150% ROAS" → "Maximize Conversions" (no ROAS target until 30+ data points)
+- **Conversion tracking verified**: code is correct and deployed; "Inactive" status due to zero ad-attributed paid bookings (clicks weren't completing payment)
+
+
 ### iOS App
 - **🎉 LIVE ON THE APP STORE (2026-05-29):** https://apps.apple.com/us/app/turanelitelimo/id6771610380
 - iOS Build #26 — Approved 2026-05-28, released manually 2026-05-29 02:58 PT
@@ -56,10 +70,16 @@ Full-stack web app + native mobile apps (iOS/Android) for a Bay Area chauffeur s
 - **FIFA 2026 prep (June 11 – July 6)**: customer-acquisition +30%, +Spanish/Russian/Mandarin, +Levi's Stadium location, FIFA headlines + negatives, call extension
 
 ### P1
-- Collect 12 Gmail testers for Play Console closed test → 14-day clock starts on approval
+- Collect 12 Gmail testers for Play Console closed test → ✅ submitted 2026-05-30, 8/13 opted in as of 2026-05-31, 14-day clock starts once 12 active testers
 - Apply for Google Play Production access after 14 days of closed testing
 - Android rebuild with corrected app icon padding (P2 backlog)
 - Pause duplicate "Purchase (2)" Google Ads conversion action
+- **Mobile auth overhaul (Option B - Apple + Google + Email on BOTH platforms)** — to be built next, shipped together with Android v1.0 launch + iOS v1.1 update:
+  - iOS: Re-add Apple Sign-In (proper `expo-apple-authentication`) + Google Sign-In
+  - Android: Google Sign-In + Apple Sign-In (cross-platform account linking)
+  - Backend: new `/api/auth/social/{provider}` endpoints, OAuth identity table linking same email across providers
+  - Requires: Apple Developer Service ID + Sign in with Apple key, Google Cloud OAuth Client IDs (iOS, Android, Web)
+- **Saved Addresses (Home/Work)** on mobile — backend CRUD + UI in Profile + autocomplete in booking flow
 
 ### P3
 - Saved Addresses (Home/Work) for one-tap rebooking

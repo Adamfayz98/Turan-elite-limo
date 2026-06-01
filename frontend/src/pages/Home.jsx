@@ -15,6 +15,8 @@ import PromoBanner from "@/components/PromoBanner";
 import AnnouncementBanner from "@/components/AnnouncementBanner";
 import AnnouncementsSection from "@/components/AnnouncementsSection";
 import SeoStructuredData from "@/components/SeoStructuredData";
+import TrustBanner from "@/components/TrustBanner";
+import StickyMobileCTA from "@/components/StickyMobileCTA";
 
 export default function Home() {
   return (
@@ -24,6 +26,7 @@ export default function Home() {
       <AnnouncementBanner />
       <Navbar />
       <Hero />
+      <TrustBanner />
       <HowItWorks />
       <BookingForm />
       <Services />
@@ -36,6 +39,7 @@ export default function Home() {
       <Testimonials />
       <ContactForm />
       <Footer />
+      <StickyMobileCTA />
     </main>
   );
 }
