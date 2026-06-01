@@ -111,6 +111,24 @@ export async function loginRider(payload: { email: string; password: string }) {
   return data;
 }
 
+export async function loginRiderWithApple(idToken: string, fullName?: string) {
+  const { data } = await api.post("/api/customer/oauth/apple", {
+    id_token: idToken,
+    full_name: fullName || null,
+  });
+  if (data?.token) await setToken(data.token);
+  return data;
+}
+
+export async function loginRiderWithGoogle(idToken: string, fullName?: string) {
+  const { data } = await api.post("/api/customer/oauth/google", {
+    id_token: idToken,
+    full_name: fullName || null,
+  });
+  if (data?.token) await setToken(data.token);
+  return data;
+}
+
 export async function getMe() {
   const { data } = await api.get("/api/customer/me");
   return data;

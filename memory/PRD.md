@@ -70,16 +70,50 @@ Full-stack web app + native mobile apps (iOS/Android) for a Bay Area chauffeur s
 - **FIFA 2026 prep (June 11 – July 6)**: customer-acquisition +30%, +Spanish/Russian/Mandarin, +Levi's Stadium location, FIFA headlines + negatives, call extension
 
 ### P1
-- Collect 12 Gmail testers for Play Console closed test → ✅ submitted 2026-05-30, 8/13 opted in as of 2026-05-31, 14-day clock starts once 12 active testers
+- Collect 12 Gmail testers for Play Console closed test → ✅ submitted 2026-05-30, **11/13 opted in as of 2026-05-31** (need just 1 more — add a 14th tester for safety buffer)
 - Apply for Google Play Production access after 14 days of closed testing
 - Android rebuild with corrected app icon padding (P2 backlog)
 - Pause duplicate "Purchase (2)" Google Ads conversion action
-- **Mobile auth overhaul (Option B - Apple + Google + Email on BOTH platforms)** — to be built next, shipped together with Android v1.0 launch + iOS v1.1 update:
-  - iOS: Re-add Apple Sign-In (proper `expo-apple-authentication`) + Google Sign-In
-  - Android: Google Sign-In + Apple Sign-In (cross-platform account linking)
-  - Backend: new `/api/auth/social/{provider}` endpoints, OAuth identity table linking same email across providers
-  - Requires: Apple Developer Service ID + Sign in with Apple key, Google Cloud OAuth Client IDs (iOS, Android, Web)
-- **Saved Addresses (Home/Work)** on mobile — backend CRUD + UI in Profile + autocomplete in booking flow
+
+### Mobile Auth Overhaul — IN PROGRESS (2026-05-31)
+**Status**: Backend done + mobile UI done. Awaiting OAuth client IDs from user to fill in app.json + backend env.
+
+**Architecture decided (Option B)**:
+- **iOS v1.1**: Apple Sign-In + Google Sign-In + Email/Password
+- **Android v1.0 release**: Google Sign-In + Email/Password (Apple-on-Android deferred to v1.2 — needs Services ID + web-redirect flow)
+- Backend: `(provider, provider_user_id)` uniquely identifies each social identity, linked to a single `customers` document via the new `oauth_identities` collection
+- Auto-linking: if a user signed up with email "alice@x.com" then later signs in with Google for that same verified email, both methods link to ONE customer record (no duplicates)
+- Apple private relay (`@privaterelay.appleid.com`) does NOT trigger email-linking (privacy)
+
+**What's already coded (in dev branch, not yet shipped to stores)**:
+- `/app/backend/social_oauth.py` — Apple JWKS verification + Google ID token verification (uses already-installed `google-auth`, `python-jose`, `PyJWT`)
+- `/app/backend/server.py` — `POST /api/customer/oauth/apple` and `POST /api/customer/oauth/google` endpoints + `_login_or_link_social()` helper + new `oauth_identities` MongoDB collection
+- `/app/mobile/src/api.ts` — `loginRiderWithApple()`, `loginRiderWithGoogle()`
+- `/app/mobile/src/auth/googleSignIn.ts` — Google SDK config helper (reads from `expo.extra.googleSignIn`)
+- `/app/mobile/src/components/SocialSignInButtons.tsx` — Apple (iOS only) + Google buttons with cancel/error/loading states
+- `/app/mobile/app/(rider)/auth.tsx` — social buttons rendered below the email/password Continue button with "OR" divider
+- `/app/mobile/app/_layout.tsx` — calls `configureGoogleSignIn()` on app boot
+- `/app/mobile/app.json` — `ios.usesAppleSignIn=true`, `expo-apple-authentication` plugin, `@react-native-google-signin/google-signin` plugin, `extra.googleSignIn` placeholder block
+- `/app/mobile/package.json` — `expo-apple-authentication@56.0.4`, `@react-native-google-signin/google-signin@16.1.2`
+
+**Blockers (need user input before shipping)**:
+1. **Apple Developer Console**: enable "Sign In with Apple" capability on App ID `com.turanelitelimo.app`
+2. **Google Cloud Console**: create 3 OAuth Client IDs (iOS, Android with SHA-1, Web) → send IDs to fill `app.json` + backend env (`GOOGLE_IOS_CLIENT_ID`, `GOOGLE_ANDROID_CLIENT_ID`, `GOOGLE_WEB_CLIENT_ID`)
+3. **Android SHA-1 fingerprint**: grab from Play Console → Setup → App Integrity → App signing key certificate → SHA-1
+4. Backend env: also set `APPLE_BUNDLE_ID=com.turanelitelimo.app` (Apple uses bundle ID as audience for native iOS)
+
+**Next steps after credentials gathered**:
+- Fill in `app.json` `extra.googleSignIn` block + `iosUrlScheme`
+- Set backend env vars in Emergent
+- `eas build -p ios --profile production` (v1.1.0) → App Store re-review (~2-4 days)
+- `eas build -p android --profile production` (v1.0 final) → already in closed test, will go to production after 14-day window
+- Ship both as a bundle
+
+### Saved Addresses — ALREADY BUILT ✅
+- Backend: `/api/customer/me/addresses` (GET/POST/DELETE) — `server.py` line 4824+
+- Mobile screen: `/app/mobile/app/(rider)/addresses.tsx`
+- Already integrated into booking home flow (`home.tsx` uses saved addresses)
+- No further work needed
 
 ### P3
 - Saved Addresses (Home/Work) for one-tap rebooking

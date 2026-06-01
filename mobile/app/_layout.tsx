@@ -7,12 +7,13 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useAuth } from "@/store/auth";
 import { useDriverAuth } from "@/store/driver";
 import { registerForPushAsync } from "@/push";
+import { configureGoogleSignIn } from "@/auth/googleSignIn";
 
 export default function RootLayout() {
   const hydrate = useAuth(s => s.hydrate);
   const driverHydrate = useDriverAuth(s => s.hydrate);
   const user = useAuth(s => s.user);
-  useEffect(() => { hydrate(); driverHydrate(); }, [hydrate, driverHydrate]);
+  useEffect(() => { hydrate(); driverHydrate(); configureGoogleSignIn(); }, [hydrate, driverHydrate]);
 
   // Force-check for OTA updates on every cold start and apply immediately when
   // available. Without this, expo-updates fetches a new bundle in the background

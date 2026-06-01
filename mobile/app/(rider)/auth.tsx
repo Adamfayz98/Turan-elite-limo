@@ -5,6 +5,7 @@ import { ChevronLeft, Mail, Lock, Eye, EyeOff, ArrowRight, User as UserIcon } fr
 import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
+import SocialSignInButtons from "@/components/SocialSignInButtons";
 import { colors, assets } from "@/theme";
 import { loginRider, signupRider } from "@/api";
 import { useAuth } from "@/store/auth";
@@ -149,6 +150,8 @@ export default function RiderAuth() {
             >
               {mode === "signin" ? "Continue" : "Create Account"}
             </Button>
+
+            <SocialSignInButtons onError={(m) => setError(m)} />
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>

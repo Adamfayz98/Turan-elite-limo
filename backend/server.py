@@ -4708,6 +4708,121 @@ async def customer_login(payload: CustomerLoginRequest):
     return CustomerAuthResponse(token=token, user=_customer_to_profile(user))
 
 
+# ----- Social sign-in (Apple + Google) ---------------------------------------
+
+class SocialLoginRequest(BaseModel):
+    id_token: str = Field(..., min_length=10)
+    # Optional fields Apple may include on FIRST sign-in only (the SDK returns
+    # them once; on subsequent sign-ins the name fields are empty). We accept
+    # them as a courtesy so the client can pre-populate the customer name.
+    full_name: Optional[str] = Field(None, max_length=120)
+
+
+async def _login_or_link_social(
+    provider: str,
+    provider_user_id: str,
+    email: Optional[str],
+    name_hint: Optional[str],
+    is_private_email: bool = False,
+) -> dict:
+    """Find or create a customer for this social identity and return the
+    customer document. Linking rules:
+      1. (provider, provider_user_id) is the strongest match — use it first.
+      2. If no identity row yet, try linking by verified email (NOT for Apple
+         private relay addresses — those would link unrelated accounts).
+      3. Otherwise create a new customer.
+    """
+    from social_oauth import verify_apple_id_token  # noqa - import side-effect safe
+
+    # 1. Existing OAuth identity → reuse linked customer
+    identity = await db.oauth_identities.find_one(
+        {"provider": provider, "provider_user_id": provider_user_id},
+        {"_id": 0},
+    )
+    if identity:
+        customer = await db.customers.find_one({"id": identity["customer_id"]}, {"_id": 0})
+        if customer:
+            await db.oauth_identities.update_one(
+                {"provider": provider, "provider_user_id": provider_user_id},
+                {"$set": {"last_login_at": datetime.now(timezone.utc).isoformat()}},
+            )
+            return customer
+        # fall through if linked customer was deleted (data integrity issue)
+
+    # 2. Try to link to existing customer by email (skip for Apple private relay)
+    customer = None
+    if email and not is_private_email:
+        customer = await db.customers.find_one({"email": email.lower()}, {"_id": 0})
+
+    # 3. Otherwise create a brand new customer
+    if not customer:
+        cid = str(uuid.uuid4())
+        customer = {
+            "id": cid,
+            "name": (name_hint or "").strip() or (email.split("@")[0] if email else "Rider"),
+            "email": email.lower() if email else f"{provider}-{provider_user_id[:10]}@noemail.invalid",
+            "phone": None,
+            "password_hash": None,  # social-only account
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "auth_provider": provider,
+        }
+        await db.customers.insert_one(dict(customer))
+
+    # Create the OAuth identity row
+    await db.oauth_identities.insert_one({
+        "id": str(uuid.uuid4()),
+        "customer_id": customer["id"],
+        "provider": provider,
+        "provider_user_id": provider_user_id,
+        "email": email.lower() if email else None,
+        "is_private_email": bool(is_private_email),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "last_login_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return customer
+
+
+@api_router.post("/customer/oauth/apple", response_model=CustomerAuthResponse)
+async def customer_oauth_apple(payload: SocialLoginRequest):
+    from social_oauth import verify_apple_id_token
+    claims = verify_apple_id_token(payload.id_token)
+    apple_sub = claims.get("sub")
+    if not apple_sub:
+        raise HTTPException(status_code=401, detail="Apple token missing subject")
+    email = claims.get("email")
+    is_private = bool(claims.get("is_private_email") or claims.get("is_private"))
+    customer = await _login_or_link_social(
+        provider="apple",
+        provider_user_id=apple_sub,
+        email=email,
+        name_hint=payload.full_name,
+        is_private_email=is_private,
+    )
+    token = create_customer_token(customer["id"], customer["email"])
+    return CustomerAuthResponse(token=token, user=_customer_to_profile(customer))
+
+
+@api_router.post("/customer/oauth/google", response_model=CustomerAuthResponse)
+async def customer_oauth_google(payload: SocialLoginRequest):
+    from social_oauth import verify_google_id_token
+    claims = verify_google_id_token(payload.id_token)
+    google_sub = claims.get("sub")
+    if not google_sub:
+        raise HTTPException(status_code=401, detail="Google token missing subject")
+    email = claims.get("email")
+    name_hint = payload.full_name or claims.get("name") or claims.get("given_name")
+    customer = await _login_or_link_social(
+        provider="google",
+        provider_user_id=google_sub,
+        email=email,
+        name_hint=name_hint,
+        is_private_email=False,
+    )
+    token = create_customer_token(customer["id"], customer["email"])
+    return CustomerAuthResponse(token=token, user=_customer_to_profile(customer))
+
+
 # ----- Customer forgot password (Resend email + reset token) -----
 
 class CustomerForgotPasswordRequest(BaseModel):
