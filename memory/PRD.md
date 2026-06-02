@@ -75,39 +75,34 @@ Full-stack web app + native mobile apps (iOS/Android) for a Bay Area chauffeur s
 - Android rebuild with corrected app icon padding (P2 backlog)
 - Pause duplicate "Purchase (2)" Google Ads conversion action
 
-### Mobile Auth Overhaul — IN PROGRESS (2026-05-31)
-**Status**: Backend done + mobile UI done. Awaiting OAuth client IDs from user to fill in app.json + backend env.
+### Mobile Auth Overhaul — CREDENTIALS WIRED IN (2026-06-01)
+**Status**: Backend verifying real Apple/Google tokens ✅. Mobile config has all 3 Client IDs ✅. Ready for EAS native rebuild.
 
-**Architecture decided (Option B)**:
-- **iOS v1.1**: Apple Sign-In + Google Sign-In + Email/Password
-- **Android v1.0 release**: Google Sign-In + Email/Password (Apple-on-Android deferred to v1.2 — needs Services ID + web-redirect flow)
-- Backend: `(provider, provider_user_id)` uniquely identifies each social identity, linked to a single `customers` document via the new `oauth_identities` collection
-- Auto-linking: if a user signed up with email "alice@x.com" then later signs in with Google for that same verified email, both methods link to ONE customer record (no duplicates)
-- Apple private relay (`@privaterelay.appleid.com`) does NOT trigger email-linking (privacy)
+**Credentials gathered (all under `adamfayz98@gmail.com` / `TuranEliteLimo-Play` Google Cloud project)**:
+- Apple bundle ID: `com.turanelitelimo.app` (Sign In with Apple enabled in Apple Developer Console)
+- Apple Team ID: `9M7CK4W8HM`
+- Google Web Client ID: `189018951603-q3v12pt0s3a4gutk4vbfbfk87sdljqve.apps.googleusercontent.com`
+- Google iOS Client ID: `189018951603-igffflan53r4ftnpnu5pj680k29kofgv.apps.googleusercontent.com`
+- Google Android Client ID: `189018951603-rk97c100e37uobml9nvauo4mjq2rpbgd.apps.googleusercontent.com`
+- Android SHA-1: `AC:99:46:BC:C3:61:D6:53:3E:8A:CC:9A:9B:A4:71:E8:4C:A0:A0:09`
+- Google OAuth consent screen status: **TESTING** mode (must publish to Production before live launch)
 
-**What's already coded (in dev branch, not yet shipped to stores)**:
-- `/app/backend/social_oauth.py` — Apple JWKS verification + Google ID token verification (uses already-installed `google-auth`, `python-jose`, `PyJWT`)
-- `/app/backend/server.py` — `POST /api/customer/oauth/apple` and `POST /api/customer/oauth/google` endpoints + `_login_or_link_social()` helper + new `oauth_identities` MongoDB collection
-- `/app/mobile/src/api.ts` — `loginRiderWithApple()`, `loginRiderWithGoogle()`
-- `/app/mobile/src/auth/googleSignIn.ts` — Google SDK config helper (reads from `expo.extra.googleSignIn`)
-- `/app/mobile/src/components/SocialSignInButtons.tsx` — Apple (iOS only) + Google buttons with cancel/error/loading states
-- `/app/mobile/app/(rider)/auth.tsx` — social buttons rendered below the email/password Continue button with "OR" divider
-- `/app/mobile/app/_layout.tsx` — calls `configureGoogleSignIn()` on app boot
-- `/app/mobile/app.json` — `ios.usesAppleSignIn=true`, `expo-apple-authentication` plugin, `@react-native-google-signin/google-signin` plugin, `extra.googleSignIn` placeholder block
-- `/app/mobile/package.json` — `expo-apple-authentication@56.0.4`, `@react-native-google-signin/google-signin@16.1.2`
+**Where credentials live**:
+- `/app/backend/.env`: `APPLE_BUNDLE_ID`, `GOOGLE_IOS_CLIENT_ID`, `GOOGLE_ANDROID_CLIENT_ID`, `GOOGLE_WEB_CLIENT_ID`
+- `/app/mobile/app.json`: `extra.googleSignIn.{iosClientId, androidClientId, webClientId}` + Google plugin `iosUrlScheme` reversed
+- `/app/mobile/src/auth/googleSignIn.ts`: reads from `Constants.expoConfig.extra.googleSignIn`
 
-**Blockers (need user input before shipping)**:
-1. **Apple Developer Console**: enable "Sign In with Apple" capability on App ID `com.turanelitelimo.app`
-2. **Google Cloud Console**: create 3 OAuth Client IDs (iOS, Android with SHA-1, Web) → send IDs to fill `app.json` + backend env (`GOOGLE_IOS_CLIENT_ID`, `GOOGLE_ANDROID_CLIENT_ID`, `GOOGLE_WEB_CLIENT_ID`)
-3. **Android SHA-1 fingerprint**: grab from Play Console → Setup → App Integrity → App signing key certificate → SHA-1
-4. Backend env: also set `APPLE_BUNDLE_ID=com.turanelitelimo.app` (Apple uses bundle ID as audience for native iOS)
+**Backend smoke test (2026-06-01)**: both `/api/customer/oauth/google` and `/api/customer/oauth/apple` now correctly reject fake tokens with provider-specific JWKS errors (not "not configured") — verification chain is live.
 
-**Next steps after credentials gathered**:
-- Fill in `app.json` `extra.googleSignIn` block + `iosUrlScheme`
-- Set backend env vars in Emergent
-- `eas build -p ios --profile production` (v1.1.0) → App Store re-review (~2-4 days)
-- `eas build -p android --profile production` (v1.0 final) → already in closed test, will go to production after 14-day window
-- Ship both as a bundle
+**Remaining steps**:
+1. Publish Google OAuth consent screen → Production (1 click in Google Cloud Console)
+2. `eas build -p ios --profile production` (bump version to 1.1.0)
+3. `eas build -p android --profile production` (versionCode 23)
+4. Test dev clients on real devices: Apple sign-in (iOS), Google sign-in (iOS+Android), email/password fallback
+5. Submit iOS v1.1 → App Store re-review (~2-4 days)
+6. Promote Android closed test → production (after 14-day window completes)
+7. Ship both together
+
 
 ### Saved Addresses — ALREADY BUILT ✅
 - Backend: `/api/customer/me/addresses` (GET/POST/DELETE) — `server.py` line 4824+

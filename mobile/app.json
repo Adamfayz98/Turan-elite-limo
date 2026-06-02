@@ -106,7 +106,7 @@
       [
         "@react-native-google-signin/google-signin",
         {
-          "iosUrlScheme": "com.googleusercontent.apps.GOOGLE_IOS_CLIENT_ID_REVERSED"
+          "iosUrlScheme": "com.googleusercontent.apps.189018951603-igffflan53r4ftnpnu5pj680k29kofgv"
         }
       ]
     ],
@@ -121,9 +121,9 @@
         "projectId": "f7293fd3-fd4a-4b43-815c-07c410b601e9"
       },
       "googleSignIn": {
-        "iosClientId": "REPLACE_WITH_IOS_CLIENT_ID.apps.googleusercontent.com",
-        "androidClientId": "REPLACE_WITH_ANDROID_CLIENT_ID.apps.googleusercontent.com",
-        "webClientId": "REPLACE_WITH_WEB_CLIENT_ID.apps.googleusercontent.com"
+        "iosClientId": "189018951603-igffflan53r4ftnpnu5pj680k29kofgv.apps.googleusercontent.com",
+        "androidClientId": "189018951603-rk97c100e37uobml9nvauo4mjq2rpbgd.apps.googleusercontent.com",
+        "webClientId": "189018951603-q3v12pt0s3a4gutk4vbfbfk87sdljqve.apps.googleusercontent.com"
       }
     },
     "owner": "adamfayz98",
