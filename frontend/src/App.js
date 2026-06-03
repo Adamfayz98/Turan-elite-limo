@@ -18,6 +18,7 @@ import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import AccountDeletion from "@/pages/AccountDeletion";
 import AppDownload from "@/pages/AppDownload";
 import TermsOfService from "@/pages/TermsOfService";
+import WorldCup2026 from "@/pages/WorldCup2026";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
 
 function App() {
@@ -47,6 +48,10 @@ function App() {
           <Route path="/app" element={<AppDownload />} />
           <Route path="/download" element={<AppDownload />} />
           <Route path="/terms" element={<TermsOfService />} />
+          <Route path="/world-cup-2026" element={<WorldCup2026 />} />
+          <Route path="/worldcup" element={<WorldCup2026 />} />
+          <Route path="/levis-stadium" element={<WorldCup2026 />} />
+          <Route path="/levis-stadium-transportation" element={<WorldCup2026 />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
