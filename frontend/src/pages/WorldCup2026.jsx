@@ -64,10 +64,38 @@ const ROUTES = [
 ];
 
 const FLEET = [
-  { name: "Executive Sedan", seats: "1-3 passengers", desc: "Cadillac XTS · Mercedes E-Class. Perfect for couples or solo travelers." },
-  { name: "Luxury SUV", seats: "1-6 passengers", desc: "Cadillac Escalade · GMC Yukon. Room for fans + gear + luggage." },
-  { name: "Executive Sprinter", seats: "1-12 passengers", desc: "Mercedes Sprinter. Best for groups, hospitality clients, watch parties." },
-  { name: "Stretch Limousine", seats: "1-10 passengers", desc: "For the celebration after the win. Champagne service available." },
+  {
+    name: "Executive Sedan",
+    seats: "1-3 passengers",
+    desc: "Cadillac XTS · Mercedes E-Class. Discreet, smooth, on time. Perfect for solo travelers or couples.",
+    img: "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
+  },
+  {
+    name: "Luxury SUV",
+    seats: "1-6 passengers",
+    desc: "Cadillac Escalade · GMC Yukon Denali. Captain's chairs, cavernous trunk for fans + gear.",
+    img: "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&q=85&w=1600&ixlib=rb-4.1.0",
+  },
+  {
+    name: "Executive Sprinter",
+    seats: "8-12 passengers",
+    desc: "Mercedes Sprinter Executive. Captain's chairs + leather. Ideal for hospitality groups & VIP airport transfers.",
+    img: "https://customer-assets.emergentagent.com/job_limo-experience-1/artifacts/z9hc1910_IMG_0001.webp",
+  },
+  {
+    name: "Stretch Limousine",
+    seats: "8-14 passengers",
+    desc: "Hummer & Chrysler 300 Stretch. Mood lighting, premium bar. The post-match celebration vehicle.",
+    img: "https://images.unsplash.com/photo-1676107648535-931375db52e2?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
+  },
+];
+
+const GALLERY = [
+  "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
+  "https://images.unsplash.com/photo-1609521247503-8de40462e427?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
+  "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200&ixlib=rb-4.1.0",
+  "https://images.unsplash.com/photo-1676107648535-931375db52e2?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
+  "https://images.unsplash.com/photo-1545185105-a81262517cf4?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
 ];
 
 const FAQS = [
@@ -219,14 +247,43 @@ export default function WorldCup2026() {
         <h2 className="text-2xl sm:text-4xl font-light tracking-tight leading-tight max-w-2xl">
           From solo arrivals to <span className="italic text-[#D4AF37]">12-person hospitality groups</span>.
         </h2>
-        <div className="grid sm:grid-cols-2 gap-x-8 gap-y-10 mt-12">
+        <div className="grid sm:grid-cols-2 gap-x-8 gap-y-12 mt-12">
           {FLEET.map((f) => (
-            <div key={f.name} className="border-l-2 border-[#D4AF37]/40 pl-5">
-              <h3 className="text-white text-xl">{f.name}</h3>
-              <p className="text-[#D4AF37]/80 text-xs tracking-widest mt-1">{f.seats.toUpperCase()}</p>
-              <p className="text-white/55 text-sm mt-3 leading-relaxed">{f.desc}</p>
+            <div key={f.name} data-testid={`fleet-${f.name.toLowerCase().replace(/\s+/g, "-")}`} className="group">
+              <div className="aspect-[4/3] rounded-2xl overflow-hidden border border-white/10 bg-white/[0.02] mb-5">
+                <img
+                  src={f.img}
+                  alt={`${f.name} for Levi's Stadium transportation`}
+                  loading="lazy"
+                  className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                />
+              </div>
+              <div className="border-l-2 border-[#D4AF37]/40 pl-5">
+                <h3 className="text-white text-xl">{f.name}</h3>
+                <p className="text-[#D4AF37]/80 text-xs tracking-widest mt-1">{f.seats.toUpperCase()}</p>
+                <p className="text-white/55 text-sm mt-3 leading-relaxed">{f.desc}</p>
+              </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* Gallery */}
+      <section className="border-t border-white/5 bg-[#0a0a0a]">
+        <div className="max-w-6xl mx-auto px-6 py-16">
+          <p className="text-[#D4AF37] text-xs tracking-[0.35em] uppercase mb-6 text-center">The TuranEliteLimo Experience</p>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3" data-testid="world-cup-gallery">
+            {GALLERY.map((src, i) => (
+              <div key={src} className="aspect-square rounded-xl overflow-hidden border border-white/10">
+                <img
+                  src={src}
+                  alt={`TuranEliteLimo fleet photo ${i + 1}`}
+                  loading="lazy"
+                  className="w-full h-full object-cover hover:scale-105 transition duration-500"
+                />
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
