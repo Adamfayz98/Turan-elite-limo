@@ -15,6 +15,7 @@ import PromoBanner from "@/components/PromoBanner";
 import AnnouncementBanner from "@/components/AnnouncementBanner";
 import AnnouncementsSection from "@/components/AnnouncementsSection";
 import SeoStructuredData from "@/components/SeoStructuredData";
+import SmartAppBanner from "@/components/SmartAppBanner";
 import TrustBanner from "@/components/TrustBanner";
 import StickyMobileCTA from "@/components/StickyMobileCTA";
 
@@ -22,6 +23,7 @@ export default function Home() {
   return (
     <main data-testid="home-page" className="bg-[#050505] text-white">
       <SeoStructuredData />
+      <SmartAppBanner />
       <PromoBanner />
       <AnnouncementBanner />
       <Navbar />
