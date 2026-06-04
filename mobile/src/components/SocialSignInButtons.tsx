@@ -14,7 +14,6 @@
  */
 import { useState } from "react";
 import { View, Text, Platform, Pressable, StyleSheet, ActivityIndicator, Alert } from "react-native";
-import * as AppleAuthentication from "expo-apple-authentication";
 import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-signin";
 import { useRouter } from "expo-router";
 import { colors } from "@/theme";
@@ -22,6 +21,17 @@ import { loginRiderWithApple, loginRiderWithGoogle } from "@/api";
 import { useAuth } from "@/store/auth";
 import { registerForPushAsync } from "@/push";
 import { isGoogleSignInConfigured } from "@/auth/googleSignIn";
+
+// expo-apple-authentication is OPTIONAL — only loaded if the native module
+// is available. Required iOS entitlement was deferred to v1.2 so this import
+// is wrapped to keep the app shippable.
+let AppleAuthentication: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  AppleAuthentication = require("expo-apple-authentication");
+} catch {
+  AppleAuthentication = null;
+}
 
 type Props = {
   onError?: (message: string) => void;
@@ -39,7 +49,7 @@ export default function SocialSignInButtons({ onError }: Props) {
   };
 
   const handleApple = async () => {
-    if (busy) return;
+    if (busy || !AppleAuthentication) return;
     setBusy("apple");
     try {
       const credential = await AppleAuthentication.signInAsync({
@@ -107,7 +117,7 @@ export default function SocialSignInButtons({ onError }: Props) {
   };
 
   const googleAvailable = isGoogleSignInConfigured();
-  const appleAvailable = Platform.OS === "ios";
+  const appleAvailable = Platform.OS === "ios" && Boolean(AppleAuthentication);
 
   if (!appleAvailable && !googleAvailable) {
     return null;
