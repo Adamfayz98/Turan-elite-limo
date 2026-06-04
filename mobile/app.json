@@ -21,6 +21,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.turanelitelimo.app",
       "buildNumber": "1",
+      "usesAppleSignIn": true,
       "config": {
         "googleMapsApiKey": "AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A"
       },
@@ -101,6 +102,7 @@
       "@react-native-community/datetimepicker",
       "expo-secure-store",
       "expo-web-browser",
+      "expo-apple-authentication",
       [
         "@react-native-google-signin/google-signin",
         {
