@@ -5058,9 +5058,17 @@ async def _login_or_link_social(
     # 3. Otherwise create a brand new customer
     if not customer:
         cid = str(uuid.uuid4())
+        # Decide the default display name. If the email is an Apple private relay
+        # address (or no email at all), the email prefix is gibberish like
+        # "g994cc9rv8" and shouldn't be shown to drivers/dispatchers.
+        # Leave the name blank so the customer is prompted to set it.
+        is_relay_email = bool(email and email.lower().endswith("@privaterelay.appleid.com"))
+        default_name = (name_hint or "").strip()
+        if not default_name and email and not is_relay_email:
+            default_name = email.split("@")[0]
         customer = {
             "id": cid,
-            "name": (name_hint or "").strip() or (email.split("@")[0] if email else "Rider"),
+            "name": default_name,  # may be empty — UI will prompt them to set it
             "email": email.lower() if email else f"{provider}-{provider_user_id[:10]}@noemail.invalid",
             "phone": None,
             "password_hash": None,  # social-only account
