@@ -81,17 +81,32 @@ def verify_apple_id_token(id_token_str: str) -> Dict[str, Any]:
             raise HTTPException(status_code=401, detail="No matching Apple public key")
 
     try:
-        # python-jose accepts JWK dicts directly
-        claims = jose_jwt.decode(
-            id_token_str,
-            key_data,
-            algorithms=[alg],
-            audience=audiences,
-            issuer=APPLE_ISSUER,
-            options={"verify_at_hash": False},
-        )
+        # python-jose requires `audience` to be a string (not a list).
+        # We loop through configured audiences (iOS bundle + optional Services ID)
+        # and accept the first one that validates.
+        last_error: Exception | None = None
+        for aud in audiences:
+            try:
+                claims = jose_jwt.decode(
+                    id_token_str,
+                    key_data,
+                    algorithms=[alg],
+                    audience=aud,
+                    issuer=APPLE_ISSUER,
+                    options={"verify_at_hash": False},
+                )
+                break
+            except jose_jwt.JWTClaimsError as e:
+                # Wrong audience - try the next one
+                last_error = e
+                continue
+        else:
+            # No audience matched
+            raise HTTPException(status_code=401, detail=f"Invalid Apple token audience: {last_error}")
     except jose_jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Apple token expired")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid Apple token: {e}")
 
