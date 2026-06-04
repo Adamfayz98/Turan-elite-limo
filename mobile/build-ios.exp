@@ -1,0 +1,43 @@
+#!/usr/bin/expect -f
+# Tracks whether the prior message was "cert is no longer valid";
+# if so, answers N to "Reuse" so a fresh cert is generated.
+
+set timeout 1500
+log_file -a /tmp/eas-build.log
+set cert_invalid 0
+
+spawn npx --yes eas-cli@latest build --platform ios --profile production --no-wait --clear-cache
+
+proc down_n_enter {n} {
+    for {set i 0} {$i < $n} {incr i} {
+        send "\033\[B"
+    }
+    send "\r"
+}
+
+expect {
+    -re {Select your Apple Team Type:} { down_n_enter 2; exp_continue }
+    -re {Apple Team ID:} { send "X5PCWL9H76\r"; exp_continue }
+    -re {(?i)apple id:} { send "$env(EXPO_APPLE_ID)\r"; exp_continue }
+    -re {(?i)app-specific password} { send "$env(EXPO_APPLE_APP_SPECIFIC_PASSWORD)\r"; exp_continue }
+    -re {Select certificates to revoke} { send " "; sleep 1; send "\r"; exp_continue }
+    -re {Would you like to set up Push Notifications} { down_n_enter 2; exp_continue }
+    -re {(?i)password \(for } { send "$env(EXPO_APPLE_APP_SPECIFIC_PASSWORD)\r"; exp_continue }
+    -re {is no longer valid in Apple Dev Portal} { set cert_invalid 1; exp_continue }
+    -re {Reuse this distribution certificate} {
+        if {$cert_invalid == 1} {
+            send "n\r"
+            set cert_invalid 0
+        } else {
+            send "y\r"
+        }
+        exp_continue
+    }
+    -re {Reuse this provisioning profile} { send "y\r"; exp_continue }
+    -re {Generate a new (Apple )?(Distribution Certificate|Provisioning Profile|Push Key)} { send "y\r"; exp_continue }
+    -re {\(Y/n\)} { send "y\r"; exp_continue }
+    -re {\(y/N\)} { send "y\r"; exp_continue }
+    -re {Build details: https://expo\.dev/} { exp_continue }
+    eof { exit 0 }
+    timeout { exit 2 }
+}

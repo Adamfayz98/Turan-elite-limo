@@ -11,13 +11,13 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Android:** Closed Testing on Play Console (Build #23).
 
 ## Recent Changes (this session)
-- ✅ **Apple Sign-In RESTORED on iOS v1.1 build 41** — Jun 4, 2026
+- ✅ **Apple Sign-In FIXED on iOS v1.1 build 43** — Jun 4, 2026
   - Deleted stale May 21 Expo iOS credentials configuration
-  - Generated fresh Distribution Cert (serial `7DC59EBFAB0644...`, expires Jun 4 2027)
-  - Generated fresh Provisioning Profile (`Y9HX9B37FC`) with `com.apple.developer.applesignin` entitlement
-  - Revoked old May 21 dist cert (Apple 3-cert limit)
-  - Skipped Push Notification re-setup to ship faster — will re-add next build
-  - Auto-submitted IPA to App Store Connect via ASC API key
+  - Generated fresh Distribution Cert + Provisioning Profile w/ Apple Sign-In entitlement
+  - Build #41 + #42 shipped but rendered red error "expo-apple-authentication.signInAsync is not available on iOS"
+  - **Root cause**: `expo-apple-authentication@56.0.4` was incompatible with SDK 54 (should be `~8.0.8`). Native module never registered.
+  - Pinned to `expo-apple-authentication@8.0.8` and re-ran EAS build with `--clear-cache`
+  - Build #43 auto-submitted to TestFlight at 21:45 UTC Jun 4
 
 ## Persona & Architecture (unchanged)
 See `/app/memory/CHANGELOG.md` for full feature changelog and `/app/memory/ROADMAP.md` for backlog.
