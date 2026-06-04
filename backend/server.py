@@ -3662,6 +3662,15 @@ async def stripe_webhook(request: Request):
     # the frontend polling completes.
     if event and getattr(event, "session_id", None):
         sid = event.session_id
+        # Custom-invoice flow (admin-issued, no booking record)
+        try:
+            import asyncio as _asyncio
+            sess = await _asyncio.to_thread(_stripe_retrieve_session, sid)
+            md = (getattr(sess, "metadata", None) or {}) if sess else {}
+            if isinstance(md, dict) and md.get("kind") == "custom_invoice" and event.payment_status == "paid":
+                await _maybe_mark_custom_invoice_paid(md, sid)
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Custom invoice webhook check failed: {e}")
         txn = await db.payment_transactions.find_one({"session_id": sid}, {"_id": 0})
         if txn and event.payment_status == "paid" and txn.get("status") != "paid":
             booking = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
@@ -4263,6 +4272,298 @@ async def delete_booking(booking_id: str, _: dict = Depends(require_admin)):
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Booking not found")
     return {"deleted": True}
+
+
+# ============================================================================
+# Custom invoices (admin-issued, off-platform quote requests / affiliate rides)
+# ============================================================================
+
+class CustomInvoiceCreate(BaseModel):
+    # Client info
+    client_name: str = Field(..., min_length=2, max_length=120)
+    client_email: EmailStr
+    client_phone: Optional[str] = Field(None, max_length=30)
+    # Trip info (free-form to support out-of-territory & multi-day)
+    pickup_datetime: Optional[str] = None   # ISO local time, free-form acceptable
+    pickup_location: Optional[str] = Field(None, max_length=300)
+    dropoff_location: Optional[str] = Field(None, max_length=300)
+    vehicle_type: Optional[str] = Field(None, max_length=80)
+    passengers: Optional[int] = Field(None, ge=1, le=50)
+    # Pricing
+    amount: float = Field(..., gt=0)        # what the client pays
+    affiliate_id: Optional[str] = None      # optional brokered ride link
+    affiliate_cost: Optional[float] = Field(None, ge=0)  # what we pay them
+    description: Optional[str] = Field(None, max_length=2000)
+    internal_notes: Optional[str] = Field(None, max_length=2000)
+
+
+class CustomInvoice(BaseModel):
+    id: str
+    invoice_number: str
+    client_name: str
+    client_email: EmailStr
+    client_phone: Optional[str] = None
+    pickup_datetime: Optional[str] = None
+    pickup_location: Optional[str] = None
+    dropoff_location: Optional[str] = None
+    vehicle_type: Optional[str] = None
+    passengers: Optional[int] = None
+    amount: float
+    affiliate_id: Optional[str] = None
+    affiliate_name: Optional[str] = None
+    affiliate_cost: Optional[float] = None
+    profit: Optional[float] = None
+    description: Optional[str] = None
+    internal_notes: Optional[str] = None
+    status: str  # "sent" | "paid" | "expired" | "cancelled"
+    payment_link: Optional[str] = None
+    stripe_session_id: Optional[str] = None
+    created_at: str
+    paid_at: Optional[str] = None
+
+
+async def _next_invoice_number() -> str:
+    """Monotonic invoice number INV-YYYY-NNNN scoped to the current year."""
+    year = datetime.now(timezone.utc).year
+    counter_doc = await db.counters.find_one_and_update(
+        {"_id": f"invoice_{year}"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True,
+    )
+    seq = (counter_doc or {}).get("seq", 1)
+    return f"INV-{year}-{seq:04d}"
+
+
+@api_router.post("/admin/invoices", response_model=CustomInvoice)
+async def admin_create_invoice(
+    payload: CustomInvoiceCreate,
+    request: Request,
+    _: dict = Depends(require_admin),
+):
+    """Create a one-off invoice + Stripe checkout link for quote-only customers."""
+    # Optional affiliate link-up
+    affiliate_name = None
+    if payload.affiliate_id:
+        aff = await db.affiliates.find_one(
+            {"id": payload.affiliate_id}, {"_id": 0, "id": 1, "name": 1}
+        )
+        if not aff:
+            raise HTTPException(status_code=400, detail="Affiliate not found")
+        affiliate_name = aff.get("name")
+
+    invoice_id = str(uuid.uuid4())
+    invoice_number = await _next_invoice_number()
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Build a clean trip description for the Stripe line-item
+    trip_summary = " · ".join(
+        [s for s in [
+            payload.vehicle_type or "",
+            (payload.pickup_location or "") + (f" → {payload.dropoff_location}" if payload.dropoff_location else ""),
+            payload.pickup_datetime or "",
+        ] if s]
+    ) or f"Custom invoice {invoice_number}"
+
+    # Create the Stripe checkout link
+    base = str(request.base_url).rstrip("/")
+    success_url = f"{base}/invoice/{invoice_id}?success=1"
+    cancel_url = f"{base}/invoice/{invoice_id}?cancelled=1"
+
+    checkout = _get_stripe_checkout(request)
+    session = await checkout.create_checkout_session(
+        CheckoutSessionRequest(
+            amount=round(float(payload.amount), 2),
+            currency="usd",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "kind": "custom_invoice",
+                "invoice_id": invoice_id,
+                "invoice_number": invoice_number,
+                "client_email": payload.client_email,
+                "client_name": payload.client_name,
+            },
+        )
+    )
+
+    profit = None
+    if payload.affiliate_cost is not None:
+        profit = round(float(payload.amount) - float(payload.affiliate_cost), 2)
+
+    doc = {
+        "id": invoice_id,
+        "invoice_number": invoice_number,
+        "client_name": payload.client_name.strip(),
+        "client_email": payload.client_email.lower(),
+        "client_phone": payload.client_phone,
+        "pickup_datetime": payload.pickup_datetime,
+        "pickup_location": payload.pickup_location,
+        "dropoff_location": payload.dropoff_location,
+        "vehicle_type": payload.vehicle_type,
+        "passengers": payload.passengers,
+        "amount": round(float(payload.amount), 2),
+        "affiliate_id": payload.affiliate_id,
+        "affiliate_name": affiliate_name,
+        "affiliate_cost": (round(float(payload.affiliate_cost), 2) if payload.affiliate_cost is not None else None),
+        "profit": profit,
+        "description": payload.description or trip_summary,
+        "internal_notes": payload.internal_notes,
+        "status": "sent",
+        "payment_link": session.url,
+        "stripe_session_id": session.session_id,
+        "created_at": now,
+        "paid_at": None,
+    }
+    await db.custom_invoices.insert_one(dict(doc))
+
+    # Best-effort email — send the payment link to the client
+    try:
+        from server import _send_invoice_email  # type: ignore
+        await _send_invoice_email(doc)  # noqa
+    except Exception:
+        pass  # email failure shouldn't block invoice creation
+
+    return CustomInvoice(**doc)
+
+
+@api_router.get("/admin/invoices", response_model=List[CustomInvoice])
+async def admin_list_invoices(
+    status: Optional[str] = None,
+    _: dict = Depends(require_admin),
+):
+    query = {}
+    if status:
+        query["status"] = status
+    items: List[CustomInvoice] = []
+    async for d in db.custom_invoices.find(query, {"_id": 0}).sort("created_at", -1).limit(500):
+        items.append(CustomInvoice(**d))
+    return items
+
+
+@api_router.get("/admin/invoices/{invoice_id}", response_model=CustomInvoice)
+async def admin_get_invoice(invoice_id: str, _: dict = Depends(require_admin)):
+    d = await db.custom_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return CustomInvoice(**d)
+
+
+@api_router.post("/admin/invoices/{invoice_id}/cancel")
+async def admin_cancel_invoice(invoice_id: str, _: dict = Depends(require_admin)):
+    d = await db.custom_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if d.get("status") == "paid":
+        raise HTTPException(status_code=400, detail="Cannot cancel a paid invoice")
+    await db.custom_invoices.update_one(
+        {"id": invoice_id}, {"$set": {"status": "cancelled"}}
+    )
+    return {"ok": True}
+
+
+@api_router.post("/admin/invoices/{invoice_id}/resend")
+async def admin_resend_invoice(invoice_id: str, _: dict = Depends(require_admin)):
+    d = await db.custom_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    try:
+        from server import _send_invoice_email  # type: ignore
+        await _send_invoice_email(d)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send: {e}")
+    return {"ok": True}
+
+
+# Webhook hook: when Stripe says a custom_invoice session completed, mark paid.
+# (We patch the existing webhook handler — see further down in this file.)
+async def _maybe_mark_custom_invoice_paid(session_metadata: dict, session_id: str) -> None:
+    if (session_metadata or {}).get("kind") != "custom_invoice":
+        return
+    invoice_id = session_metadata.get("invoice_id")
+    if not invoice_id:
+        return
+    await db.custom_invoices.update_one(
+        {"id": invoice_id, "status": {"$ne": "paid"}},
+        {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
+    )
+
+
+def _stripe_retrieve_session(session_id: str):
+    """Sync helper used inside `asyncio.to_thread()` from the webhook."""
+    import stripe as _stripe
+    _stripe.api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not _stripe.api_key:
+        return None
+    try:
+        return _stripe.checkout.Session.retrieve(session_id)
+    except Exception:
+        return None
+
+
+async def _send_invoice_email(invoice: dict) -> None:
+    """Email the payment link to the client."""
+    html = _render_invoice_email_html(invoice)
+    subject = f"Your TuranEliteLimo invoice {invoice.get('invoice_number','')}"
+    await send_email(
+        to=invoice["client_email"],
+        subject=subject,
+        html=html,
+        reply_to="support@turanelitelimo.com",
+    )
+
+
+def _render_invoice_email_html(inv: dict) -> str:
+    pay_url = inv.get("payment_link") or "#"
+    trip_lines = []
+    if inv.get("pickup_datetime"):
+        trip_lines.append(f"<tr><td style='padding:6px 0;color:#888'>Pickup time</td><td style='padding:6px 0;color:#fff'>{inv['pickup_datetime']}</td></tr>")
+    if inv.get("pickup_location"):
+        trip_lines.append(f"<tr><td style='padding:6px 0;color:#888'>From</td><td style='padding:6px 0;color:#fff'>{inv['pickup_location']}</td></tr>")
+    if inv.get("dropoff_location"):
+        trip_lines.append(f"<tr><td style='padding:6px 0;color:#888'>To</td><td style='padding:6px 0;color:#fff'>{inv['dropoff_location']}</td></tr>")
+    if inv.get("vehicle_type"):
+        trip_lines.append(f"<tr><td style='padding:6px 0;color:#888'>Vehicle</td><td style='padding:6px 0;color:#fff'>{inv['vehicle_type']}</td></tr>")
+    if inv.get("passengers"):
+        trip_lines.append(f"<tr><td style='padding:6px 0;color:#888'>Passengers</td><td style='padding:6px 0;color:#fff'>{inv['passengers']}</td></tr>")
+    trip_html = "".join(trip_lines) or "<tr><td style='padding:6px 0;color:#fff' colspan='2'>Custom service</td></tr>"
+    desc = (inv.get("description") or "").strip()
+    desc_html = f"<p style='color:#aaa;font-size:13px;margin:12px 0 0'>{desc}</p>" if desc else ""
+    return f"""
+<html><body style="margin:0;background:#0a0a0a;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#fff;padding:0">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;padding:40px 16px">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#121212;border-radius:16px;overflow:hidden;border:1px solid #1f1f1f">
+        <tr><td style="padding:36px 32px 0;text-align:center">
+          <h1 style="color:#D4AF37;font-weight:300;font-size:22px;margin:0;letter-spacing:0.5px">TuranEliteLimo</h1>
+          <p style="color:#777;font-size:11px;letter-spacing:3px;margin:6px 0 0;text-transform:uppercase">Invoice {inv.get('invoice_number','')}</p>
+        </td></tr>
+        <tr><td style="padding:28px 32px 8px">
+          <p style="color:#fff;font-size:16px;margin:0">Hi {inv.get('client_name','')},</p>
+          <p style="color:#bbb;font-size:14px;line-height:1.6;margin:16px 0 0">
+            Here's your private chauffeur invoice. Tap the button below to securely pay
+            via Stripe (Apple Pay, Visa, Mastercard, Amex all accepted).
+          </p>
+          {desc_html}
+        </td></tr>
+        <tr><td style="padding:24px 32px 0">
+          <table width="100%" style="background:#0d0d0d;border:1px solid #1f1f1f;border-radius:10px;padding:18px 20px">
+            {trip_html}
+            <tr><td style="padding:14px 0 6px;color:#888;border-top:1px solid #1f1f1f">Amount due</td><td style="padding:14px 0 6px;color:#D4AF37;font-size:22px;font-weight:500;text-align:right;border-top:1px solid #1f1f1f">${inv.get('amount',0):.2f}</td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:24px 32px;text-align:center">
+          <a href="{pay_url}" style="display:inline-block;background:#D4AF37;color:#000;text-decoration:none;padding:14px 28px;border-radius:999px;font-weight:600;font-size:14px">Pay invoice securely →</a>
+          <p style="color:#666;font-size:11px;margin:18px 0 0">Or copy this link: <br><span style="color:#888">{pay_url}</span></p>
+        </td></tr>
+        <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;text-align:center">
+          <p style="color:#888;font-size:12px;margin:0">Questions? Reply to this email or call <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none">(650) 410-0687</a>.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
 
 
 @api_router.post("/admin/bookings/backfill-cancellation-source")
