@@ -70,6 +70,7 @@ import AnnouncementsTab from "@/components/admin/AnnouncementsTab";
 import DriversTab from "@/components/admin/DriversTab";
 import RidersTab from "@/components/admin/RidersTab";
 import LiveDriversTab from "@/components/admin/LiveDriversTab";
+import AffiliatesTab from "@/components/admin/AffiliatesTab";
 import QuoteRequestsTab from "@/components/admin/QuoteRequestsTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
@@ -448,6 +449,9 @@ export default function AdminDashboard() {
             </TabsTrigger>
             <TabsTrigger value="live-map" data-testid="tab-live-map" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Live Map
+            </TabsTrigger>
+            <TabsTrigger value="affiliates" data-testid="tab-affiliates" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Affiliates
             </TabsTrigger>
             <TabsTrigger value="quotes" data-testid="tab-quotes" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Quote Requests
@@ -954,6 +958,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="live-map" className="mt-6">
             <LiveDriversTab />
+          </TabsContent>
+
+          <TabsContent value="affiliates" className="mt-6">
+            <AffiliatesTab />
           </TabsContent>
 
           <TabsContent value="quotes" className="mt-6">

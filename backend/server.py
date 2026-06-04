@@ -6481,6 +6481,12 @@ async def request_account_deletion(payload: AccountDeletionRequest):
 # Register router
 app.include_router(api_router)
 
+# Affiliate network (out-of-territory partner operators)
+from affiliates import router as affiliates_router
+api_router_affiliates = APIRouter(prefix="/api")
+api_router_affiliates.include_router(affiliates_router)
+app.include_router(api_router_affiliates)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
