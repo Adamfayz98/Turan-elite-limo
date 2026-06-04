@@ -1,130 +1,61 @@
-# TuranEliteLimo — Product Requirements (PRD)
+# TuranEliteLimo — Product Requirements Document (Live)
 
-## Original problem statement
-Full-stack web app + native mobile apps (iOS/Android) for a Bay Area chauffeur service with admin, live quotes, Stripe payments, Google Places, custom zones, driver dispatch, and live GPS tracking.
+> Last refreshed: Jun 4, 2026 (Feb 2026 development context)
 
-## Business
-- Sole proprietor: Abdulkhafiz Fayzullaev (DBA TuranEliteLimo)
-- Address: 501 Broadway #251, Millbrae CA 94030
-- Phone: +1 650-410-0687 / Email: support@turanelitelimo.com
-- Apple Developer: Individual; Copyright "2026 Abdulkhafiz Fayzullaev"
+## Original Problem Statement
+Build a fully functioning website + native iOS/Android mobile app for TuranEliteLimo (premium chauffeur service, Bay Area). Stack: React + FastAPI + MongoDB + Expo React Native. Features: dynamic pricing, Stripe checkout, admin dashboard, driver live tracking. Recently expanded to: 2026 FIFA World Cup surge ops, custom invoices for affiliate brokered trips, social logins (Apple + Google).
 
-## Architecture
-- Web: React + Tailwind + Shadcn → FastAPI → MongoDB
-- Mobile: Expo SDK 54 (EAS builds + OTA updates)
-- Integrations: Stripe, Resend, Twilio, Google Maps/Places, Expo Push, Google Ads (AW-18168374727)
+## Live Production
+- **Web:** `https://turanelitelimo.com` (deployed via Emergent)
+- **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
+- **Android:** Closed Testing on Play Console (Build #23).
 
-## What's Live / Done (2026-05-25 → 31)
+## Recent Changes (this session)
+- ✅ **Apple Sign-In RESTORED on iOS v1.1 build 41** — Jun 4, 2026
+  - Deleted stale May 21 Expo iOS credentials configuration
+  - Generated fresh Distribution Cert (serial `7DC59EBFAB0644...`, expires Jun 4 2027)
+  - Generated fresh Provisioning Profile (`Y9HX9B37FC`) with `com.apple.developer.applesignin` entitlement
+  - Revoked old May 21 dist cert (Apple 3-cert limit)
+  - Skipped Push Notification re-setup to ship faster — will re-add next build
+  - Auto-submitted IPA to App Store Connect via ASC API key
 
-### Landing page conversion upgrades (2026-05-31)
-- **TrustBanner**: 4-badge bar under hero — 5-Star Rated, Licensed & Insured (TCP), Live Driver Tracking, Free Cancellation 24h+ (`/app/frontend/src/components/TrustBanner.jsx`)
-- **StickyMobileCTA**: floating "Get Instant Quote" button on mobile after hero scroll (`/app/frontend/src/components/StickyMobileCTA.jsx`)
-- **Hero eyebrow**: rewritten to "Northern California · Bay Area · SFO · OAK · SJC" for high-intent ad-keyword visibility
-- **Status**: shipped to preview, needs Deploy to push to production
-- **Why**: 120 ad clicks → 0 attributed conversions in 15 days; landing page funnel was the bottleneck
+## Persona & Architecture (unchanged)
+See `/app/memory/CHANGELOG.md` for full feature changelog and `/app/memory/ROADMAP.md` for backlog.
 
-### Google Ads — Account fixed (2026-05-31)
-- **Final URL expansion**: turned BACK ON (had been off → impressions dropped 99% May 28)
-- **Bid strategy**: switched from "Maximize Conv Value + 150% ROAS" → "Maximize Conversions" (no ROAS target until 30+ data points)
-- **Conversion tracking verified**: code is correct and deployed; "Inactive" status due to zero ad-attributed paid bookings (clicks weren't completing payment)
+## P0/P1 Backlog (After Apple Sign-In v1.1.0 build 41)
+- **P0**: User confirms Apple Sign-In works on TestFlight build 41
+- **P0**: Sacramento affiliate sourcing for "Cristina" lead (advise re-quote at $895 to absorb $750 affiliate cost)
+- **P1**: Re-add Push Notifications setup on next iOS build (skipped today; requires Apple account password, not app-specific)
+- **P1**: Deploy web updates (Affiliates tab, Invoices tab, World Cup page, Smart App Banner) to production via Emergent Deploy
+- **P2**: Add real photos for 3 new Sprinter trims (Standard, Executive, Jet) once user provides
+- **P2**: iOS v1.1 build 41 App Store submission (if user wants to ship publicly)
 
+## P3 Future
+- Saved Addresses (Home/Work) for riders → one-tap rebooking
+- Rename "Book" bottom-tab to "Home", add back button on booking page
+- In-app Settings page (notifications, change password, delete account)
+- Tech debt: Split `server.py` (>7,200 lines) into modular routers
+- "Refer a Friend" $25 credit
+- Apple Sign-In for Android (web-redirect flow)
 
-### iOS App
-- **🎉 LIVE ON THE APP STORE (2026-05-29):** https://apps.apple.com/us/app/turanelitelimo/id6771610380
-- iOS Build #26 — Approved 2026-05-28, released manually 2026-05-29 02:58 PT
-- Pricing: Free, US only; Age rating 12+
-- 12 phone screenshots + 5 metadata blocks live
+## Credentials & Secrets (do NOT commit)
+- Apple ID for EAS auth: `abdulkhafizfayzullaev@gmail.com` (app-specific password user-generated per session)
+- Apple Team ID: `X5PCWL9H76`
+- ASC API Key on disk: `/app/mobile/AuthKey_S6ZN2K2TN4.p8` (key ID `S6ZN2K2TN4`, issuer `c7a389fa-d6e1-43d5-b2d6-3a5048e85f31`)
+- ASC App ID: `6771610380`
+- EXPO_TOKEN: rotated per session — user creates new one on https://expo.dev/settings/access-tokens
 
-### Android App
-- Build #22 (versionCode 22) built and submitted to Play Console Internal Testing
-- `ACCESS_BACKGROUND_LOCATION` permission **removed** → bypassed Google's prominent-disclosure / video requirement
-- Closed Test track set up — needs 12 Gmail testers, 14-day clock starts on approval
-- Production form filled: privacy, ads, content rating (12+), target audience 18+, data safety, financial features, government/health = N/A
-- Store listing: name, descriptions (75 / ~2,180 chars), keywords, app icon 512×512, feature graphic 1024×500, 4 phone screenshots + 4 tablet shots uploaded
+## Known State
+- iOS v1.0 LIVE on App Store
+- iOS v1.1 build 41 in TestFlight processing (submitted 11:04 UTC Jun 4, 2026)
+- Android v1.1 (Build #23) in Play Console Closed Testing
+- Web Preview has Affiliates/Invoices/WorldCup features awaiting Deploy
 
-### Stripe checkout
-- **Bug fixed (2026-05-25)**: Mobile `/api/customer/book-and-pay` was charging full quote + 3.5% fee without applying promo discount → fixed; now mirrors web flow exactly. Mobile UI also fetches `/api/settings/public` for real service-fee % (was hardcoded to 2%).
-- Receipt fields persisted: `original_quote_amount`, `discount_amount`, `quote_amount` (post-discount), `promo_code`
+## Files Touched in Apple Sign-In Restoration
+- `/app/mobile/app.json` — `usesAppleSignIn: true` + `expo-apple-authentication` plugin (already in place)
+- `/app/mobile/package.json` — `expo-apple-authentication: ^56.0.4` (already in place)
+- `/app/mobile/src/components/SocialSignInButtons.tsx` — Apple button rendering logic (already in place)
+- Expo Credentials (server-side) — wiped May 21, regenerated Jun 4
 
-### Fleet — Sprinter trims
-- Split single "Sprinter Van" → **Sprinter Van / Executive Sprinter / Jet Sprinter** on web (`/app/frontend/src/lib/fleet.js`) and mobile (`vehicle.tsx`, `discover.tsx`, `index.tsx`)
-- Backend `VEHICLE_TYPES` + `DEFAULT_VEHICLE_PRICING` updated → auto-seeded to MongoDB on restart
-- **TODO**: replace shared photo with 3 distinct fleet photos when available
-
-### Google Ads
-- Google site tag (`GoogleSiteTag` component) loaded via env var on every page
-- Conversion tracking (`GoogleAdsConversion` component) fires `gtag('event', 'conversion')` on `/thank-you` with real `value` and `transaction_id`
-- Env: `REACT_APP_GADS_CONVERSION_ID=AW-18168374727`, `REACT_APP_GADS_CONVERSION_LABEL=JFulCI61t64cEMfLrddD`
-- Negative keyword list (29 keywords) applied to campaign
-- Bidding: Maximize Conversion Value, Target ROAS 300%
-
-### Mobile bug fixes (OTAs shipped)
-- Driver auto-logout on app background → root layout now calls `useDriverAuth.hydrate()`, driver profile persisted to SecureStore
-- iPhone map zoom-out → `InteractiveMap` only auto-fits on `fitPoints` signature change (3-decimal rounding), not every GPS tick
-
-## Pending / Roadmap
-### P0
-- Wait for Apple App Store review (submitted 2026-05-24, ~2-4 days)
-- Once approved → click "Release This Version"
-- Google Ads conversion label snippet wired but waiting for production deploy to fully validate
-- **FIFA 2026 prep (June 11 – July 6)**: customer-acquisition +30%, +Spanish/Russian/Mandarin, +Levi's Stadium location, FIFA headlines + negatives, call extension
-
-### P1
-- Collect 12 Gmail testers for Play Console closed test → ✅ submitted 2026-05-30, **11/13 opted in as of 2026-05-31** (need just 1 more — add a 14th tester for safety buffer)
-- Apply for Google Play Production access after 14 days of closed testing
-- Android rebuild with corrected app icon padding (P2 backlog)
-- Pause duplicate "Purchase (2)" Google Ads conversion action
-
-### Mobile Auth Overhaul — CREDENTIALS WIRED IN (2026-06-01)
-**Status**: Backend verifying real Apple/Google tokens ✅. Mobile config has all 3 Client IDs ✅. Ready for EAS native rebuild.
-
-**Credentials gathered (all under `adamfayz98@gmail.com` / `TuranEliteLimo-Play` Google Cloud project)**:
-- Apple bundle ID: `com.turanelitelimo.app` (Sign In with Apple enabled in Apple Developer Console)
-- Apple Team ID: `9M7CK4W8HM`
-- Google Web Client ID: `189018951603-q3v12pt0s3a4gutk4vbfbfk87sdljqve.apps.googleusercontent.com`
-- Google iOS Client ID: `189018951603-igffflan53r4ftnpnu5pj680k29kofgv.apps.googleusercontent.com`
-- Google Android Client ID: `189018951603-rk97c100e37uobml9nvauo4mjq2rpbgd.apps.googleusercontent.com`
-- Android SHA-1: `AC:99:46:BC:C3:61:D6:53:3E:8A:CC:9A:9B:A4:71:E8:4C:A0:A0:09`
-- Google OAuth consent screen status: **TESTING** mode (must publish to Production before live launch)
-
-**Where credentials live**:
-- `/app/backend/.env`: `APPLE_BUNDLE_ID`, `GOOGLE_IOS_CLIENT_ID`, `GOOGLE_ANDROID_CLIENT_ID`, `GOOGLE_WEB_CLIENT_ID`
-- `/app/mobile/app.json`: `extra.googleSignIn.{iosClientId, androidClientId, webClientId}` + Google plugin `iosUrlScheme` reversed
-- `/app/mobile/src/auth/googleSignIn.ts`: reads from `Constants.expoConfig.extra.googleSignIn`
-
-**Backend smoke test (2026-06-01)**: both `/api/customer/oauth/google` and `/api/customer/oauth/apple` now correctly reject fake tokens with provider-specific JWKS errors (not "not configured") — verification chain is live.
-
-**Remaining steps**:
-1. Publish Google OAuth consent screen → Production (1 click in Google Cloud Console)
-2. `eas build -p ios --profile production` (bump version to 1.1.0)
-3. `eas build -p android --profile production` (versionCode 23)
-4. Test dev clients on real devices: Apple sign-in (iOS), Google sign-in (iOS+Android), email/password fallback
-5. Submit iOS v1.1 → App Store re-review (~2-4 days)
-6. Promote Android closed test → production (after 14-day window completes)
-7. Ship both together
-
-
-### Saved Addresses — ALREADY BUILT ✅
-- Backend: `/api/customer/me/addresses` (GET/POST/DELETE) — `server.py` line 4824+
-- Mobile screen: `/app/mobile/app/(rider)/addresses.tsx`
-- Already integrated into booking home flow (`home.tsx` uses saved addresses)
-- No further work needed
-
-### P3
-- Saved Addresses (Home/Work) for one-tap rebooking
-- Mobile UX polish: rename "Book" tab → "Home", swap icon, add back button on booking page
-- In-app Settings (notifications, change password, delete account)
-- Tech debt: split `server.py` (>6900 lines) into modular routers
-- Replace shared Sprinter photo with 3 unique fleet photos
-- Add "prominent disclosure" screen + reinstate `ACCESS_BACKGROUND_LOCATION` for proper Android background GPS (v1.1)
-- Refer-a-Friend $25 credit flow (P1 post-launch for viral growth)
-
-## Health
-- Broken: None
-- Mocked: None
-
-## Credentials
-- Admin: support@turanelitelimo.com / TuronAdmin@2025
-- Test Driver: driver.test@turanelitelimo.com / DriverPass123!
-- Test Rider: rider.test@turanelitelimo.com / RiderPass123!
-- Expo: adamfayz98
+## Test Credentials
+See `/app/memory/test_credentials.md`
