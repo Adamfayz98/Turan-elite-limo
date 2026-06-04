@@ -1,12 +1,18 @@
 import { Link } from "react-router-dom";
-import { Facebook, Instagram, Youtube, MapPin, Phone } from "lucide-react";
+import { Facebook, Instagram, Youtube, MapPin, Phone, MessageCircle } from "lucide-react";
 import Logo from "@/components/Logo";
 
 const SOCIALS = [
-  { icon: Facebook, href: "https://facebook.com", label: "Facebook" },
-  { icon: Instagram, href: "https://instagram.com", label: "Instagram" },
-  { icon: Youtube, href: "https://youtube.com", label: "YouTube" },
+  { icon: Facebook, href: "https://www.facebook.com/turanelitelimo", label: "Facebook" },
+  { icon: Instagram, href: "https://www.instagram.com/turanelitelimo", label: "Instagram" },
+  { icon: Youtube, href: "https://www.youtube.com/@turanelitelimo", label: "YouTube" },
+  { icon: MessageCircle, href: "https://wa.me/16504100687", label: "WhatsApp" },
 ];
+
+const APP_STORE_URL = "https://apps.apple.com/us/app/turanelitelimo/id6771610380";
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.turanelitelimo.app";
+const APPLE_BADGE = "https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us?size=250x83";
+const PLAY_BADGE = "https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png";
 
 export default function Footer() {
   return (
@@ -39,7 +45,7 @@ export default function Footer() {
               );
             })}
             <a
-              href="https://yelp.com"
+              href="https://yelp.com/biz/turanelitelimo"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Yelp"
@@ -48,6 +54,41 @@ export default function Footer() {
             >
               <span className="font-serif text-sm font-bold">Y</span>
             </a>
+          </div>
+
+          {/* App Store + Play Store badges */}
+          <div className="mt-8" data-testid="footer-app-badges">
+            <h5 className="text-xs uppercase tracking-[0.3em] text-white/40 mb-3">Get the App</h5>
+            <div className="flex flex-wrap items-center gap-3">
+              <a
+                href={APP_STORE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="footer-appstore-badge"
+                className="hover:opacity-90 transition-opacity"
+              >
+                <img
+                  src={APPLE_BADGE}
+                  alt="Download on the App Store"
+                  className="h-10 w-auto"
+                  loading="lazy"
+                />
+              </a>
+              <a
+                href={PLAY_STORE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="footer-playstore-badge"
+                className="hover:opacity-90 transition-opacity"
+              >
+                <img
+                  src={PLAY_BADGE}
+                  alt="Get it on Google Play"
+                  className="h-[58px] w-auto -my-2"
+                  loading="lazy"
+                />
+              </a>
+            </div>
           </div>
         </div>
 
