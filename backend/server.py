@@ -5035,25 +5035,32 @@ async def _login_or_link_social(
     """
     from social_oauth import verify_apple_id_token  # noqa - import side-effect safe
 
-    # 1. Existing OAuth identity → reuse linked customer
+    # 1. Existing OAuth identity → reuse linked customer (unless deleted)
     identity = await db.oauth_identities.find_one(
         {"provider": provider, "provider_user_id": provider_user_id},
         {"_id": 0},
     )
     if identity:
         customer = await db.customers.find_one({"id": identity["customer_id"]}, {"_id": 0})
-        if customer:
+        if customer and not customer.get("deleted"):
             await db.oauth_identities.update_one(
                 {"provider": provider, "provider_user_id": provider_user_id},
                 {"$set": {"last_login_at": datetime.now(timezone.utc).isoformat()}},
             )
             return customer
-        # fall through if linked customer was deleted (data integrity issue)
+        # Customer was deleted (or missing). Drop the stale identity so we
+        # create a fresh account below.
+        await db.oauth_identities.delete_many(
+            {"provider": provider, "provider_user_id": provider_user_id}
+        )
 
     # 2. Try to link to existing customer by email (skip for Apple private relay)
     customer = None
     if email and not is_private_email:
-        customer = await db.customers.find_one({"email": email.lower()}, {"_id": 0})
+        customer = await db.customers.find_one(
+            {"email": email.lower(), "deleted": {"$ne": True}},
+            {"_id": 0},
+        )
 
     # 3. Otherwise create a brand new customer
     if not customer:
@@ -5387,6 +5394,9 @@ async def customer_delete_account(claims: dict = Depends(require_customer)):
     }
     await db.customers.update_one({"id": cid}, {"$set": anon})
     await db.customer_addresses.delete_many({"customer_id": cid})
+    # Detach any OAuth identities so a future Apple/Google sign-in creates a
+    # fresh account instead of resurrecting the deleted one.
+    await db.oauth_identities.delete_many({"customer_id": cid})
     return {"ok": True}
 
 
@@ -5626,6 +5636,22 @@ async def customer_book_and_pay(
     user = await db.customers.find_one({"id": cid}, {"_id": 0})
     if not user:
         raise HTTPException(status_code=404, detail="Account not found")
+    # Block bookings until the rider has a real name + phone on file.
+    # Social sign-in (Apple "Hide My Email", or Google with no granted name)
+    # can leave these blank; the chauffeur needs to know who to pick up and
+    # how to reach them.
+    rider_name = (user.get("name") or "").strip()
+    rider_phone = (user.get("phone") or "").strip()
+    if len(rider_name) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="PROFILE_NAME_REQUIRED: Please add your full name in Profile › Personal Information before booking.",
+        )
+    if len(rider_phone) < 5:
+        raise HTTPException(
+            status_code=400,
+            detail="PROFILE_PHONE_REQUIRED: Please add your phone number in Profile › Personal Information so your chauffeur can reach you.",
+        )
     if payload.vehicle_type not in VEHICLE_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid vehicle_type")
 
@@ -5652,9 +5678,9 @@ async def customer_book_and_pay(
     doc = {
         "id": bid,
         "customer_id": cid,
-        "full_name": user["name"],
+        "full_name": rider_name,
         "email": user["email"],
-        "phone": user.get("phone") or "",
+        "phone": rider_phone,
         "service_type": svc_type,
         "pickup_date": pickup_date,
         "pickup_time": pickup_time,

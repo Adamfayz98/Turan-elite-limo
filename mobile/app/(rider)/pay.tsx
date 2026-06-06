@@ -97,6 +97,40 @@ export default function PayScreen() {
     );
   }
 
+  // Block social-sign-in riders who haven't completed their profile yet.
+  // Apple "Hide My Email" + Google-without-name flows leave name/phone blank;
+  // the chauffeur needs both before we can dispatch.
+  const userName = (user.name || "").trim();
+  const userPhone = (user.phone || "").trim();
+  const profileIncomplete = userName.length < 2 || userPhone.length < 5;
+  if (profileIncomplete) {
+    const missingBits = [
+      userName.length < 2 ? "name" : null,
+      userPhone.length < 5 ? "phone number" : null,
+    ].filter(Boolean).join(" and ");
+    return (
+      <SafeAreaView style={s.gateRoot}>
+        <View style={s.gateCard}>
+          <Sparkles size={20} color={colors.gold} />
+          <Text style={s.gateH1}>Complete your profile</Text>
+          <Text style={s.gateSub}>
+            Please add your {missingBits} so your chauffeur can identify you and reach out if needed.
+          </Text>
+          <Pressable
+            testID="pay-gate-complete-profile"
+            onPress={() => router.push("/(rider)/personal")}
+            style={s.gateBtn}
+          >
+            <Text style={s.gateBtnTxt}>Complete profile</Text>
+          </Pressable>
+          <Pressable testID="pay-gate-back-incomplete" onPress={() => router.back()} hitSlop={8} style={{ marginTop: 14 }}>
+            <Text style={s.gateLink}>← Back to quote</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const baseFare = trip.quoteAmount || 0;
   const promoDiscount = promoApplied?.discount || 0;
   const fareAfterPromo = Math.max(0, baseFare - promoDiscount);
