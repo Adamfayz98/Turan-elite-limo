@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Loader2, Send, Phone as PhoneIcon } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
+import { trackQuoteRequest, trackPhoneCall } from "@/lib/googleAdsEvents";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,11 +49,15 @@ export default function QuoteRequestDialog({
     if (!form.phone.trim()) return toast.error("Please add a phone number we can text");
     setSubmitting(true);
     try {
-      await api.post("/quote-requests", {
+      const { data } = await api.post("/quote-requests", {
         ...form,
         vehicle_type: vehicleType,
         passengers: form.passengers ? Number(form.passengers) : null,
       });
+      // Fire the Google Ads "Lead" conversion (separate from purchase).
+      try {
+        trackQuoteRequest({ requestId: data?.id, vehicleType });
+      } catch {/* never block UX on tracking */}
       setDone(true);
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't submit, try again");
@@ -99,6 +104,7 @@ export default function QuoteRequestDialog({
               </p>
               <a
                 href={`tel:${tel}`}
+                onClick={() => trackPhoneCall({ source: "quote-success" })}
                 data-testid="quote-success-call-btn"
                 className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#D4AF37] text-black text-sm font-semibold hover:bg-[#B3922E]"
               >

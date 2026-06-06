@@ -3,6 +3,7 @@ import { Menu, X, Phone, MessageCircle, Star } from "lucide-react";
 import Logo from "@/components/Logo";
 
 import { api } from "@/lib/api";
+import { trackPhoneCall } from "@/lib/googleAdsEvents";
 
 const NAV_LINKS = [
   { label: "Fleet", href: "#fleet" },
@@ -95,6 +96,7 @@ export default function Navbar() {
           </a>
           <a
             href="tel:+16504100687"
+            onClick={() => trackPhoneCall({ source: "navbar" })}
             data-testid="nav-phone"
             className="flex items-center gap-2 text-sm text-white/80 hover:text-white"
           >

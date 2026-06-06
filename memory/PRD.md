@@ -11,6 +11,17 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Android:** Closed Testing on Play Console (Build #23).
 
 ## Recent Changes (this session)
+- ✅ **P1: Split Google Ads conversions + marketing opt-in** — Jun 6, 2026
+  - Created `/app/frontend/src/lib/googleAdsEvents.js` with `trackQuoteRequest`, `trackPhoneCall`, `trackBeginCheckout`, `trackPurchase`
+  - Wired Lead conversion to QuoteRequestDialog form submit
+  - Wired Phone Call conversion to Navbar, Footer, FleetPicker, PayBooking, QuoteRequestDialog phone taps
+  - Wired Begin Checkout conversion to PayBooking when booking loaded but not yet paid
+  - Refactored existing GoogleAdsConversion.jsx to delegate to trackPurchase helper
+  - Added env placeholders: REACT_APP_GADS_LABEL_LEAD/PHONE_CALL/BEGIN_CHECKOUT/PURCHASE (user fills in after creating conversion actions in Google Ads)
+  - Backend: BookingCreate now accepts `marketing_opt_in: bool`; on opt-in, upserts into new `email_opt_ins` collection with timestamp + IP for CAN-SPAM audit
+  - Backend: GET /api/admin/email-list (admin only) — returns master opted-in recipients list
+  - Backend: POST /api/email/unsubscribe (public, no-auth) — honors unsubscribe immediately
+  - Frontend: BookingForm has "Send me occasional offers..." checkbox under wait-time-consent (default OFF — CAN-SPAM compliant)
 - ✅ **Apple Sign-In FIXED + Profile-completion gate** — Jun 4, 2026
   - Deleted stale May 21 Expo iOS credentials, generated fresh cert/profile with Apple Sign-In entitlement
   - Pinned `expo-apple-authentication@8.0.8` (was 56.0.4, incompatible with SDK 54)

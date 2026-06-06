@@ -185,6 +185,9 @@ class BookingCreate(BaseModel):
     flight_number: Optional[str] = Field(None, max_length=20)  # required for Airport Transfer
     promo_code: Optional[str] = Field(None, max_length=40)
     wait_time_consent: bool = False  # MUST be true — frontend enforces, backend re-validates
+    marketing_opt_in: bool = False  # CAN-SPAM/TCPA: explicit consent to receive
+                                    # promotional emails. Stored on customer +
+                                    # booking for audit trail.
 
 
 class Booking(BaseModel):
@@ -209,6 +212,7 @@ class Booking(BaseModel):
     hours: Optional[int] = None
     meet_and_greet: bool = False
     flight_number: Optional[str] = None
+    marketing_opt_in: bool = False
     manage_token: Optional[str] = None
     review_request_sent_at: Optional[str] = None
     cancellation_requested: bool = False
@@ -476,6 +480,28 @@ async def create_booking(payload: BookingCreate, request: Request):
     doc['additional_stops'] = doc.get('additional_stops') or []
     # Manage token issued upfront so the customer can cancel/change even while pending
     doc['manage_token'] = _generate_manage_token()
+
+    # Persist marketing opt-in on a per-customer record so we have a single
+    # source of truth for "may we email this person promotions?". The booking
+    # itself also keeps the snapshot for audit (proves consent at time of
+    # signup — important for CAN-SPAM/state privacy law compliance).
+    try:
+        if payload.marketing_opt_in:
+            await db.email_opt_ins.update_one(
+                {"email": payload.email.lower()},
+                {
+                    "$set": {
+                        "email": payload.email.lower(),
+                        "opted_in": True,
+                        "opted_in_at": datetime.now(timezone.utc).isoformat(),
+                        "source": "booking_form",
+                        "ip": (request.client.host if request.client else None),
+                    }
+                },
+                upsert=True,
+            )
+    except Exception as e:
+        logger.warning(f"marketing opt-in upsert failed: {e}")
 
     insert_doc = doc.copy()
     await db.bookings.insert_one(insert_doc)
@@ -2439,6 +2465,46 @@ async def admin_list_quote_requests(_: dict = Depends(require_admin)):
     async for d in db.quote_requests.find({}, {"_id": 0}).sort("created_at", -1).limit(200):
         items.append(d)
     return items
+
+
+
+# ---------- Marketing email opt-in ----------
+@api_router.get("/admin/email-list")
+async def admin_email_list(_: dict = Depends(require_admin)):
+    """
+    Returns the master marketing-email recipient list (opted-in only).
+    Used by the Promo Emails admin tab and as a sanity-check before send.
+    """
+    items = []
+    async for d in db.email_opt_ins.find(
+        {"opted_in": True}, {"_id": 0}
+    ).sort("opted_in_at", -1):
+        items.append(d)
+    return items
+
+
+@api_router.post("/email/unsubscribe")
+async def email_unsubscribe(payload: dict):
+    """
+    Public, no-auth unsubscribe endpoint. Linked from every promotional email
+    footer (CAN-SPAM requirement). We honor the request immediately.
+    """
+    email = (payload.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email required")
+    await db.email_opt_ins.update_one(
+        {"email": email},
+        {
+            "$set": {
+                "email": email,
+                "opted_in": False,
+                "unsubscribed_at": datetime.now(timezone.utc).isoformat(),
+                "source": payload.get("source") or "unsubscribe_link",
+            }
+        },
+        upsert=True,
+    )
+    return {"ok": True}
 
 
 @api_router.patch("/admin/quote-requests/{rid}")

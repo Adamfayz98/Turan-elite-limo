@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Facebook, Instagram, Youtube, MapPin, Phone, MessageCircle } from "lucide-react";
 import Logo from "@/components/Logo";
+import { trackPhoneCall } from "@/lib/googleAdsEvents";
 
 const SOCIALS = [
   { icon: Facebook, href: "https://www.facebook.com/turanelitelimo", label: "Facebook" },
@@ -128,7 +129,7 @@ export default function Footer() {
             <div className="flex items-start gap-3 pt-2">
               <Phone className="w-4 h-4 text-[#D4AF37] mt-0.5 flex-shrink-0" />
               <div className="text-white/70">
-                <a href="tel:+16504100687" className="hover:text-[#D4AF37]">(650) 410‑0687</a>
+                <a href="tel:+16504100687" onClick={() => trackPhoneCall({ source: "footer" })} className="hover:text-[#D4AF37]">(650) 410‑0687</a>
                 <span className="text-white/40 mx-2">·</span>
                 <a href="sms:+16504100687" className="hover:text-[#D4AF37]" data-testid="footer-text-link">
                   Text us

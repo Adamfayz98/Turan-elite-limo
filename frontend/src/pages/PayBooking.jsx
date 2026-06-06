@@ -19,6 +19,7 @@ import GoogleAdsConversion from "@/components/GoogleAdsConversion";
 import AppDownloadCTA from "@/components/AppDownloadCTA";
 import CheckoutRedirectOverlay from "@/components/CheckoutRedirectOverlay";
 import { api, formatApiErrorDetail } from "@/lib/api";
+import { trackBeginCheckout, trackPhoneCall } from "@/lib/googleAdsEvents";
 
 export default function PayBooking() {
   const { bookingId: bookingIdParam } = useParams();
@@ -55,6 +56,19 @@ export default function PayBooking() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Fire Google Ads "begin checkout" once we have a booking that is not yet paid.
+  // This is a mid-funnel signal: PMax learns which clicks make it this far.
+  useEffect(() => {
+    if (!booking) return;
+    if (booking.payment_status === "paid") return;
+    try {
+      trackBeginCheckout({
+        bookingId: booking.id,
+        amount: booking.quote_amount,
+      });
+    } catch {/* never block UX */}
+  }, [booking]);
 
   // Poll BOTH /payments/status and /bookings/{id}/public — whichever reports
   // paid first wins. The booking endpoint is also updated by the Stripe webhook,
@@ -290,6 +304,7 @@ export default function PayBooking() {
                 </div>
                 <a
                   href="tel:+16504100687"
+                  onClick={() => trackPhoneCall({ source: "pay-call-for-quote" })}
                   className="inline-flex items-center gap-2 px-5 py-2.5 border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10 rounded-full text-sm"
                 >
                   <PhoneIcon className="w-4 h-4" /> (650) 410‑0687

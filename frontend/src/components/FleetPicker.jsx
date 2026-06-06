@@ -4,6 +4,7 @@ import { Users, Briefcase, Phone as PhoneIcon, Sparkles, Check, MessageSquare } 
 import { FLEET } from "@/lib/fleet";
 import { cn } from "@/lib/utils";
 import QuoteRequestDialog from "@/components/QuoteRequestDialog";
+import { trackPhoneCall } from "@/lib/googleAdsEvents";
 
 /**
  * Fleet grid that doubles as the vehicle selector inside BookingForm.
@@ -109,7 +110,7 @@ export default function FleetPicker({ quote, selected, onSelect, supportPhone = 
                     </button>
                     <a
                       href={`tel:${tel}`}
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); trackPhoneCall({ source: `fleet-${v.name}` }); }}
                       data-testid={`call-vehicle-${v.name}`}
                       className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-transparent border border-[#D4AF37]/40 text-[#D4AF37] text-[11px] font-semibold uppercase tracking-[0.15em] hover:bg-[#D4AF37]/10 transition-colors"
                     >

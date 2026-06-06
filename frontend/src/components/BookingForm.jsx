@@ -109,6 +109,7 @@ export default function BookingForm() {
   const [form, setForm] = useState(initialForm);
   const [waitConsent, setWaitConsent] = useState(false);
   const [waitPolicy, setWaitPolicy] = useState(null);
+  const [marketingOptIn, setMarketingOptIn] = useState(false);
   // Promo code state
   const [promoCode, setPromoCode] = useState("");
   const [promoApplied, setPromoApplied] = useState(null); // {code, discount, final_amount, description}
@@ -285,6 +286,7 @@ export default function BookingForm() {
             : null,
         promo_code: promoApplied ? promoApplied.code : null,
         wait_time_consent: waitConsent,
+        marketing_opt_in: marketingOptIn,
       };
       const { data: booking } = await api.post("/bookings", payload);
 
@@ -1090,6 +1092,23 @@ export default function BookingForm() {
                   I authorize TuranEliteLimo to charge my card on file for{" "}
                   <strong className="text-white">wait time fees</strong> beyond the grace period and for{" "}
                   <strong className="text-white">trip damages or incidentals</strong> (e.g., spills, vehicle damage, excessive cleaning), per the policy above. All charges are itemized and emailed to me.
+                </span>
+              </label>
+
+              {/* Optional marketing opt-in. Default OFF — CAN-SPAM compliant. */}
+              <label
+                data-testid="marketing-optin-label"
+                className="flex items-start gap-3 mt-3 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  data-testid="marketing-optin-checkbox"
+                  checked={marketingOptIn}
+                  onChange={(e) => setMarketingOptIn(e.target.checked)}
+                  className="mt-1 h-5 w-5 accent-[#D4AF37] cursor-pointer flex-shrink-0"
+                />
+                <span className="text-sm text-white/70 leading-relaxed">
+                  Send me occasional offers, seasonal promos, and updates from TuranEliteLimo. I can unsubscribe anytime.
                 </span>
               </label>
             </div>
