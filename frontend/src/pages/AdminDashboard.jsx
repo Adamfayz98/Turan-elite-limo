@@ -73,6 +73,7 @@ import LiveDriversTab from "@/components/admin/LiveDriversTab";
 import AffiliatesTab from "@/components/admin/AffiliatesTab";
 import InvoicesTab from "@/components/admin/InvoicesTab";
 import QuickQuoteTab from "@/components/admin/QuickQuoteTab";
+import PromoEmailsTab from "@/components/admin/PromoEmailsTab";
 import QuoteRequestsTab from "@/components/admin/QuoteRequestsTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
@@ -470,6 +471,9 @@ export default function AdminDashboard() {
             </TabsTrigger>
             <TabsTrigger value="invoices" data-testid="tab-invoices" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Invoices
+            </TabsTrigger>
+            <TabsTrigger value="promo-emails" data-testid="tab-promo-emails" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Promo Emails
             </TabsTrigger>
             <TabsTrigger value="quotes" data-testid="tab-quotes" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Quote Requests
@@ -988,6 +992,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="invoices" className="mt-6">
             <InvoicesTab />
+          </TabsContent>
+
+          <TabsContent value="promo-emails" className="mt-6">
+            <PromoEmailsTab />
           </TabsContent>
 
           <TabsContent value="quotes" className="mt-6">

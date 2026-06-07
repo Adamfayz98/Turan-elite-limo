@@ -2524,6 +2524,100 @@ async def email_unsubscribe(payload: dict):
     return {"ok": True}
 
 
+
+# ----- Admin broadcast (Compose Promo) -- forward-references helpers defined
+# later. They're resolved at request time, not at definition time, so this is
+# safe even though the helpers come below.
+
+class _BroadcastBody(BaseModel):
+    subject: str = Field(..., min_length=4, max_length=120)
+    kicker: str = Field("Special offer", min_length=2, max_length=40)
+    headline: str = Field(..., min_length=4, max_length=120)
+    body_html: str = Field(..., min_length=10, max_length=20000)
+    cta_url: Optional[str] = Field(None, max_length=500)
+    cta_label: Optional[str] = Field(None, max_length=40)
+    test_only: bool = False
+    test_email: Optional[str] = None
+
+
+@api_router.post("/admin/broadcast/preview")
+async def admin_broadcast_preview(payload: _BroadcastBody, _: dict = Depends(require_admin)):
+    """Returns rendered HTML so the admin can preview before sending."""
+    html = render_broadcast_email(
+        subject_kicker=payload.kicker,
+        headline=payload.headline,
+        body_html=payload.body_html,
+        cta_url=payload.cta_url,
+        cta_label=payload.cta_label,
+    ).replace("{unsubscribe_url}", _unsubscribe_url("preview@example.com"))
+    return {"html": html, "subject": payload.subject}
+
+
+@api_router.post("/admin/broadcast/send")
+async def admin_broadcast_send(payload: _BroadcastBody, claims: dict = Depends(require_admin)):
+    """Send the broadcast. test_only=true → single test recipient."""
+    if payload.test_only:
+        recipient_email = payload.test_email or claims.get("email")
+        if not recipient_email:
+            raise HTTPException(status_code=400, detail="No test recipient available")
+        html = render_broadcast_email(
+            subject_kicker=payload.kicker,
+            headline=payload.headline,
+            body_html=payload.body_html,
+            cta_url=payload.cta_url,
+            cta_label=payload.cta_label,
+        ).replace("{unsubscribe_url}", _unsubscribe_url(recipient_email))
+        msg_id = await send_email(to=recipient_email, subject=payload.subject, html=html)
+        return {"mode": "test", "recipient": recipient_email, "message_id": msg_id}
+
+    opt_ins = await db.email_opt_ins.find(
+        {"opted_in": True}, {"_id": 0, "email": 1}
+    ).to_list(5000)
+    sent = failed = skipped = 0
+    for o in opt_ins:
+        email = (o.get("email") or "").lower()
+        if not email or "@" not in email or email.endswith(".invalid"):
+            skipped += 1
+            continue
+        try:
+            html = render_broadcast_email(
+                subject_kicker=payload.kicker,
+                headline=payload.headline,
+                body_html=payload.body_html,
+                cta_url=payload.cta_url,
+                cta_label=payload.cta_label,
+            ).replace("{unsubscribe_url}", _unsubscribe_url(email))
+            await send_email(to=email, subject=payload.subject, html=html)
+            sent += 1
+        except Exception as e:
+            logger.warning(f"broadcast send to {email} failed: {e}")
+            failed += 1
+    await db.email_broadcasts.insert_one({
+        "id": str(uuid.uuid4()),
+        "subject": payload.subject,
+        "kicker": payload.kicker,
+        "headline": payload.headline,
+        "body_html": payload.body_html,
+        "cta_url": payload.cta_url,
+        "cta_label": payload.cta_label,
+        "sent_count": sent,
+        "failed_count": failed,
+        "skipped_count": skipped,
+        "sent_by": claims.get("email"),
+        "sent_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"mode": "live", "sent": sent, "failed": failed, "skipped": skipped, "total": len(opt_ins)}
+
+
+@api_router.get("/admin/broadcast/history")
+async def admin_broadcast_history(_: dict = Depends(require_admin)):
+    items = []
+    async for d in db.email_broadcasts.find({}, {"_id": 0}).sort("sent_at", -1).limit(50):
+        items.append(d)
+    return items
+
+
+
 @api_router.patch("/admin/quote-requests/{rid}")
 async def admin_update_quote_request(rid: str, payload: dict, _: dict = Depends(require_admin)):
     update = {}
@@ -5213,6 +5307,8 @@ async def customer_signup(payload: CustomerSignupRequest):
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.customers.insert_one(doc)
+    # Fire welcome email — fire-and-forget, never blocks signup.
+    asyncio.create_task(_send_welcome_email_safe(doc))
     token = create_customer_token(cid, email)
     return CustomerAuthResponse(token=token, user=_customer_to_profile(doc))
 
@@ -5301,6 +5397,9 @@ async def _login_or_link_social(
             "auth_provider": provider,
         }
         await db.customers.insert_one(dict(customer))
+        # Newly-created social customer → welcome email (only if not relay)
+        if email and not is_relay_email:
+            asyncio.create_task(_send_welcome_email_safe(customer))
 
     # Create the OAuth identity row
     await db.oauth_identities.insert_one({
@@ -7281,8 +7380,25 @@ async def startup_seed():
             replace_existing=True,
             next_run_time=datetime.now(timezone.utc) + timedelta(seconds=90),
         )
+        # P3 lifecycle: 24-hour pre-trip reminder + win-back email
+        _scheduler.add_job(
+            _send_pretrip_reminders,
+            "interval",
+            minutes=15,
+            id="pretrip_reminder_email",
+            replace_existing=True,
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=150),
+        )
+        _scheduler.add_job(
+            _send_winback_emails,
+            "interval",
+            hours=24,
+            id="winback_email",
+            replace_existing=True,
+            next_run_time=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
         _scheduler.start()
-        logger.info("Background scheduler started (review requests every 30 min, abandoned-checkout sweep every 60 min, payment-recovery every 5 min).")
+        logger.info("Background scheduler started (review requests, abandoned-checkout sweep, payment-recovery, pretrip reminder, winback).")
     except Exception as e:
         logger.warning(f"Scheduler failed to start: {e}")
 
@@ -7577,6 +7693,210 @@ async def _send_payment_recovery_emails():
             )
     except Exception as e:
         logger.warning(f"_send_payment_recovery_emails failed: {e}")
+
+
+
+# ============================================================================
+# P3: Lifecycle emails — welcome, 24h reminder, win-back, broadcast (promo)
+# ============================================================================
+from email_lifecycle import (
+    render_welcome_email,
+    render_pretrip_reminder_email,
+    render_winback_email,
+    render_broadcast_email,
+)
+
+
+def _public_site_url() -> str:
+    """Customer-facing site URL, used in email CTAs."""
+    return os.environ.get("PUBLIC_SITE_URL", "https://turanelitelimo.com")
+
+
+async def _ensure_promo_code_exists(code: str, percent_off: int, max_uses_per_customer: int = 1) -> None:
+    """Idempotently seed a promo code if it doesn't exist. Used by welcome/win-back."""
+    existing = await db.promos.find_one({"code": code.upper()}, {"_id": 0, "id": 1})
+    if existing:
+        return
+    try:
+        await db.promos.insert_one({
+            "id": str(uuid.uuid4()),
+            "code": code.upper(),
+            "percent_off": percent_off,
+            "active": True,
+            "max_uses_per_customer": max_uses_per_customer,
+            "max_uses_total": None,  # unlimited globally
+            "expires_at": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "auto_seeded": True,  # marker so admin knows it came from lifecycle
+        })
+        logger.info(f"Auto-seeded promo code {code}")
+    except Exception as e:
+        logger.warning(f"Auto-seed promo {code} failed: {e}")
+
+
+def _unsubscribe_url(email: str) -> str:
+    """Generates the public unsubscribe URL — wired to POST /api/email/unsubscribe."""
+    return f"{_public_site_url()}/unsubscribe?email={email}"
+
+
+async def _send_welcome_email_safe(customer: dict) -> None:
+    """Fire-and-forget welcome email with $20-off code. Never raises."""
+    try:
+        email = (customer.get("email") or "").lower()
+        if not email or "@" not in email or email.endswith(".invalid"):
+            return
+        # Ensure the WELCOME20 promo exists (idempotent)
+        await _ensure_promo_code_exists("WELCOME20", 20)
+        html = render_welcome_email(
+            name=customer.get("name") or "",
+            promo_code="WELCOME20",
+            site_url=_public_site_url(),
+        ).replace("{unsubscribe_url}", _unsubscribe_url(email))
+        await send_email(
+            to=email,
+            subject="Welcome to TuranEliteLimo — $20 off your first ride",
+            html=html,
+        )
+    except Exception as e:
+        logger.warning(f"Welcome email failed: {e}")
+
+
+async def _send_pretrip_reminders():
+    """
+    Scheduled (every 15 min): find bookings whose pickup is 23-25 hours away,
+    confirmed and not yet reminded, and send a friendly heads-up.
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        # Target window — 23 to 25 hours from now
+        lower = (now + timedelta(hours=23)).isoformat()
+        upper = (now + timedelta(hours=25)).isoformat()
+        # We index by `pickup_iso` if present, otherwise build from pickup_date+time.
+        cursor = db.bookings.find(
+            {
+                "payment_status": "paid",
+                "status": {"$in": ["confirmed", "pending"]},
+                "pretrip_reminder_sent_at": {"$exists": False},
+                "cancellation_requested": {"$ne": True},
+            },
+            {"_id": 0},
+        ).limit(200)
+        bookings = await cursor.to_list(200)
+        for b in bookings:
+            # Build the pickup ISO from date+time if not already stored
+            iso = b.get("pickup_iso") or f"{b.get('pickup_date','')}T{b.get('pickup_time','')}:00"
+            try:
+                # Naive parse — treat as UTC if no offset (rough, fine for ~window matching)
+                pickup_dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+                if pickup_dt.tzinfo is None:
+                    pickup_dt = pickup_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+            if not (lower <= pickup_dt.isoformat() <= upper):
+                continue
+            # Send it
+            try:
+                manage_url = f"{_public_site_url()}/manage/{b.get('manage_token', '')}"
+                html = render_pretrip_reminder_email(b, manage_url=manage_url).replace(
+                    "{unsubscribe_url}", _unsubscribe_url(b.get("email") or ""),
+                )
+                await send_email(
+                    to=b["email"],
+                    subject=f"Tomorrow's reservation · {b.get('confirmation_number','')}",
+                    html=html,
+                )
+                await db.bookings.update_one(
+                    {"id": b["id"]},
+                    {"$set": {"pretrip_reminder_sent_at": now.isoformat()}},
+                )
+            except Exception as e:
+                logger.warning(f"pretrip reminder for {b.get('id')} failed: {e}")
+    except Exception as e:
+        logger.warning(f"_send_pretrip_reminders failed: {e}")
+
+
+async def _send_winback_emails():
+    """
+    Scheduled (daily): find opted-in customers whose last completed ride was
+    60-90 days ago and who haven't received a win-back this cycle, send
+    $25-off "we miss you" email.
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        cutoff_low = (now - timedelta(days=90)).isoformat()
+        cutoff_high = (now - timedelta(days=60)).isoformat()
+        # Pull all customers opted in for marketing
+        opt_ins = await db.email_opt_ins.find(
+            {"opted_in": True}, {"_id": 0, "email": 1}
+        ).to_list(1000)
+        opt_in_emails = {(o.get("email") or "").lower() for o in opt_ins if o.get("email")}
+        if not opt_in_emails:
+            return
+        await _ensure_promo_code_exists("WEMISSYOU25", 25, max_uses_per_customer=1)
+
+        sent = 0
+        for email in opt_in_emails:
+            # Did this customer ride in the last 60 days? If yes → skip.
+            recent = await db.bookings.find_one(
+                {"email": email, "status": "completed", "pickup_iso": {"$gte": cutoff_high}},
+                {"_id": 0, "id": 1},
+            )
+            if recent:
+                continue
+            # Did they ride 60-90 days ago? If never → skip (handled by welcome).
+            last = await db.bookings.find_one(
+                {"email": email, "status": "completed", "pickup_iso": {"$gte": cutoff_low, "$lt": cutoff_high}},
+                {"_id": 0, "id": 1, "full_name": 1},
+            )
+            if not last:
+                continue
+            # Has a win-back already been sent in the last 90 days?
+            already = await db.email_winback_log.find_one(
+                {"email": email, "sent_at": {"$gte": cutoff_low}},
+                {"_id": 0, "email": 1},
+            )
+            if already:
+                continue
+            try:
+                html = render_winback_email(
+                    name=last.get("full_name") or "",
+                    promo_code="WEMISSYOU25",
+                    site_url=_public_site_url(),
+                ).replace("{unsubscribe_url}", _unsubscribe_url(email))
+                await send_email(
+                    to=email,
+                    subject="We've missed you — $25 off your next ride",
+                    html=html,
+                )
+                await db.email_winback_log.insert_one({
+                    "email": email,
+                    "sent_at": now.isoformat(),
+                    "code": "WEMISSYOU25",
+                })
+                sent += 1
+            except Exception as e:
+                logger.warning(f"winback for {email} failed: {e}")
+        if sent:
+            logger.info(f"Win-back emails sent: {sent}")
+    except Exception as e:
+        logger.warning(f"_send_winback_emails failed: {e}")
+
+
+# ----- Admin: Compose & send a broadcast promo email ------------------------
+
+class BroadcastEmailRequest(BaseModel):
+    subject: str = Field(..., min_length=4, max_length=120)
+    kicker: str = Field("Special offer", min_length=2, max_length=40)
+    headline: str = Field(..., min_length=4, max_length=120)
+    body_html: str = Field(..., min_length=10, max_length=20000)
+    cta_url: Optional[str] = Field(None, max_length=500)
+    cta_label: Optional[str] = Field(None, max_length=40)
+    test_only: bool = False  # If true, sends only to the requesting admin
+    test_email: Optional[str] = None  # Override admin email for test send
+
+
+# NOTE: routes for broadcast preview/send/history are defined earlier in the file
+# (before app.include_router so they get picked up).
 
 
 # ---------- Client-side telemetry: did the Stripe redirect actually fire? ----------
