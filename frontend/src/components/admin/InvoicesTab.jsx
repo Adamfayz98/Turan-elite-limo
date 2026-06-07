@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   Plus,
@@ -96,6 +97,29 @@ export default function InvoicesTab() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Allow Quick Quote tab to pre-fill the invoice form by passing URL params:
+  //   ?tab=invoices&v=Luxury SUV&amount=240&pickup_location=...&dropoff_location=...
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const v = searchParams.get("v");
+    const amount = searchParams.get("amount");
+    if (!v && !amount) return;
+    setForm((s) => ({
+      ...s,
+      vehicle_type: v || s.vehicle_type,
+      amount: amount || s.amount,
+      pickup_location: searchParams.get("pickup_location") || s.pickup_location,
+      dropoff_location: searchParams.get("dropoff_location") || s.dropoff_location,
+      pickup_datetime: searchParams.get("pickup_datetime") || s.pickup_datetime,
+      passengers: searchParams.get("passengers") || s.passengers,
+    }));
+    setShowForm(true);
+    // Clear the prefill params so refreshing the page doesn't re-open the form
+    const next = new URLSearchParams(searchParams);
+    ["v", "amount", "pickup_location", "dropoff_location", "pickup_datetime", "passengers"].forEach((k) => next.delete(k));
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const filtered = useMemo(() => {
     if (filter === "all") return items;

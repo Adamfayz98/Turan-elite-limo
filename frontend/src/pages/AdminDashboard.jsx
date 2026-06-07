@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   CalendarDays,
@@ -72,6 +72,7 @@ import RidersTab from "@/components/admin/RidersTab";
 import LiveDriversTab from "@/components/admin/LiveDriversTab";
 import AffiliatesTab from "@/components/admin/AffiliatesTab";
 import InvoicesTab from "@/components/admin/InvoicesTab";
+import QuickQuoteTab from "@/components/admin/QuickQuoteTab";
 import QuoteRequestsTab from "@/components/admin/QuoteRequestsTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
@@ -127,6 +128,16 @@ export default function AdminDashboard() {
   const [contacts, setContacts] = useState([]);
   const [stats, setStats] = useState(null);
   const adminEmail = localStorage.getItem("turon_admin_email") || "admin";
+
+  // Allow deep-linking to a specific tab via ?tab=quick-quote (etc.) so Quick Quote
+  // can navigate the user to the Invoices tab with the form pre-filled.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") || "bookings";
+  const setActiveTab = (val) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", val);
+    setSearchParams(next, { replace: true });
+  };
 
   const logout = () => {
     localStorage.removeItem("turon_admin_token");
@@ -407,7 +418,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        <Tabs defaultValue="bookings" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="bg-[#0A0A0A] border border-[#1F1F1F]">
             <TabsTrigger value="bookings" data-testid="tab-bookings" className="relative data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Bookings ({bookings.length})
@@ -453,6 +464,9 @@ export default function AdminDashboard() {
             </TabsTrigger>
             <TabsTrigger value="affiliates" data-testid="tab-affiliates" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Affiliates
+            </TabsTrigger>
+            <TabsTrigger value="quick-quote" data-testid="tab-quick-quote" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Quick Quote
             </TabsTrigger>
             <TabsTrigger value="invoices" data-testid="tab-invoices" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Invoices
@@ -966,6 +980,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="affiliates" className="mt-6">
             <AffiliatesTab />
+          </TabsContent>
+
+          <TabsContent value="quick-quote" className="mt-6">
+            <QuickQuoteTab />
           </TabsContent>
 
           <TabsContent value="invoices" className="mt-6">

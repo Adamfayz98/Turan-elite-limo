@@ -4341,6 +4341,127 @@ async def delete_booking(booking_id: str, _: dict = Depends(require_admin)):
 
 
 # ============================================================================
+
+# ============================================================================
+# Quick Quote (admin) — for on-demand phone callers
+# ----------------------------------------------------------------------------
+# Operator pattern: customer calls in asking for a ride RIGHT NOW. Admin
+# enters pickup/dropoff/datetime, we run the same pricing engine the website
+# uses, then auto-apply a last-minute surcharge based on how soon the
+# pickup is. Output is a suggested per-vehicle price that the admin can pass
+# straight into the Custom Invoice tool to generate a Stripe link.
+# ============================================================================
+
+class QuickQuoteRequest(BaseModel):
+    pickup_location: str = Field(..., min_length=2, max_length=300)
+    dropoff_location: str = Field(..., min_length=2, max_length=300)
+    pickup_datetime: str  # ISO 8601, e.g. "2026-06-07T19:00:00-07:00" — used
+                           # for both surge-event matching AND last-minute lead-time
+    service_type: Optional[str] = "A to B Transfer"
+    passengers: Optional[int] = Field(1, ge=1, le=60)
+    hours: Optional[int] = Field(None, ge=1, le=24)
+
+
+def _last_minute_multiplier(pickup_iso: str) -> tuple[float, str]:
+    """
+    Computes a last-minute lead-time surcharge based on hours-until-pickup.
+    Returns (multiplier, human_label).
+
+    Tiers (industry-standard for luxury chauffeur):
+      < 1 hr  → 1.75x  (right now — driver scramble premium)
+      1-2 hr  → 1.50x  (very last-minute)
+      2-6 hr  → 1.30x  (same-day, low availability)
+      6-24 hr → 1.15x  (next-day premium)
+      24-48 hr→ 1.05x  (still slightly tight)
+      > 48 hr → 1.00x  (no surcharge)
+    """
+    try:
+        # Tolerate naive strings — assume UTC if no offset provided
+        dt = datetime.fromisoformat(pickup_iso.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return (1.0, "Unknown lead time")
+    delta = (dt - datetime.now(timezone.utc)).total_seconds() / 3600.0  # hours
+    if delta < 1:
+        return (1.75, "Right-now premium (<1 hr)")
+    if delta < 2:
+        return (1.50, "Last-minute premium (1-2 hr)")
+    if delta < 6:
+        return (1.30, "Same-day premium (2-6 hr)")
+    if delta < 24:
+        return (1.15, "Next-day premium (6-24 hr)")
+    if delta < 48:
+        return (1.05, "Tight lead time (24-48 hr)")
+    return (1.00, "Standard lead time (>48 hr)")
+
+
+class QuickQuoteVehicle(BaseModel):
+    vehicle_type: str
+    base_price: Optional[float] = None
+    suggested_price: Optional[float] = None  # base × lead-time multiplier × surge event
+    formatted_suggested: Optional[str] = None
+    message: Optional[str] = None
+
+
+class QuickQuoteResponse(BaseModel):
+    lead_time_multiplier: float
+    lead_time_label: str
+    surge_info: Optional[SurgeInfo] = None
+    quotes: List[QuickQuoteVehicle]
+
+
+@api_router.post("/admin/quick-quote", response_model=QuickQuoteResponse)
+async def admin_quick_quote(
+    payload: QuickQuoteRequest,
+    _: dict = Depends(require_admin),
+):
+    # Pull pickup_date (YYYY-MM-DD) from the ISO datetime for surge-event matching
+    pickup_date_only = (payload.pickup_datetime or "")[:10]
+
+    # Re-use the public pricing engine — guarantees parity with website quotes
+    base_quote = await quote_ride(QuoteRequest(
+        pickup_location=payload.pickup_location,
+        dropoff_location=payload.dropoff_location,
+        service_type=payload.service_type or "A to B Transfer",
+        hours=payload.hours,
+        pickup_date=pickup_date_only or None,
+        meet_and_greet=False,
+        additional_stops_count=0,
+        additional_stops=[],
+    ))
+
+    mult, label = _last_minute_multiplier(payload.pickup_datetime)
+
+    out_quotes: List[QuickQuoteVehicle] = []
+    for q in base_quote.quotes:
+        if q.price is None:
+            out_quotes.append(QuickQuoteVehicle(
+                vehicle_type=q.vehicle_type,
+                base_price=None,
+                suggested_price=None,
+                formatted_suggested=None,
+                message=q.message or "Call for quote",
+            ))
+            continue
+        suggested = round(float(q.price) * mult, 2)
+        out_quotes.append(QuickQuoteVehicle(
+            vehicle_type=q.vehicle_type,
+            base_price=float(q.price),
+            suggested_price=suggested,
+            formatted_suggested=f"${suggested:,.0f}",
+            message=None,
+        ))
+
+    return QuickQuoteResponse(
+        lead_time_multiplier=mult,
+        lead_time_label=label,
+        surge_info=base_quote.surge_info,
+        quotes=out_quotes,
+    )
+
+
+
 # Custom invoices (admin-issued, off-platform quote requests / affiliate rides)
 # ============================================================================
 
