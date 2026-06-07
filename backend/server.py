@@ -4684,8 +4684,12 @@ async def admin_create_invoice(
         ] if s]
     ) or f"Custom invoice {invoice_number}"
 
-    # Create the Stripe checkout link
-    base = str(request.base_url).rstrip("/")
+    # Create the Stripe checkout link.
+    # IMPORTANT: use PUBLIC_SITE_URL env var, NOT request.base_url. When the
+    # Kubernetes ingress strips X-Forwarded-Host, base_url falls back to the
+    # internal cluster hostname (`*.deploy.emergentcf.cloud`) which then 403s
+    # when Stripe redirects the customer post-payment.
+    base = os.environ.get("PUBLIC_SITE_URL", str(request.base_url)).rstrip("/")
     success_url = f"{base}/invoice/{invoice_id}?success=1"
     cancel_url = f"{base}/invoice/{invoice_id}?cancelled=1"
 
