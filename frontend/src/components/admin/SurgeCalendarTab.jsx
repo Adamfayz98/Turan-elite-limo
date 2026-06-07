@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import ManualSurgeCard from "@/components/admin/ManualSurgeCard";
 
 const inputCls =
   "bg-[#0E0E0E] border-[#27272A] text-white placeholder:text-white/40 focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37]";
@@ -148,6 +149,8 @@ export default function SurgeCalendarTab() {
 
   return (
     <div data-testid="surge-tab" className="space-y-6">
+      <ManualSurgeCard />
+
       <div className="rounded-2xl border border-[#1F1F1F] bg-[#0A0A0A] p-6 md:p-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-2 mb-6">
           <div>

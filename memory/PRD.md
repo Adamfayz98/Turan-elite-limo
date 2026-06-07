@@ -11,16 +11,20 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Android:** Closed Testing on Play Console (Build #23).
 
 ## Recent Changes (this session)
+- ✅ **P2 #2: Manual Surge toggle** — Jun 7, 2026
+  - Settings model now has `manual_surge_enabled`, `manual_surge_multiplier`, `manual_surge_label`
+  - Quote engine multiplies manual surge on top of event surge (e.g., World Cup × manual)
+  - `/api/settings/public` now exposes surge state (website can read for banners later)
+  - New `ManualSurgeCard.jsx` at top of Surge Calendar admin tab — flip switch, tweak multiplier, save
+  - Toggle takes effect immediately on next /api/quote call (no deploy / restart needed)
 - ✅ **P2 #1: Quick Quote admin tool** — Jun 7, 2026
-  - New backend `POST /api/admin/quick-quote` re-uses public pricing engine + auto-applies last-minute lead-time multiplier (1.0×–1.75× based on hours-until-pickup)
-  - New `QuickQuoteTab.jsx` admin UI: enter pickup/dropoff/datetime → instant per-vehicle suggested rates
-  - One-click "Send Stripe link" button pre-fills the Invoices tab with vehicle + price → admin generates Stripe checkout in <30 sec
-  - AdminDashboard now controlled by `?tab=` URL param so Quick Quote can deep-link to Invoices
-  - "Read to caller" script copy auto-fills with trip details (so dispatcher reads correct numbers, no math errors)
+  - New `POST /api/admin/quick-quote` reuses public pricing engine + last-minute lead-time multiplier
+  - QuickQuoteTab with Google Maps PlacesAutocompleteInput (same UX as homepage)
+  - One-click "Send Stripe link" deep-links to Invoices tab with vehicle+price pre-filled
+  - "Read to caller" script auto-fills with trip details
 - ✅ **P1: Split Google Ads conversions + marketing opt-in** — Jun 6, 2026
   - Lead, Phone Call, Begin Checkout, Purchase tracking labels wired up
   - Marketing opt-in toggle on website checkout (CAN-SPAM compliant)
-  - `email_opt_ins` collection + `/api/admin/email-list` + public `/api/email/unsubscribe`
 - ✅ **Apple Sign-In FIXED + Profile-completion gate** — Jun 4, 2026
   - Deleted stale May 21 Expo iOS credentials, generated fresh cert/profile with Apple Sign-In entitlement
   - Pinned `expo-apple-authentication@8.0.8` (was 56.0.4, incompatible with SDK 54)

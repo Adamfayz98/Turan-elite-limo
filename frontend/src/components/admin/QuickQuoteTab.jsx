@@ -16,6 +16,7 @@ import { api, formatApiErrorDetail } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
 
 /**
  * Quick Quote Admin Tool — for on-demand phone callers.
@@ -103,23 +104,21 @@ export default function QuickQuoteTab() {
       <div className="rounded-2xl border border-[#27272A] bg-[#0A0A0A] p-5 space-y-4">
         <div className="grid md:grid-cols-2 gap-4">
           <div>
-            <Label className={labelCls}>Pickup location</Label>
-            <Input
-              data-testid="quick-quote-pickup"
-              placeholder="SFO Airport · Terminal 2"
+            <PlacesAutocompleteInput
+              label="Pickup location"
+              testId="quick-quote-pickup"
               value={form.pickup_location}
-              onChange={update("pickup_location")}
-              className={inputCls}
+              onChange={(v) => setForm((s) => ({ ...s, pickup_location: v }))}
+              placeholder="SFO Airport · Terminal 2"
             />
           </div>
           <div>
-            <Label className={labelCls}>Drop-off location</Label>
-            <Input
-              data-testid="quick-quote-dropoff"
-              placeholder="1 Hacker Way, Menlo Park"
+            <PlacesAutocompleteInput
+              label="Drop-off location"
+              testId="quick-quote-dropoff"
               value={form.dropoff_location}
-              onChange={update("dropoff_location")}
-              className={inputCls}
+              onChange={(v) => setForm((s) => ({ ...s, dropoff_location: v }))}
+              placeholder="1 Hacker Way, Menlo Park"
             />
           </div>
           <div>

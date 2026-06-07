@@ -979,6 +979,23 @@ async def quote_ride(payload: QuoteRequest):
         if matched_event else None
     )
 
+    # Manual admin surge (e.g., admin flips it on when phones are ringing) —
+    # multiplies on top of any event surge. Falls through silently if disabled.
+    if settings.manual_surge_enabled and settings.manual_surge_multiplier and settings.manual_surge_multiplier > 1.0:
+        surge_mult = (surge_mult or 1.0) * float(settings.manual_surge_multiplier)
+        # If no event surge was active, expose the manual one in surge_info so
+        # the website / admin tools display "High demand period · +25%" to users.
+        if surge_info is None:
+            surge_info = SurgeInfo(
+                event_name=settings.manual_surge_label or "High demand period",
+                pricing_type="multiplier",
+                multiplier=float(settings.manual_surge_multiplier),
+                flat_surcharge=None,
+                reason="Manual surge enabled by operator",
+                start_date="",
+                end_date="",
+            )
+
     # Hourly mode: ignore distance, use hourly_rate × hours (minimum 2 hours)
     if payload.service_type == "Hourly Chauffeur":
         if not payload.hours or payload.hours < 2:
@@ -3030,6 +3047,14 @@ class Settings(BaseModel):
     service_fee_percent: float = Field(3.5, ge=0, le=20)  # default 3.5% — covers Stripe processing on refunds
     per_stop_fee: float = Field(15.0, ge=0)  # flat fee added per additional stop on a transfer
 
+    # Manual surge toggle — admin can flip ON when phones are ringing off the
+    # hook (high-demand window) without waiting on an automated trigger.
+    # Stacks on top of event-based surge (e.g., World Cup) AND last-minute
+    # lead-time multiplier (Quick Quote tool only). Defaults OFF.
+    manual_surge_enabled: bool = False
+    manual_surge_multiplier: float = Field(1.25, ge=1.0, le=3.0)
+    manual_surge_label: str = "High demand period"
+
 
 async def _load_settings() -> Settings:
     doc = await db.settings.find_one({"key": "global"}, {"_id": 0})
@@ -3052,6 +3077,9 @@ async def get_public_settings():
         "per_stop_fee": s.per_stop_fee,
         "cancellation_tiers": s.cancellation_tiers,
         "currency": s.currency,
+        "manual_surge_enabled": s.manual_surge_enabled,
+        "manual_surge_multiplier": s.manual_surge_multiplier,
+        "manual_surge_label": s.manual_surge_label,
     }
 
 
@@ -3062,6 +3090,9 @@ class SettingsUpdate(BaseModel):
     service_fee_percent: Optional[float] = Field(None, ge=0, le=20)
     per_stop_fee: Optional[float] = Field(None, ge=0)
     cancellation_tiers: Optional[List[dict]] = None
+    manual_surge_enabled: Optional[bool] = None
+    manual_surge_multiplier: Optional[float] = Field(None, ge=1.0, le=3.0)
+    manual_surge_label: Optional[str] = Field(None, max_length=80)
 
 
 @api_router.patch("/admin/settings", response_model=Settings)
