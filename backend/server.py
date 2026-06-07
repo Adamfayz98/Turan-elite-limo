@@ -3149,6 +3149,14 @@ class Settings(BaseModel):
     manual_surge_multiplier: float = Field(1.25, ge=1.0, le=3.0)
     manual_surge_label: str = "High demand period"
 
+    # Quick-Quote last-minute lead-time multipliers (Quick Quote tab only)
+    # Tiers below are applied based on hours-until-pickup; admin can tune.
+    lead_time_under_1h: float = Field(1.75, ge=1.0, le=4.0)
+    lead_time_1_to_2h: float = Field(1.50, ge=1.0, le=4.0)
+    lead_time_2_to_6h: float = Field(1.30, ge=1.0, le=4.0)
+    lead_time_6_to_24h: float = Field(1.15, ge=1.0, le=4.0)
+    lead_time_24_to_48h: float = Field(1.05, ge=1.0, le=4.0)
+
 
 async def _load_settings() -> Settings:
     doc = await db.settings.find_one({"key": "global"}, {"_id": 0})
@@ -3187,6 +3195,11 @@ class SettingsUpdate(BaseModel):
     manual_surge_enabled: Optional[bool] = None
     manual_surge_multiplier: Optional[float] = Field(None, ge=1.0, le=3.0)
     manual_surge_label: Optional[str] = Field(None, max_length=80)
+    lead_time_under_1h: Optional[float] = Field(None, ge=1.0, le=4.0)
+    lead_time_1_to_2h: Optional[float] = Field(None, ge=1.0, le=4.0)
+    lead_time_2_to_6h: Optional[float] = Field(None, ge=1.0, le=4.0)
+    lead_time_6_to_24h: Optional[float] = Field(None, ge=1.0, le=4.0)
+    lead_time_24_to_48h: Optional[float] = Field(None, ge=1.0, le=4.0)
 
 
 @api_router.patch("/admin/settings", response_model=Settings)
@@ -4487,38 +4500,32 @@ class QuickQuoteRequest(BaseModel):
     hours: Optional[int] = Field(None, ge=1, le=24)
 
 
-def _last_minute_multiplier(pickup_iso: str) -> tuple[float, str]:
+async def _last_minute_multiplier(pickup_iso: str) -> tuple[float, str]:
     """
     Computes a last-minute lead-time surcharge based on hours-until-pickup.
-    Returns (multiplier, human_label).
-
-    Tiers (industry-standard for luxury chauffeur):
-      < 1 hr  → 1.75x  (right now — driver scramble premium)
-      1-2 hr  → 1.50x  (very last-minute)
-      2-6 hr  → 1.30x  (same-day, low availability)
-      6-24 hr → 1.15x  (next-day premium)
-      24-48 hr→ 1.05x  (still slightly tight)
-      > 48 hr → 1.00x  (no surcharge)
+    Returns (multiplier, human_label). Tier thresholds are admin-configurable
+    via Settings (lead_time_*). Defaults match industry standard for luxury
+    chauffeur: 1.0× to 1.75×.
     """
     try:
-        # Tolerate naive strings — assume UTC if no offset provided
         dt = datetime.fromisoformat(pickup_iso.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
     except Exception:
         return (1.0, "Unknown lead time")
     delta = (dt - datetime.now(timezone.utc)).total_seconds() / 3600.0  # hours
+    s = await _load_settings()
     if delta < 1:
-        return (1.75, "Right-now premium (<1 hr)")
+        return (float(s.lead_time_under_1h), f"Right-now premium (<1 hr) · +{int(round((s.lead_time_under_1h - 1) * 100))}%")
     if delta < 2:
-        return (1.50, "Last-minute premium (1-2 hr)")
+        return (float(s.lead_time_1_to_2h), f"Last-minute premium (1-2 hr) · +{int(round((s.lead_time_1_to_2h - 1) * 100))}%")
     if delta < 6:
-        return (1.30, "Same-day premium (2-6 hr)")
+        return (float(s.lead_time_2_to_6h), f"Same-day premium (2-6 hr) · +{int(round((s.lead_time_2_to_6h - 1) * 100))}%")
     if delta < 24:
-        return (1.15, "Next-day premium (6-24 hr)")
+        return (float(s.lead_time_6_to_24h), f"Next-day premium (6-24 hr) · +{int(round((s.lead_time_6_to_24h - 1) * 100))}%")
     if delta < 48:
-        return (1.05, "Tight lead time (24-48 hr)")
-    return (1.00, "Standard lead time (>48 hr)")
+        return (float(s.lead_time_24_to_48h), f"Tight lead time (24-48 hr) · +{int(round((s.lead_time_24_to_48h - 1) * 100))}%")
+    return (1.0, "Standard lead time (>48 hr)")
 
 
 class QuickQuoteVehicle(BaseModel):
@@ -4556,7 +4563,7 @@ async def admin_quick_quote(
         additional_stops=[],
     ))
 
-    mult, label = _last_minute_multiplier(payload.pickup_datetime)
+    mult, label = await _last_minute_multiplier(payload.pickup_datetime)
 
     out_quotes: List[QuickQuoteVehicle] = []
     for q in base_quote.quotes:
@@ -4581,7 +4588,7 @@ async def admin_quick_quote(
     return QuickQuoteResponse(
         lead_time_multiplier=mult,
         lead_time_label=label,
-        surge_info=base_quote.surge_info,
+        surge_info=base_quote.surge_applied,
         quotes=out_quotes,
     )
 

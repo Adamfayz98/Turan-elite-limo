@@ -28,6 +28,11 @@ export default function ManualSurgeCard() {
     manual_surge_enabled: false,
     manual_surge_multiplier: 1.25,
     manual_surge_label: "High demand period",
+    lead_time_under_1h: 1.75,
+    lead_time_1_to_2h: 1.5,
+    lead_time_2_to_6h: 1.3,
+    lead_time_6_to_24h: 1.15,
+    lead_time_24_to_48h: 1.05,
   });
 
   const load = async () => {
@@ -38,6 +43,11 @@ export default function ManualSurgeCard() {
         manual_surge_enabled: !!s.manual_surge_enabled,
         manual_surge_multiplier: s.manual_surge_multiplier ?? 1.25,
         manual_surge_label: s.manual_surge_label || "High demand period",
+        lead_time_under_1h: s.lead_time_under_1h ?? 1.75,
+        lead_time_1_to_2h: s.lead_time_1_to_2h ?? 1.5,
+        lead_time_2_to_6h: s.lead_time_2_to_6h ?? 1.3,
+        lead_time_6_to_24h: s.lead_time_6_to_24h ?? 1.15,
+        lead_time_24_to_48h: s.lead_time_24_to_48h ?? 1.05,
       });
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to load surge settings");
@@ -56,8 +66,13 @@ export default function ManualSurgeCard() {
         manual_surge_enabled: next.manual_surge_enabled,
         manual_surge_multiplier: Number(next.manual_surge_multiplier) || 1.25,
         manual_surge_label: (next.manual_surge_label || "High demand period").slice(0, 80),
+        lead_time_under_1h: Number(next.lead_time_under_1h) || 1.75,
+        lead_time_1_to_2h: Number(next.lead_time_1_to_2h) || 1.5,
+        lead_time_2_to_6h: Number(next.lead_time_2_to_6h) || 1.3,
+        lead_time_6_to_24h: Number(next.lead_time_6_to_24h) || 1.15,
+        lead_time_24_to_48h: Number(next.lead_time_24_to_48h) || 1.05,
       });
-      toast.success(next.manual_surge_enabled ? "Surge pricing is ON" : "Surge pricing is OFF");
+      toast.success("Surge settings saved");
       setData(next);
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't save");
@@ -166,6 +181,54 @@ export default function ManualSurgeCard() {
           <p className="text-[11px] text-white/40 mt-3">
             Tip: industry standard is 1.25× for routine peak hours, 1.5× for major event night, 1.75× for once-a-year demand spikes (e.g., Super Bowl).
           </p>
+
+          {/* Quick Quote last-minute lead-time tiers */}
+          <div className="mt-7 pt-5 border-t border-white/10">
+            <div className="flex items-center gap-2 mb-1">
+              <h4 className="text-sm font-medium text-white">Quick Quote — last-minute tiers</h4>
+              <span className="text-[10px] uppercase tracking-[0.18em] text-white/40">applies in Quick Quote tab only</span>
+            </div>
+            <p className="text-xs text-white/55 leading-relaxed mb-4">
+              Multipliers stack on top of manual surge + event surge. Adjust each tier to match what your market will pay.
+            </p>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {[
+                { key: "lead_time_under_1h", label: "< 1 hr (right now)", testId: "lead-under-1h" },
+                { key: "lead_time_1_to_2h", label: "1-2 hr (very last-min)", testId: "lead-1-2h" },
+                { key: "lead_time_2_to_6h", label: "2-6 hr (same-day)", testId: "lead-2-6h" },
+                { key: "lead_time_6_to_24h", label: "6-24 hr (next-day)", testId: "lead-6-24h" },
+                { key: "lead_time_24_to_48h", label: "24-48 hr (tight)", testId: "lead-24-48h" },
+              ].map((tier) => (
+                <div key={tier.key}>
+                  <Label className="text-[10px] uppercase tracking-[0.2em] text-white/55">{tier.label}</Label>
+                  <Input
+                    type="number"
+                    step="0.05"
+                    min="1.0"
+                    max="4.0"
+                    value={data[tier.key]}
+                    onChange={(e) => setData((s) => ({ ...s, [tier.key]: e.target.value }))}
+                    data-testid={`surge-${tier.testId}`}
+                    className="mt-1 h-10 bg-[#0E0E0E] border-[#27272A] text-white focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37]"
+                  />
+                </div>
+              ))}
+              <div className="flex items-end">
+                <Button
+                  onClick={saveMultiplier}
+                  disabled={saving}
+                  data-testid="surge-tiers-save"
+                  className="bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-10 w-full"
+                >
+                  {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  Save all tiers
+                </Button>
+              </div>
+            </div>
+            <p className="text-[11px] text-white/40 mt-3">
+              Set a tier to <strong>1.00</strong> to disable that specific tier (no surcharge). Anything above 48 hours always uses 1.00× (no lead-time surcharge).
+            </p>
+          </div>
         </div>
       </div>
     </div>
