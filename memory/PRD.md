@@ -11,6 +11,14 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Android:** Closed Testing on Play Console (Build #23).
 
 ## Recent Changes (this session)
+- ✅ **Marketing: Google Ads landing pages** — Jun 7, 2026
+  - Built reusable `LandingPage.jsx` (matches existing `/world-cup-2026` style)
+  - 4 themed Google Ads landing pages: `/airport`, `/wedding`, `/wine-tour`, `/corporate`
+  - 11 SEO aliases (e.g. `/sfo-airport-transfer`, `/napa-tour`, `/silicon-valley-chauffeur`)
+  - Each page sets its own unique `document.title` + meta description for Quality Score
+  - Fixed App.js title bug that was clobbering per-route titles on direct URL load
+  - Tested: all 6 routes (4 new + Home + Stadium) return their correct page-specific title
+  - **Action for user:** in Google Ads, point each Asset Group's Final URL to the matching new page
 - ✅ **P3: Resend lifecycle emails + admin Compose Promo tab** — Jun 7, 2026
   - New `/app/backend/email_lifecycle.py` with branded HTML templates for: welcome, 24h pre-trip reminder, win-back, generic broadcast
   - Welcome email fires on customer signup (email + social) with auto-seeded `WELCOME20` ($20 off) promo

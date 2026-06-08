@@ -27,7 +27,11 @@ import GoogleSiteTag from "@/components/GoogleSiteTag";
 
 function App() {
   useEffect(() => {
-    document.title = "TuranEliteLimo — Luxury Chauffeur Service | Bay Area & Northern California";
+    // Only set the default site title on the home route. Other routes
+    // (landing pages, admin, etc.) own their own document.title.
+    if (window.location.pathname === "/") {
+      document.title = "TuranEliteLimo — Luxury Chauffeur Service | Bay Area & Northern California";
+    }
     document.documentElement.classList.add("dark");
   }, []);
 
