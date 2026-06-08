@@ -1,0 +1,35 @@
+{
+  "summary": "Frontend-only testing of 4 new Google Ads landing pages (/airport, /wedding, /wine-tour, /corporate) and their 11 aliases. All routes render correctly with the right testIds, H1 hero text, CTA hrefs, FAQ accordion behavior, footer Back-to-home link, and custom meta description. Existing /world-cup-2026 and /levis-stadium pages still render (no regression). One critical SEO bug found: the page-specific document.title set by each LandingPage useEffect is immediately overwritten by App.js's mount-time useEffect on direct URL loads — which is the primary Google Ads landing scenario.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "App.js / LandingPage.jsx",
+        "issue": "document.title for /airport, /wedding, /wine-tour, /corporate is NOT applied on direct URL load. The browser tab and SEO/SERP title show the generic site title 'TuranEliteLimo — Luxury Chauffeur Service | Bay Area & Northern California' instead of the page-specific titles (e.g. 'Bay Area Airport Limo · SFO OAK SJC Chauffeur — TuranEliteLimo'). Root cause: App.js useEffect (line 29-32) with empty deps runs AFTER child LandingPage useEffect on mount (React fires child effects before parent effects), overwriting the page-specific title. Verified by: (1) page.title() on direct goto returns the default; (2) SPA pushState navigation returns the correct page-specific title (because App's useEffect doesn't re-run). Meta description is unaffected.",
+        "selector": "document.title",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix document.title override: remove the unconditional document.title assignment from App.js useEffect, OR set it only if the current pathname is '/', OR move it into the Home page component. Recommended: move title setting into Home.jsx so per-route pages own their own document.title. After fix, retest by goto /airport, /wedding, /wine-tour, /corporate directly and verify document.title matches the page-specific pageTitle prop.",
+    "Optional: set the per-page title via a useLayoutEffect (runs synchronously before paint) inside LandingPage if App.js must keep its global default — but fixing App.js is cleaner."
+  ],
+  "critical_code_review_comments": [
+    "App.js sets document.title unconditionally on every mount, conflicting with child route pages that set their own titles. Either guard with pathname check or move into Home.jsx.",
+    "LandingPage.jsx is ~250 lines and well-factored. Good use of testId prefixing for all interactive elements. FAQ uses native <details>/<summary> which is accessible and lightweight — confirmed click-to-expand works.",
+    "All 4 landing pages share the same reusable component cleanly. Image URLs (Unsplash + customer-assets) all load.",
+    "Meta description IS being correctly set on each page (verified content length 160-171 chars), confirming useEffect runs — only the title gets clobbered by the parent App effect."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not tested - frontend-only request)", "frontend": "91% (14 of 15 verifications pass; 1 doc.title bug on 4 pages)"},
+  "test_credentials": "none required",
+  "seed_data_creation": "none",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 15 routes (4 main + 11 aliases) render with correct testIds, H1 text, CTA hrefs (/#booking), FAQ accordions toggle correctly, footer Back-to-home link (/) works, /world-cup-2026 and /levis-stadium still render. Only failure is document.title on direct URL navigation. After the main agent removes/guards the App.js useEffect document.title assignment, retest by hitting each of /airport, /wedding, /wine-tour, /corporate directly and confirming page.title() matches the per-page pageTitle prop.",
+  "rca of the issue": "RCA: In React, when a route page (LandingPage) is mounted via a fresh page load, the child useEffect fires before the parent (App) useEffect. App.js (line 29-32) has `useEffect(() => { document.title = 'TuranEliteLimo — ...' }, [])` which runs once on App mount AFTER LandingPage's useEffect already set the page-specific title. The parent's effect wins. Reproduction: goto https://limo-experience-1.preview.emergentagent.com/airport → wait for hero → read document.title → returns the default site title, not 'Bay Area Airport Limo · SFO OAK SJC Chauffeur — TuranEliteLimo'. Confirmed across all 4 pages. Mitigation: remove the title line from App.js useEffect (it's redundant for landing routes and Home should set its own title), or wrap it with `if (window.location.pathname === '/') { ... }`, or move it inside Home.jsx."
+}

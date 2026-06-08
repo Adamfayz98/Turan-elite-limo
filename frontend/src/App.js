@@ -19,6 +19,10 @@ import AccountDeletion from "@/pages/AccountDeletion";
 import AppDownload from "@/pages/AppDownload";
 import TermsOfService from "@/pages/TermsOfService";
 import WorldCup2026 from "@/pages/WorldCup2026";
+import AirportLanding from "@/pages/AirportLanding";
+import WeddingLanding from "@/pages/WeddingLanding";
+import WineTourLanding from "@/pages/WineTourLanding";
+import CorporateLanding from "@/pages/CorporateLanding";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
 
 function App() {
@@ -52,6 +56,21 @@ function App() {
           <Route path="/worldcup" element={<WorldCup2026 />} />
           <Route path="/levis-stadium" element={<WorldCup2026 />} />
           <Route path="/levis-stadium-transportation" element={<WorldCup2026 />} />
+          <Route path="/airport" element={<AirportLanding />} />
+          <Route path="/airport-transfer" element={<AirportLanding />} />
+          <Route path="/sfo-airport-transfer" element={<AirportLanding />} />
+          <Route path="/oak-airport-transfer" element={<AirportLanding />} />
+          <Route path="/sjc-airport-transfer" element={<AirportLanding />} />
+          <Route path="/wedding" element={<WeddingLanding />} />
+          <Route path="/wedding-limo" element={<WeddingLanding />} />
+          <Route path="/wedding-chauffeur" element={<WeddingLanding />} />
+          <Route path="/wine-tour" element={<WineTourLanding />} />
+          <Route path="/napa-tour" element={<WineTourLanding />} />
+          <Route path="/sonoma-tour" element={<WineTourLanding />} />
+          <Route path="/wine-country" element={<WineTourLanding />} />
+          <Route path="/corporate" element={<CorporateLanding />} />
+          <Route path="/corporate-chauffeur" element={<CorporateLanding />} />
+          <Route path="/silicon-valley-chauffeur" element={<CorporateLanding />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
