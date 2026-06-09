@@ -475,6 +475,9 @@ export default function AdminDashboard() {
             <TabsTrigger value="promo-emails" data-testid="tab-promo-emails" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Promo Emails
             </TabsTrigger>
+            <TabsTrigger value="push-broadcast" data-testid="tab-push-broadcast" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Push
+            </TabsTrigger>
             <TabsTrigger value="quotes" data-testid="tab-quotes" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Quote Requests
             </TabsTrigger>
@@ -996,6 +999,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="promo-emails" className="mt-6">
             <PromoEmailsTab />
+          </TabsContent>
+
+          <TabsContent value="push-broadcast" className="mt-6">
+            <PushBroadcastTab />
           </TabsContent>
 
           <TabsContent value="quotes" className="mt-6">

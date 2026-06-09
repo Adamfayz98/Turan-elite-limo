@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+import asyncio
 import os
 import logging
 import math
@@ -38,6 +39,7 @@ from email_service import (
 )
 import sms_service
 import reviews_service
+import referral
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
 from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -1432,6 +1434,17 @@ async def driver_update_status(driver_token: str, payload: DriverStatusUpdate, r
             set_doc["status"] = "completed"
     await db.bookings.update_one({"id": b["id"]}, {"$set": set_doc})
 
+    # ----- Referral reward: when a referred customer completes their first
+    # paid ride, issue a $25-off promo to the referrer and email it to them.
+    # Fully idempotent — calling twice for the same friend is a no-op.
+    if new_status == "completed" and b.get("payment_status") == "paid" and b.get("customer_id"):
+        try:
+            payout = await referral.maybe_reward_referrer_on_first_completed_ride(db, b["customer_id"])
+            if payout:
+                asyncio.create_task(_send_referral_reward_email_safe(payout))
+        except Exception as e:
+            logger.warning(f"referral reward hook failed for booking {b.get('id')}: {e}")
+
     # Build post-trip page URL (tipping + rating) — included in the customer SMS
     post_trip_url = None
     if new_status == "completed" and b.get("manage_token"):
@@ -2615,6 +2628,146 @@ async def admin_broadcast_history(_: dict = Depends(require_admin)):
     async for d in db.email_broadcasts.find({}, {"_id": 0}).sort("sent_at", -1).limit(50):
         items.append(d)
     return items
+
+
+# ===== Refer-a-Friend =====================================================
+
+def _frontend_origin_from_env() -> str:
+    return (os.environ.get("PUBLIC_SITE_URL") or "https://turanelitelimo.com").rstrip("/")
+
+
+@api_router.get("/referral/check/{code}")
+async def referral_check(code: str):
+    """Public lookup: does this referral code belong to a real customer?"""
+    referrer_id = await referral.resolve_referrer(db, code)
+    if not referrer_id:
+        return {"valid": False}
+    referrer = await db.customers.find_one({"id": referrer_id}, {"_id": 0, "name": 1})
+    first_name = ((referrer or {}).get("name") or "").split(" ")[0] or None
+    return {"valid": True, "referrer_name": first_name}
+
+
+@api_router.get("/customer/referrals")
+async def customer_get_referrals(claims: dict = Depends(require_customer)):
+    cid = claims.get("customer_id")
+    summary = await referral.referral_summary(db, cid)
+    summary["share_url"] = f"{_frontend_origin_from_env()}/r/{summary['referral_code']}"
+    return summary
+
+
+async def _send_referral_reward_email_safe(payout: dict) -> None:
+    """Email the referrer that they've earned a $25-off promo. Non-blocking."""
+    try:
+        email = payout.get("referrer_email")
+        if not email:
+            return
+        first = ((payout.get("referrer_name") or "").split(" ") or ["there"])[0] or "there"
+        friend_first = ((payout.get("friend_name") or "your friend").split(" ") or ["your friend"])[0]
+        promo = payout.get("promo_code") or "THANKS"
+        amount = payout.get("amount") or 25
+        html = f"""
+        <div style="font-family:Inter,Helvetica,Arial,sans-serif;background:#0a0a0a;color:#fff;padding:40px 24px;">
+          <div style="max-width:520px;margin:0 auto;background:#111;border:1px solid #222;border-radius:18px;overflow:hidden;">
+            <div style="background:linear-gradient(135deg,#1a1305,#000);padding:32px;text-align:center;">
+              <p style="color:#D4AF37;font-size:11px;letter-spacing:.3em;text-transform:uppercase;margin:0 0 8px;">Refer & earn</p>
+              <h1 style="color:#fff;font-weight:300;font-size:28px;margin:0;">You earned <span style="color:#D4AF37;font-style:italic;">${amount} off</span></h1>
+            </div>
+            <div style="padding:28px 32px;">
+              <p style="color:#cbd5e1;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi {first},</p>
+              <p style="color:#cbd5e1;font-size:15px;line-height:1.6;margin:0 0 16px;">{friend_first} just completed their first ride with TuranEliteLimo — thanks to you. Your reward is ready:</p>
+              <div style="background:#0a0a0a;border:1px dashed #D4AF37;border-radius:12px;padding:18px;text-align:center;margin:18px 0;">
+                <p style="color:#9ca3af;font-size:11px;letter-spacing:.25em;text-transform:uppercase;margin:0 0 6px;">Your promo code</p>
+                <p style="color:#D4AF37;font-family:'JetBrains Mono',monospace;font-size:22px;letter-spacing:.1em;margin:0;">{promo}</p>
+              </div>
+              <p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin:0 0 20px;">Apply this at checkout next time you book — it knocks ${amount} off any ride. Single-use, never expires.</p>
+              <div style="text-align:center;margin-top:24px;">
+                <a href="{_frontend_origin_from_env()}/#booking" style="display:inline-block;background:#D4AF37;color:#000;text-decoration:none;padding:14px 28px;border-radius:999px;font-weight:600;">Book Your Next Ride →</a>
+              </div>
+            </div>
+          </div>
+        </div>
+        """
+        await send_email(to=email, subject=f"You earned ${amount} off your next TuranEliteLimo ride", html=html)
+    except Exception as e:
+        logger.warning(f"_send_referral_reward_email_safe failed: {e}")
+
+
+# ===== Push broadcast (admin) =============================================
+
+class _PushBroadcastBody(BaseModel):
+    title: str = Field(..., min_length=2, max_length=60)
+    body: str = Field(..., min_length=4, max_length=200)
+    deep_link: Optional[str] = Field(None, max_length=500)
+    test_only: bool = False
+
+
+@api_router.get("/admin/push/eligible-count")
+async def admin_push_eligible_count(_: dict = Depends(require_admin)):
+    count = await db.customers.count_documents({"push_token": {"$exists": True, "$ne": None}})
+    return {"count": count}
+
+
+@api_router.post("/admin/push/broadcast")
+async def admin_push_broadcast(payload: _PushBroadcastBody, claims: dict = Depends(require_admin)):
+    """Send a marketing push to all customers with an Expo token, or to the
+    admin's own device when test_only=true (matched by admin email)."""
+    data = {"deep_link": payload.deep_link} if payload.deep_link else None
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    if payload.test_only:
+        admin_email = (claims.get("email") or "").lower()
+        admins = await db.customers.find(
+            {"email": admin_email, "push_token": {"$exists": True, "$ne": None}},
+            {"_id": 0, "push_token": 1},
+        ).to_list(5)
+        tokens = [a["push_token"] for a in admins if a.get("push_token")]
+        if not tokens:
+            raise HTTPException(
+                status_code=400,
+                detail="No push token registered for your account. Sign in to the mobile app first.",
+            )
+        await _send_expo_push(tokens, payload.title, payload.body, data, channel_id="marketing")
+        return {"mode": "test", "recipients": len(tokens)}
+
+    rows = await db.customers.find(
+        {"push_token": {"$exists": True, "$ne": None}},
+        {"_id": 0, "push_token": 1},
+    ).to_list(20000)
+    tokens = [r["push_token"] for r in rows if r.get("push_token")]
+    sent = failed = 0
+    # Expo allows up to 100 tokens per call — chunk it
+    CHUNK = 100
+    for i in range(0, len(tokens), CHUNK):
+        batch = tokens[i:i + CHUNK]
+        try:
+            await _send_expo_push(batch, payload.title, payload.body, data, channel_id="marketing")
+            sent += len(batch)
+        except Exception as e:
+            logger.warning(f"push broadcast batch failed: {e}")
+            failed += len(batch)
+
+    await db.push_broadcasts.insert_one({
+        "id": str(uuid.uuid4()),
+        "title": payload.title,
+        "body": payload.body,
+        "deep_link": payload.deep_link,
+        "sent": sent,
+        "failed": failed,
+        "total": len(tokens),
+        "sent_by": claims.get("email"),
+        "sent_at": now_iso,
+    })
+    return {"mode": "live", "sent": sent, "failed": failed, "total": len(tokens)}
+
+
+@api_router.get("/admin/push/history")
+async def admin_push_history(_: dict = Depends(require_admin)):
+    items = []
+    async for d in db.push_broadcasts.find({}, {"_id": 0}).sort("sent_at", -1).limit(50):
+        items.append(d)
+    return {"items": items}
+
+
 
 
 
@@ -5288,6 +5441,7 @@ class CustomerSignupRequest(BaseModel):
     email: EmailStr
     phone: Optional[str] = Field(None, max_length=30)
     password: str = Field(..., min_length=8, max_length=128)
+    referred_by_code: Optional[str] = Field(None, max_length=40)
 
 
 class CustomerLoginRequest(BaseModel):
@@ -5323,6 +5477,7 @@ async def customer_signup(payload: CustomerSignupRequest):
     if existing:
         raise HTTPException(status_code=409, detail="An account already exists with this email.")
     cid = str(uuid.uuid4())
+    referrer_id = await referral.resolve_referrer(db, payload.referred_by_code)
     doc = {
         "id": cid,
         "name": payload.name.strip(),
@@ -5331,7 +5486,14 @@ async def customer_signup(payload: CustomerSignupRequest):
         "password_hash": hash_password(payload.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    if referrer_id:
+        doc["referred_by"] = referrer_id
     await db.customers.insert_one(doc)
+    # Generate a referral code for this new customer (fire-and-forget — non-blocking)
+    try:
+        await referral.ensure_referral_code(db, cid)
+    except Exception as e:
+        logger.warning(f"ensure_referral_code on signup failed for {cid}: {e}")
     # Fire welcome email — fire-and-forget, never blocks signup.
     asyncio.create_task(_send_welcome_email_safe(doc))
     token = create_customer_token(cid, email)

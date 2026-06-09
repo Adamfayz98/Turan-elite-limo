@@ -23,6 +23,8 @@ import AirportLanding from "@/pages/AirportLanding";
 import WeddingLanding from "@/pages/WeddingLanding";
 import WineTourLanding from "@/pages/WineTourLanding";
 import CorporateLanding from "@/pages/CorporateLanding";
+import ReferralRedirect from "@/pages/ReferralRedirect";
+import MyReferrals from "@/pages/MyReferrals";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
 
 function App() {
@@ -75,6 +77,8 @@ function App() {
           <Route path="/corporate" element={<CorporateLanding />} />
           <Route path="/corporate-chauffeur" element={<CorporateLanding />} />
           <Route path="/silicon-valley-chauffeur" element={<CorporateLanding />} />
+          <Route path="/r/:code" element={<ReferralRedirect />} />
+          <Route path="/refer" element={<MyReferrals />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>

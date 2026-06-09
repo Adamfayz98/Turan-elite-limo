@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import Logo from "@/components/Logo";
+import FloatingQuoteWidget from "@/components/FloatingQuoteWidget";
 
 /**
  * Reusable Google Ads landing page. Used by /airport, /wedding, /wine-tour,
@@ -246,6 +247,8 @@ export default function LandingPage({
           </a>
         </div>
       </footer>
+
+      <FloatingQuoteWidget testId={`${testId}-fq`} />
     </div>
   );
 }

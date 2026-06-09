@@ -1,0 +1,61 @@
+{
+  "summary": "Backend + frontend testing of 3 new additive features: Refer-a-Friend, Admin Push Broadcast, Floating Quote Widget. Found and fixed two CRITICAL production bugs in the new code that broke ALL customer signups. After fixes, 13/13 backend tests pass (4 admin tests skipped — 2FA email code required). All frontend referral flows work (/airport, /wedding, /wine-tour, /corporate floating-quote launchers; /r/INVALID and /r/VALID-CODE; /refer signin CTA; FQ submit nav with pickup/dropoff query params). Admin Push tab is structurally in place with correct testids.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/customer/signup",
+        "issue": "FIXED — server.py used asyncio.create_task() on line 5497 but did not import asyncio at module level (only inside one function at line 4037). Every customer signup returned 500 with NameError: name 'asyncio' is not defined. Same NameError also blocks line 1443 (referral reward email send). Fix applied: added `import asyncio` to top-level imports.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/customer/signup — referral_code generation",
+        "issue": "FIXED — referral.ensure_referral_code() in /app/backend/referral.py used `if not doc:` on a Motor find_one() result with projection {_id:0, referral_code:1}. For a newly-inserted customer with no referral_code field, find_one returns `{}` (empty dict), which is falsy → raised 'customer not found' on every fresh signup. Net effect: no new customers were getting a referral_code generated. Same bug would also surface for any legacy customer hit. Fix applied: changed to `if doc is None:`.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/admin/push/eligible-count, /broadcast, /history, /api/admin/promos",
+        "issue": "Not directly tested with live admin JWT because admin login requires a 6-digit 2FA code emailed to support@turanelitelimo.com — no programmatic bypass available. Auth-gate test confirmed all 3 return 401/403 without auth. Code inspection confirms the endpoints exist, are wired with require_admin, return the expected shapes, and write to push_broadcasts collection. Main agent should self-verify after a manual admin login."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration33_referral_push.py",
+    "/app/test_reports/pytest/iteration33_results.xml"
+  ],
+  "action_items": [
+    "VERIFY the two fixes applied this iteration (asyncio top-level import in server.py; `if doc is None` in referral.py ensure_referral_code) match your coding style. Both were CRITICAL — the asyncio NameError broke 100% of customer signups in production. The referral_code bug meant every new customer was created without a referral_code, silently breaking referrals.",
+    "Manually verify the admin Push tab end-to-end after logging in with 2FA: eligible-count counter, Send Test (expect 400 when admin has no push_token in mobile app), Send Live (expect mode=live response with sent/failed/total), broadcast history list."
+  ],
+  "critical_code_review_comments": [
+    "referral.py ensure_referral_code: any projection-based find_one that excludes _id and only selects optional fields will return {} when the document exists but the projected fields are missing. Pattern `if not doc:` is wrong on projected results — use `if doc is None`. There are several other places in server.py that may have the same latent bug; recommend a pass.",
+    "server.py top-level imports were missing asyncio even though `asyncio.create_task` is used in at least two places (line 1443 referral reward email, line 5497 welcome email). This is a hard NameError that any signup would have triggered — strong signal the new code path was never executed before being shipped.",
+    "Referral reward hook is correctly idempotent — verified by completing two separate paid bookings for the same friend and asserting only one row in referral_payouts and one $25 THANKS- promo were created.",
+    "FloatingQuoteWidget query-string nav works end-to-end: /airport → click launcher → fill fields → submit → /?pickup=X&dropoff=Y#booking ✅",
+    "/refer (logged-out) renders the correct 'Sign in to start earning $25 per friend' card with data-testid='my-referrals-signin' ✅",
+    "/r/VALID-CODE correctly: (a) calls /api/referral/check via the public endpoint, (b) shows referrer first-name + WELCOME20 promo info, (c) persists code in localStorage('ref_code')=REF-AWR3KM, (d) renders Start Booking → CTA ✅",
+    "/r/INVALID-CODE shows 'This invite link isn't valid' card with Continue to Booking fallback ✅",
+    "Admin Push tab (TabsTrigger value='push-broadcast', data-testid='tab-push-broadcast') is placed AFTER promo-emails tab as specified, and the PushBroadcastTab component exposes push-broadcast-tab, push-broadcast-eligible, push-title, push-body, push-deep-link, push-preview, push-send-test, push-send-live testids."
+  ],
+  "updated_files": [
+    "/app/backend/server.py — added `import asyncio` to top-level imports (line ~7)",
+    "/app/backend/referral.py — changed `if not doc:` to `if doc is None:` in ensure_referral_code()",
+    "/app/backend/tests/test_iteration33_referral_push.py — new test file (17 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% on testable surface (13/13 passing; 4 admin tests skipped due to 2FA, not failures)",
+    "frontend": "100% (4 FQ launchers + FQ submit + /r/INVALID + /r/VALID + /refer signin all verified)"
+  },
+  "test_credentials": "Admin login requires 6-digit 2FA code emailed to support@turanelitelimo.com — not testable without mailbox access.",
+  "seed_data_creation": "Created several TEST_-prefixed customers in test_database.customers for referral testing. One in particular — name='Alice Tester', referral_code='REF-AWR3KM' — was used as the valid-code target for the frontend /r/REF-AWR3KM verification. Inserted 2 dummy bookings with synthetic driver_tokens to exercise the referral-reward hook + idempotency.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two CRITICAL bugs were fixed in this iteration — main agent must keep them: (1) `import asyncio` at top of server.py and (2) `if doc is None` in referral.py. Admin push/promos endpoints could not be live-tested due to 2FA; if admin JWT becomes available, set TEST_ADMIN_JWT env and re-run pytest — the skipped tests will execute. Referral code REF-AWR3KM (Alice Tester) is still in the DB for re-verification of /r/VALID-CODE.",
+  "rca of the issue": "Two related bugs introduced by this session's new code path:\n\nBug 1 — asyncio NameError: server.py uses `asyncio.create_task()` on lines 1443 (new referral reward email hook) and 5497 (existing welcome email — also broken). The only `import asyncio` was nested inside a function at line 4037. Because customer_signup never crossed that function, asyncio was undefined at call time → NameError → 500 on every signup. Repro: POST /api/customer/signup with any valid payload → 500. Fix: hoist `import asyncio` to top-level imports.\n\nBug 2 — ensure_referral_code false-negative on fresh customers: After insert, the function queries `await db.customers.find_one({'id': cid}, {'_id': 0, 'referral_code': 1})`. Motor returns `{}` for a matched doc with no referral_code field. `if not doc:` treats `{}` as falsy and raises ValueError. As a result NO new customer ever got a referral_code, which would have silently broken /api/customer/referrals, the share link, and downstream referral attribution. Repro: signup any customer → check DB → referral_code field absent. Fix: `if doc is None:` instead of `if not doc:`."
+}

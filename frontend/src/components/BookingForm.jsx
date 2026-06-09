@@ -123,6 +123,36 @@ export default function BookingForm() {
     api.get("/pricing/wait-rates").then((r) => setWaitPolicy(r.data)).catch(() => {});
   }, []);
 
+  // Pre-fill from URL query params (used by FloatingQuoteWidget on landing pages
+  // and referral redirects). Runs once on mount.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pickup = params.get("pickup");
+      const dropoff = params.get("dropoff");
+      const d = params.get("date");
+      if (pickup || dropoff) {
+        setForm((f) => ({
+          ...f,
+          pickup_location: pickup || f.pickup_location,
+          dropoff_location: dropoff || f.dropoff_location,
+        }));
+      }
+      if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+        const parsed = new Date(`${d}T12:00:00`);
+        if (!isNaN(parsed.getTime())) setDate(parsed);
+      }
+      // Auto-apply referral promo code (WELCOME20) if a referral was followed
+      const ref = localStorage.getItem("ref_code");
+      if (ref && !promoCode) {
+        setPromoCode("WELCOME20");
+      }
+    } catch (e) {
+      // non-fatal — never block the form
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const update = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
 
   // Debounced live quote
