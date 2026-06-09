@@ -74,6 +74,7 @@ import AffiliatesTab from "@/components/admin/AffiliatesTab";
 import InvoicesTab from "@/components/admin/InvoicesTab";
 import QuickQuoteTab from "@/components/admin/QuickQuoteTab";
 import PromoEmailsTab from "@/components/admin/PromoEmailsTab";
+import PushBroadcastTab from "@/components/admin/PushBroadcastTab";
 import QuoteRequestsTab from "@/components/admin/QuoteRequestsTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
