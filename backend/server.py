@@ -2888,9 +2888,23 @@ async def admin_list_promos(_: dict = Depends(require_admin)):
     rows = await db.promos.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
     out = []
     for r in rows:
-        r.setdefault("uses", 0)
-        r.setdefault("total_discount_given", 0.0)
-        out.append(Promo(**r))
+        try:
+            # Backfill defaults for older docs that may be missing optional/required fields
+            r.setdefault("uses", 0)
+            r.setdefault("total_discount_given", 0.0)
+            r.setdefault("first_ride_only", False)
+            r.setdefault("active", True)
+            r.setdefault("show_on_banner", False)
+            r.setdefault("min_ride_amount", 0.0)
+            r.setdefault("allowed_vehicle_types", [])
+            if not r.get("id"):
+                r["id"] = str(uuid.uuid4())
+            if not r.get("created_at"):
+                r["created_at"] = datetime.now(timezone.utc).isoformat()
+            out.append(Promo(**r))
+        except Exception as e:
+            logger.warning(f"admin_list_promos: skipping malformed promo code={r.get('code','?')}: {e}")
+            continue
     return out
 
 
