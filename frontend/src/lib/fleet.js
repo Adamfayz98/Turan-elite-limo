@@ -10,7 +10,7 @@ export const FLEET = [
     pax: "1–3",
     bags: "3",
     note: "The standard for daily executive transport. Discreet, smooth, on time.",
-    img: "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
+    img: "https://images.unsplash.com/photo-1606016159991-dfe4f2746ad5?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
   },
   {
     name: "First Class",

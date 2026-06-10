@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Smartphone } from "lucide-react";
 
 /**
@@ -77,6 +77,28 @@ export default function SmartAppBanner() {
     return () => clearTimeout(t);
   }, []);
 
+  // Publish the banner's rendered height as a CSS variable so the rest of
+  // the top-banner stack (PromoBanner → AnnouncementBanner → Navbar) can
+  // offset itself underneath us. Resets when hidden/unmounted.
+  const ref = useRef(null);
+  useEffect(() => {
+    const root = document.documentElement;
+    const measure = () => {
+      const h = !visible ? 0 : ref.current?.offsetHeight ?? 0;
+      root.style.setProperty("--smart-banner-h", `${h}px`);
+    };
+    measure();
+    if (!visible) return;
+    const ro = new ResizeObserver(measure);
+    if (ref.current) ro.observe(ref.current);
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      ro.disconnect();
+      root.style.setProperty("--smart-banner-h", "0px");
+    };
+  }, [visible]);
+
   const handleOpen = () => {
     if (!platform) return;
     const fallback = platform === "ios" ? APP_STORE_URL : PLAY_STORE_URL;
@@ -100,10 +122,11 @@ export default function SmartAppBanner() {
 
   return (
     <div
+      ref={ref}
       data-testid="smart-app-banner"
       role="region"
       aria-label="Open in TuranEliteLimo mobile app"
-      className={`md:hidden fixed top-0 inset-x-0 z-50 transition-transform duration-300 ${
+      className={`md:hidden sticky top-0 inset-x-0 z-[62] transition-transform duration-300 ${
         visible ? "translate-y-0" : "-translate-y-full"
       }`}
     >

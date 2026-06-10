@@ -43,7 +43,8 @@ export default function AnnouncementBanner() {
       const h = !item || dismissed ? 0 : ref.current?.offsetHeight ?? 0;
       root.style.setProperty("--announcement-banner-h", `${h}px`);
       const promoH = parseFloat(getComputedStyle(root).getPropertyValue("--promo-banner-h") || "0") || 0;
-      root.style.setProperty("--top-banners-h", `${promoH + h}px`);
+      const smartH = parseFloat(getComputedStyle(root).getPropertyValue("--smart-banner-h") || "0") || 0;
+      root.style.setProperty("--top-banners-h", `${smartH + promoH + h}px`);
     };
     recompute();
     const ro = new ResizeObserver(recompute);
@@ -70,7 +71,7 @@ export default function AnnouncementBanner() {
       role="region"
       aria-label="Announcement"
       className="sticky z-[59] bg-[#0a0a0a] border-b border-[#D4AF37]/30 text-white"
-      style={{ top: "var(--promo-banner-h, 0px)" }}
+      style={{ top: "calc(var(--smart-banner-h, 0px) + var(--promo-banner-h, 0px))" }}
     >
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-2 flex items-center justify-center gap-3 text-[13px] md:text-sm">
         <Megaphone className="w-3.5 h-3.5 flex-shrink-0 text-[#D4AF37]" aria-hidden="true" />
