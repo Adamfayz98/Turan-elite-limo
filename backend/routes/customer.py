@@ -266,7 +266,7 @@ async def customer_promo_history(claims: dict = Depends(require_customer)):
 async def customer_get_notification_prefs(claims: dict = Depends(require_customer)):
     cid = claims.get("customer_id")
     user = await db.customers.find_one({"id": cid}, {"_id": 0, "notification_prefs": 1})
-    if not user:
+    if user is None:
         raise HTTPException(status_code=404, detail="Account not found")
     return NotificationPrefs(**(user.get("notification_prefs") or {}))
 

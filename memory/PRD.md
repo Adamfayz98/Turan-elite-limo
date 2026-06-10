@@ -11,6 +11,17 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Android:** Closed Testing on Play Console (Build #23).
 
 ## Recent Changes (this session)
+- ✅ **Backend modular refactor: server.py 8,210 → 4,734 lines** — Jun 10, 2026
+  - Programmatic AST-based extraction split the monolithic `server.py` into 4 modular routers under `/app/backend/routes/`:
+    - `routes/admin.py` (65 handlers, 1,508 lines)
+    - `routes/customer.py` (26 handlers, 921 lines)
+    - `routes/driver.py` (19 handlers, 573 lines — driver dispatch + driver-auth)
+    - `routes/payments.py` (12 handlers, 965 lines — Stripe checkout/webhook/refunds)
+  - Each route file does `import server as _server; globals().update(vars(_server))` so every helper/model/dep (including underscore-prefixed private helpers) resolves at runtime. Route module imports happen at the BOTTOM of `server.py` so all definitions are in place first.
+  - Critical ordering preserved: all `api_router.include_router(...)` calls happen BEFORE `app.include_router(api_router)`, so FastAPI's route snapshot captures everything.
+  - **Verification**: 157 `/api` routes pre-refactor → 157 `/api` routes post-refactor (exact set match via OpenAPI spec).
+  - **Regression**: testing agent built a new pytest suite (`/app/backend/tests/test_refactor_regression.py`, 39 cases covering every router file). Result: **39/39 PASS**, zero refactor regression.
+  - **Bonus latent bug fixed**: pre-existing `/api/customer/me/notifications` returned 404 on fresh accounts because `if not user:` tripped on `{}` (Motor projection returning empty doc when field absent). Changed to `if user is None:` — fresh customers now get default NotificationPrefs instead of 404.
 - ✅ **Two enhancements: address autocomplete + auto-apply promos** — Jun 10, 2026
   - **Google Places autocomplete on FloatingQuoteWidget**: swapped plain `<input>` for the existing reusable `PlacesAutocompleteInput` on Pickup + Drop-off. Same dropdown behaviour as the homepage booking form. Verified end-to-end: typing "SFO" → "SFO Airport" prediction; typing "Napa" → "Napa, Napa Valley, Napa County Airport" predictions.
   - **Auto-apply promo (Uber-style strike-through pricing)**: admin can now flag a promo as `auto_apply=true`. When active, the `/api/quote` endpoint decorates every eligible vehicle quote with `original_price`, `discount_amount`, and `applied_promo` metadata. Frontend (`FleetPicker.jsx`) renders strike-through original price + bold gold new price + "Save $X · CODE" badge per vehicle. `BookingForm.jsx` auto-fills the promo-input field when the selected vehicle has an applied_promo, so checkout actually applies the discount with zero manual typing.
@@ -75,7 +86,7 @@ See `/app/memory/CHANGELOG.md` for full feature changelog and `/app/memory/ROADM
 - Saved Addresses (Home/Work) for riders → one-tap rebooking
 - Rename "Book" bottom-tab to "Home", add back button on booking page
 - In-app Settings page (notifications, change password, delete account)
-- Tech debt: Split `server.py` (>7,200 lines) into modular routers
+- ~~Tech debt: Split `server.py` (>7,200 lines) into modular routers~~ ✅ DONE Jun 10, 2026
 - "Refer a Friend" $25 credit
 - Apple Sign-In for Android (web-redirect flow)
 
