@@ -2274,6 +2274,7 @@ class PromoUpdate(BaseModel):
     first_ride_only: Optional[bool] = None
     active: Optional[bool] = None
     show_on_banner: Optional[bool] = None
+    auto_apply: Optional[bool] = None
     allowed_vehicle_types: Optional[List[str]] = None
 
 
