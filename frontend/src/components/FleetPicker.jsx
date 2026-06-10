@@ -91,9 +91,30 @@ export default function FleetPicker({ quote, selected, onSelect, supportPhone = 
                       <div className="text-[10px] uppercase tracking-[0.2em] text-white/50">
                         Estimated flat rate
                       </div>
-                      <div className="font-serif text-2xl text-white mt-0.5">
-                        {q.formatted_price}
-                      </div>
+                      {q.original_price != null && q.original_price > q.price ? (
+                        <div className="mt-0.5">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-white/40 text-sm line-through">
+                              ${q.original_price.toFixed(2)}
+                            </span>
+                            <span className="font-serif text-2xl text-[#D4AF37]">
+                              {q.formatted_price}
+                            </span>
+                          </div>
+                          {q.applied_promo?.code && (
+                            <div
+                              data-testid={`promo-badge-${v.name}`}
+                              className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[10px] text-[#D4AF37] uppercase tracking-[0.15em]"
+                            >
+                              Save ${q.discount_amount?.toFixed(2) || "0"} · {q.applied_promo.code}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="font-serif text-2xl text-white mt-0.5">
+                          {q.formatted_price}
+                        </div>
+                      )}
                     </div>
                     <span className="text-[10px] text-white/40">incl. fare</span>
                   </div>

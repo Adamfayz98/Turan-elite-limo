@@ -279,6 +279,21 @@ export default function BookingForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.vehicle_type, quote]);
 
+  // When the quote response carries an auto-applied promo on the selected
+  // vehicle, surface it in the promo code field so the customer pays the
+  // discounted amount at checkout (no manual typing required).
+  useEffect(() => {
+    try {
+      const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
+      const autoCode = vq?.applied_promo?.code;
+      if (autoCode && !promoCode) {
+        setPromoCode(autoCode);
+      }
+    } catch (e) {
+      // silent — never block the form
+    }
+  }, [quote, form.vehicle_type, promoCode]);
+
   const onSubmit = async (e) => {
     e.preventDefault();
     if (!date) return toast.error("Please pick a date.");

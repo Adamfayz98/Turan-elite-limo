@@ -47,6 +47,7 @@ const blank = () => ({
   first_ride_only: false,
   active: true,
   show_on_banner: false,
+  auto_apply: false,
   allowed_vehicle_types: [],
 });
 
@@ -92,6 +93,7 @@ export default function PromosTab() {
       first_ride_only: !!editing.first_ride_only,
       active: !!editing.active,
       show_on_banner: !!editing.show_on_banner,
+      auto_apply: !!editing.auto_apply,
       allowed_vehicle_types: Array.isArray(editing.allowed_vehicle_types) ? editing.allowed_vehicle_types : [],
     };
     if (!payload.code || payload.code.length < 2) {
@@ -214,6 +216,11 @@ export default function PromosTab() {
                   {p.show_on_banner && (
                     <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-[#D4AF37]/15 text-[#D4AF37] uppercase tracking-wider">
                       On banner
+                    </span>
+                  )}
+                  {p.auto_apply && (
+                    <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-[#D4AF37]/15 text-[#D4AF37] uppercase tracking-wider">
+                      Auto-apply
                     </span>
                   )}
                   {Array.isArray(p.allowed_vehicle_types) && p.allowed_vehicle_types.length > 0 && (
@@ -426,6 +433,21 @@ export default function PromosTab() {
                   checked={!!editing.show_on_banner}
                   onCheckedChange={(v) => setEditing({ ...editing, show_on_banner: v })}
                   data-testid="promo-form-banner"
+                  className="data-[state=checked]:bg-[#D4AF37]"
+                />
+              </label>
+
+              <label className="flex items-center justify-between gap-3 cursor-pointer py-2">
+                <div>
+                  <div className="text-sm text-white">Auto-apply to every quote</div>
+                  <div className="text-xs text-white/45">
+                    Show Uber-style strike-through pricing on every quote (orig $X → new $Y). The code is auto-filled at checkout — no manual entry.
+                  </div>
+                </div>
+                <Switch
+                  checked={!!editing.auto_apply}
+                  onCheckedChange={(v) => setEditing({ ...editing, auto_apply: v })}
+                  data-testid="promo-form-auto-apply"
                   className="data-[state=checked]:bg-[#D4AF37]"
                 />
               </label>

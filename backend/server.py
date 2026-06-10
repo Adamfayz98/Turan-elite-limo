@@ -563,6 +563,12 @@ class VehicleQuote(BaseModel):
     price: Optional[float] = None
     formatted_price: Optional[str] = None
     message: Optional[str] = None
+    # Promo display fields — set when an admin-flagged "auto_apply" promo
+    # qualifies for this vehicle. Frontend uses these to render an Uber-style
+    # strike-through original_price + bold price + "Save $X with CODE" badge.
+    original_price: Optional[float] = None
+    discount_amount: Optional[float] = None
+    applied_promo: Optional[dict] = None  # {code, description, discount_type, value}
 
 
 class SurchargeInfo(BaseModel):
@@ -938,6 +944,102 @@ def _apply_service_fee_to_quote_response(qr: "QuoteResponse", fee_percent: float
     return qr
 
 
+async def _apply_auto_promo_to_quote_response(qr: "QuoteResponse") -> "QuoteResponse":
+    """If an admin-flagged auto-apply promo is active, decorate every priced
+    vehicle quote with an `original_price`, `price` (post-discount),
+    `discount_amount`, and `applied_promo` so the frontend can render an
+    Uber-style strike-through.
+
+    Rules:
+      - Only one auto-apply promo wins (highest absolute discount on the
+        cheapest qualifying quote — i.e. the customer's best deal is shown).
+      - `allowed_vehicle_types` is respected per-vehicle.
+      - `min_ride_amount` is respected per-vehicle.
+      - Expired/inactive promos skipped.
+      - No-op when nothing qualifies (response returned unchanged).
+    """
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        candidates = []
+        async for r in db.promos.find({"active": True, "auto_apply": True}, {"_id": 0}):
+            exp = r.get("expires_at")
+            if exp and exp < now_iso:
+                continue
+            try:
+                p = Promo(**r)
+            except Exception:
+                continue
+            candidates.append(p)
+        if not candidates:
+            return qr
+
+        # Pick the most generous promo for the customer (deepest absolute $
+        # off on the lowest-priced qualifying vehicle). Tie-break by largest
+        # `value`.
+        def _calc_off(promo: Promo, price: float) -> float:
+            if promo.discount_type == "percent":
+                return round(price * (promo.value / 100.0), 2)
+            return round(min(price, promo.value), 2)
+
+        best = None  # (promo, sample_off)
+        for promo in candidates:
+            allowed = promo.allowed_vehicle_types or []
+            best_savings_for_promo = 0.0
+            for q in qr.quotes:
+                if q.price is None or q.price <= 0:
+                    continue
+                if allowed and q.vehicle_type not in allowed:
+                    continue
+                if promo.min_ride_amount and q.price < promo.min_ride_amount:
+                    continue
+                off = _calc_off(promo, q.price)
+                if off > best_savings_for_promo:
+                    best_savings_for_promo = off
+            if best_savings_for_promo > 0 and (best is None or best_savings_for_promo > best[1] or (best_savings_for_promo == best[1] and promo.value > best[0].value)):
+                best = (promo, best_savings_for_promo)
+
+        if not best:
+            return qr
+
+        promo = best[0]
+        allowed = promo.allowed_vehicle_types or []
+        applied_promo_dict = {
+            "code": promo.code,
+            "description": promo.description or "",
+            "discount_type": promo.discount_type,
+            "value": promo.value,
+        }
+        for q in qr.quotes:
+            if q.price is None or q.price <= 0:
+                continue
+            if allowed and q.vehicle_type not in allowed:
+                continue
+            if promo.min_ride_amount and q.price < promo.min_ride_amount:
+                continue
+            original = q.price
+            off = _calc_off(promo, original)
+            if off <= 0:
+                continue
+            new_price = round(max(0.0, original - off), 2)
+            q.original_price = original
+            q.discount_amount = off
+            q.applied_promo = applied_promo_dict
+            q.price = new_price
+            q.formatted_price = f"${new_price:.2f}"
+        return qr
+    except Exception as e:
+        logger.warning(f"_apply_auto_promo_to_quote_response failed: {e}")
+        return qr
+
+
+def _apply_post_pricing_layers(qr: "QuoteResponse", fee_percent: float):
+    """Centralized post-processing: service fee FIRST (so the fee is included
+    in the original sticker price), then auto-promo discount.
+    Returns the same QuoteResponse, mutated in place."""
+    _apply_service_fee_to_quote_response(qr, fee_percent)
+    return qr
+
+
 @api_router.post("/quote", response_model=QuoteResponse)
 async def quote_ride(payload: QuoteRequest):
     pricing_map = await _load_pricing_map()
@@ -1002,7 +1104,7 @@ async def quote_ride(payload: QuoteRequest):
     if payload.service_type == "Hourly Chauffeur":
         if not payload.hours or payload.hours < 2:
             # Don't return distance-based prices — explicitly tell the customer.
-            return _apply_service_fee_to_quote_response(QuoteResponse(
+            return await _apply_auto_promo_to_quote_response(_apply_service_fee_to_quote_response(QuoteResponse(
                 quotes=[
                     VehicleQuote(vehicle_type=vt, message="Minimum 2 hours required")
                     for vt in VEHICLE_TYPES
@@ -1011,8 +1113,8 @@ async def quote_ride(payload: QuoteRequest):
                 hours=payload.hours,
                 included_miles=None,
                 fallback=True,
-            ), settings.service_fee_percent)
-        return _apply_service_fee_to_quote_response(QuoteResponse(
+            ), settings.service_fee_percent))
+        return await _apply_auto_promo_to_quote_response(_apply_service_fee_to_quote_response(QuoteResponse(
             quotes=_build_hourly_quotes(payload.hours, pricing_map, surge_mult=surge_mult, surge_flat=surge_flat),
             pricing_mode="hourly",
             hours=payload.hours,
@@ -1020,19 +1122,19 @@ async def quote_ride(payload: QuoteRequest):
             surge_applied=surge_info,
             per_stop_fee=per_stop_fee if per_stop_fee > 0 else None,
             additional_stops_count=stops_count or None,
-        ), settings.service_fee_percent)
+        ), settings.service_fee_percent))
 
     pickup = await _geocode(payload.pickup_location)
     dropoff = await _geocode(payload.dropoff_location)
     if not pickup or not dropoff:
-        return _apply_service_fee_to_quote_response(QuoteResponse(
+        return await _apply_auto_promo_to_quote_response(_apply_service_fee_to_quote_response(QuoteResponse(
             quotes=_build_quotes(None, pricing_map, addon_flat=addon_flat_total, addon_tags=addon_tags),
             fallback=True,
             meet_and_greet_fee=mg_fee if mg_fee > 0 else None,
             per_stop_fee=per_stop_fee if per_stop_fee > 0 else None,
             stop_fee_total=stop_fee_total if stop_fee_total > 0 else None,
             additional_stops_count=stops_count or None,
-        ), settings.service_fee_percent)
+        ), settings.service_fee_percent))
 
     miles = _haversine_miles(pickup["lat"], pickup["lon"], dropoff["lat"], dropoff["lon"])
     # Extend the priced route through any pre-booked additional stops so the
@@ -1066,7 +1168,7 @@ async def quote_ride(payload: QuoteRequest):
         if matched_zone else None
     )
 
-    return _apply_service_fee_to_quote_response(QuoteResponse(
+    return await _apply_auto_promo_to_quote_response(_apply_service_fee_to_quote_response(QuoteResponse(
         distance_miles=miles,
         duration_minutes=duration_minutes,
         pickup_resolved=pickup.get("display"),
@@ -1086,7 +1188,7 @@ async def quote_ride(payload: QuoteRequest):
         per_stop_fee=per_stop_fee if per_stop_fee > 0 else None,
         stop_fee_total=stop_fee_total if stop_fee_total > 0 else None,
         additional_stops_count=stops_count or None,
-    ), settings.service_fee_percent)
+    ), settings.service_fee_percent))
 
 
 @api_router.post("/contact", response_model=ContactInquiry)
@@ -2154,6 +2256,7 @@ class PromoBase(BaseModel):
     first_ride_only: bool = False
     active: bool = True
     show_on_banner: bool = False  # whether to advertise this code as a sitewide banner
+    auto_apply: bool = False  # silently apply to every quote — strike-through pricing
     allowed_vehicle_types: List[str] = Field(default_factory=list)  # empty = all vehicles eligible
 
 

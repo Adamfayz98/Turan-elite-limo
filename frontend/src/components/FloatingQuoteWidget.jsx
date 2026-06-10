@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MessageSquare, X } from "lucide-react";
+import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
 
 /**
  * Floating, sticky "Get a Quote in 60 seconds" widget for Google Ads landing
@@ -70,30 +71,23 @@ export default function FloatingQuoteWidget({ testId = "floating-quote" }) {
 
       <form onSubmit={submit} className="p-5 space-y-3">
         <div>
-          <label className="block text-white/50 text-[10px] tracking-[0.25em] uppercase mb-1.5">
-            Pickup
-          </label>
-          <input
-            data-testid={`${testId}-pickup`}
+          <PlacesAutocompleteInput
+            label="Pickup"
             value={pickup}
-            onChange={(e) => setPickup(e.target.value)}
+            onChange={setPickup}
+            testId={`${testId}-pickup`}
             placeholder="SFO Airport, 1 Hotel SF, etc."
-            className="w-full bg-black/40 border border-white/10 rounded-lg px-3.5 py-2.5 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#D4AF37]/50 transition"
             required
-            autoFocus
           />
         </div>
 
         <div>
-          <label className="block text-white/50 text-[10px] tracking-[0.25em] uppercase mb-1.5">
-            Drop-off
-          </label>
-          <input
-            data-testid={`${testId}-dropoff`}
+          <PlacesAutocompleteInput
+            label="Drop-off"
             value={dropoff}
-            onChange={(e) => setDropoff(e.target.value)}
+            onChange={setDropoff}
+            testId={`${testId}-dropoff`}
             placeholder="Napa, Stadium, Office address…"
-            className="w-full bg-black/40 border border-white/10 rounded-lg px-3.5 py-2.5 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-[#D4AF37]/50 transition"
             required
           />
         </div>
