@@ -68,7 +68,7 @@ const FLEET = [
     name: "Executive Sedan",
     seats: "1-3 passengers",
     desc: "Cadillac XTS · Mercedes E-Class. Discreet, smooth, on time. Perfect for solo travelers or couples.",
-    img: "https://images.unsplash.com/photo-1606016159991-dfe4f2746ad5?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
+    img: "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
   },
   {
     name: "Luxury SUV",
@@ -91,7 +91,7 @@ const FLEET = [
 ];
 
 const GALLERY = [
-  "https://images.unsplash.com/photo-1606016159991-dfe4f2746ad5?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
+  "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
   "https://images.unsplash.com/photo-1609521247503-8de40462e427?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
   "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200&ixlib=rb-4.1.0",
   "https://images.unsplash.com/photo-1676107648535-931375db52e2?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",

@@ -128,9 +128,25 @@
 
 ---
 
+## J. NEW — Mobile Referral Deep-Linking + Fixes (Steps 52–58, added 2026-06-11)
+
+> These cover the mobile Refer-a-Friend deep-link feature and the Executive Sedan photo fix. Steps 54–56 require the OTA update to be live on your phone (or use the `/m` web demo). Steps 52–53/57–58 work on web immediately.
+
+| # | Test | Expected |
+|---|------|----------|
+| 52 | Web: open homepage fleet section + `/airport`, `/wedding`, `/wine-tours`, `/corporate`, `/worldcup2026` | Executive Sedan photo is a BLACK Cadillac sedan (NOT a white Tesla) on every page |
+| 53 | Web: open `/r/REF-XXXXXX` (use code from `/refer`) in incognito | Invite page renders with referrer first name + "$20 off"; WELCOME20 locked in (regression of step 23) |
+| 54 | Phone WITH app installed (after OTA + website deploy): tap a referral link `https://turanelitelimo.com/r/REF-XXXXXX` from Messages/WhatsApp | Opens the APP directly on a gold "You're invited" screen showing referrer's name and "$20 off your first ride" |
+| 55 | On that invite screen, tap "Claim $20 & Create Account" | Lands on signup tab with gold banner "_Name_'s invite is active — $20 off your first ride" |
+| 56 | Complete signup (email/password OR Google/Apple) | Account created; referrer's `/refer` page → "Friends signed up" count +1 |
+| 57 | Phone WITHOUT app installed: tap same referral link | Falls back to the WEB invite page (step 53 behavior) — no broken screen |
+| 58 | As signed-in app user, tap a referral link | Invite screen shows "You're already signed in" note + "Book a Ride" button → goes to Home |
+
+---
+
 ## Sign-off
 
-- [ ] All 51 tests pass on PREVIEW
+- [ ] All 58 tests pass on PREVIEW
 - [ ] No console errors on web pages
 - [ ] No `ERROR` lines in `/var/log/supervisor/backend.err.log` during the test run
 - [ ] Stripe test charges visible in Stripe test dashboard
