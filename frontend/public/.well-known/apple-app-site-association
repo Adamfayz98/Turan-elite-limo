@@ -3,7 +3,10 @@
     "apps": [],
     "details": [
       {
-        "appIDs": ["X5PCWL9H76.com.turanelitelimo.app"],
+        "appIDs": [
+          "X5PCWL9H76.com.turanelitelimo.app",
+          "9M7CK4W8HM.com.turanelitelimo.app"
+        ],
         "appID": "X5PCWL9H76.com.turanelitelimo.app",
         "paths": ["/r/*"],
         "components": [
@@ -12,10 +15,17 @@
             "comment": "Refer-a-Friend invite links open the TuranEliteLimo app"
           }
         ]
+      },
+      {
+        "appID": "9M7CK4W8HM.com.turanelitelimo.app",
+        "paths": ["/r/*"]
       }
     ]
   },
   "webcredentials": {
-    "apps": ["X5PCWL9H76.com.turanelitelimo.app"]
+    "apps": [
+      "X5PCWL9H76.com.turanelitelimo.app",
+      "9M7CK4W8HM.com.turanelitelimo.app"
+    ]
   }
 }
