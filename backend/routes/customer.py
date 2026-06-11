@@ -90,6 +90,7 @@ async def customer_oauth_apple(payload: SocialLoginRequest):
         email=email,
         name_hint=payload.full_name,
         is_private_email=is_private,
+        referred_by_code=payload.referred_by_code,
     )
     token = create_customer_token(customer["id"], customer["email"])
     return CustomerAuthResponse(token=token, user=_customer_to_profile(customer))
@@ -110,6 +111,7 @@ async def customer_oauth_google(payload: SocialLoginRequest):
         email=email,
         name_hint=name_hint,
         is_private_email=False,
+        referred_by_code=payload.referred_by_code,
     )
     token = create_customer_token(customer["id"], customer["email"])
     return CustomerAuthResponse(token=token, user=_customer_to_profile(customer))

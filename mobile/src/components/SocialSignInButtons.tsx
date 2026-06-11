@@ -20,6 +20,7 @@ import { colors } from "@/theme";
 import { loginRiderWithApple, loginRiderWithGoogle } from "@/api";
 import { useAuth } from "@/store/auth";
 import { registerForPushAsync } from "@/push";
+import { getPendingReferral, clearPendingReferral } from "@/referral";
 import { isGoogleSignInConfigured } from "@/auth/googleSignIn";
 
 // expo-apple-authentication is OPTIONAL — only loaded if the native module
@@ -43,6 +44,9 @@ export default function SocialSignInButtons({ onError }: Props) {
   const [busy, setBusy] = useState<"apple" | "google" | null>(null);
 
   const finishLogin = (data: any) => {
+    // A successful social auth consumes any pending referral invite — the
+    // backend attributes it only when the account is brand new.
+    clearPendingReferral().catch(() => {});
     setUser(data.user);
     registerForPushAsync("rider").catch(() => {});
     router.replace("/home");
@@ -65,7 +69,11 @@ export default function SocialSignInButtons({ onError }: Props) {
         .filter(Boolean)
         .join(" ")
         .trim();
-      const data = await loginRiderWithApple(credential.identityToken, fullName || undefined);
+      const data = await loginRiderWithApple(
+        credential.identityToken,
+        fullName || undefined,
+        (await getPendingReferral())?.code,
+      );
       finishLogin(data);
     } catch (e: any) {
       if (e?.code === "ERR_CANCELED" || e?.code === "ERR_REQUEST_CANCELED") {

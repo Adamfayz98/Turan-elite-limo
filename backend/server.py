@@ -3343,6 +3343,9 @@ class SocialLoginRequest(BaseModel):
     # them once; on subsequent sign-ins the name fields are empty). We accept
     # them as a courtesy so the client can pre-populate the customer name.
     full_name: Optional[str] = Field(None, max_length=120)
+    # Refer-a-Friend: mobile clients pass the pending referral code so a NEW
+    # social account is attributed to the referrer (ignored for existing accounts).
+    referred_by_code: Optional[str] = Field(None, max_length=40)
 
 
 async def _login_or_link_social(
@@ -3351,6 +3354,7 @@ async def _login_or_link_social(
     email: Optional[str],
     name_hint: Optional[str],
     is_private_email: bool = False,
+    referred_by_code: Optional[str] = None,
 ) -> dict:
     """Find or create a customer for this social identity and return the
     customer document. Linking rules:
@@ -3408,6 +3412,10 @@ async def _login_or_link_social(
             "created_at": datetime.now(timezone.utc).isoformat(),
             "auth_provider": provider,
         }
+        # Refer-a-Friend attribution — only on brand-new accounts.
+        referrer_id = await referral.resolve_referrer(db, referred_by_code)
+        if referrer_id:
+            customer["referred_by"] = referrer_id
         await db.customers.insert_one(dict(customer))
         # Newly-created social customer → welcome email (only if not relay)
         if email and not is_relay_email:

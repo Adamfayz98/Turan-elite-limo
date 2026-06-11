@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Image, ScrollView, KeyboardAvoidingView, Platform, ImageBackground } from "react-native";
-import { useRouter } from "expo-router";
-import { ChevronLeft, Mail, Lock, Eye, EyeOff, ArrowRight, User as UserIcon } from "lucide-react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { ChevronLeft, Mail, Lock, Eye, EyeOff, ArrowRight, User as UserIcon, Gift } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
@@ -10,17 +10,26 @@ import { colors, assets } from "@/theme";
 import { loginRider, signupRider } from "@/api";
 import { useAuth } from "@/store/auth";
 import { registerForPushAsync } from "@/push";
+import { getPendingReferral, clearPendingReferral } from "@/referral";
 
 export default function RiderAuth() {
   const router = useRouter();
+  const { mode: modeParam } = useLocalSearchParams<{ mode?: string }>();
   const setUser = useAuth(s => s.setUser);
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup">(modeParam === "signup" ? "signup" : "signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [referral, setReferral] = useState<{ code: string; referrerName: string | null } | null>(null);
+
+  // Refer-a-Friend: surface a pending invite (saved by app/r/[code].tsx) so the
+  // new rider knows their $20 is locked in, and attribute their signup.
+  useEffect(() => {
+    getPendingReferral().then(r => { if (r) setReferral(r); }).catch(() => {});
+  }, []);
 
   return (
     <View style={s.root}>
@@ -63,6 +72,14 @@ export default function RiderAuth() {
             </View>
 
             <View style={{ gap: 14 }}>
+              {mode === "signup" && referral && (
+                <View style={s.refBanner} testID="rider-auth-referral-banner">
+                  <Gift size={15} color={colors.gold} strokeWidth={1.8} />
+                  <Text style={s.refBannerTxt}>
+                    {referral.referrerName ? `${referral.referrerName}'s` : "Your friend's"} invite is active — $20 off your first ride
+                  </Text>
+                </View>
+              )}
               {mode === "signup" && (
                 <Input
                   testID="rider-auth-name"
@@ -122,7 +139,13 @@ export default function RiderAuth() {
                 try {
                   const data = mode === "signin"
                     ? await loginRider({ email: email.trim().toLowerCase(), password })
-                    : await signupRider({ name: name.trim(), email: email.trim().toLowerCase(), password });
+                    : await signupRider({
+                        name: name.trim(),
+                        email: email.trim().toLowerCase(),
+                        password,
+                        referred_by_code: referral?.code || undefined,
+                      });
+                  if (mode === "signup" && referral) clearPendingReferral().catch(() => {});
                   setUser(data.user);
                   // Register for push notifications in the background.
                   // Non-blocking — if the user denies or the backend endpoint
@@ -190,4 +213,16 @@ const s = StyleSheet.create({
   tabTxtActive: { color: "#000" },
   forgot: { color: colors.gold, fontSize: 11, alignSelf: "flex-end" },
   error: { color: colors.error, fontSize: 12, marginTop: 4 },
+  refBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(212,175,55,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(212,175,55,0.35)",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  refBannerTxt: { color: colors.gold, fontSize: 12, flex: 1, lineHeight: 17 },
 });

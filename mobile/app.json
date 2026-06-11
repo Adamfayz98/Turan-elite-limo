@@ -64,11 +64,13 @@
           "data": [
             {
               "scheme": "https",
-              "host": "turanelitelimo.com"
+              "host": "turanelitelimo.com",
+              "pathPrefix": "/r"
             },
             {
               "scheme": "https",
-              "host": "www.turanelitelimo.com"
+              "host": "www.turanelitelimo.com",
+              "pathPrefix": "/r"
             }
           ],
           "category": [
@@ -111,7 +113,8 @@
       ]
     ],
     "experiments": {
-      "typedRoutes": false
+      "typedRoutes": false,
+      "baseUrl": "/m"
     },
     "extra": {
       "router": {

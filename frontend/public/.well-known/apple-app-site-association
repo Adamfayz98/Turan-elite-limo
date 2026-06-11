@@ -1,0 +1,21 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["X5PCWL9H76.com.turanelitelimo.app"],
+        "appID": "X5PCWL9H76.com.turanelitelimo.app",
+        "paths": ["/r/*"],
+        "components": [
+          {
+            "/": "/r/*",
+            "comment": "Refer-a-Friend invite links open the TuranEliteLimo app"
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["X5PCWL9H76.com.turanelitelimo.app"]
+  }
+}

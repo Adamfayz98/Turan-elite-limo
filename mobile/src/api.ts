@@ -99,7 +99,7 @@ export async function getQuote(payload: {
 }
 
 /* ============== Auth endpoints ============== */
-export async function signupRider(payload: { name: string; email: string; phone?: string; password: string }) {
+export async function signupRider(payload: { name: string; email: string; phone?: string; password: string; referred_by_code?: string }) {
   const { data } = await api.post("/api/customer/signup", payload);
   if (data?.token) await setToken(data.token);
   return data;
@@ -111,19 +111,21 @@ export async function loginRider(payload: { email: string; password: string }) {
   return data;
 }
 
-export async function loginRiderWithApple(idToken: string, fullName?: string) {
+export async function loginRiderWithApple(idToken: string, fullName?: string, referredByCode?: string) {
   const { data } = await api.post("/api/customer/oauth/apple", {
     id_token: idToken,
     full_name: fullName || null,
+    referred_by_code: referredByCode || null,
   });
   if (data?.token) await setToken(data.token);
   return data;
 }
 
-export async function loginRiderWithGoogle(idToken: string, fullName?: string) {
+export async function loginRiderWithGoogle(idToken: string, fullName?: string, referredByCode?: string) {
   const { data } = await api.post("/api/customer/oauth/google", {
     id_token: idToken,
     full_name: fullName || null,
+    referred_by_code: referredByCode || null,
   });
   if (data?.token) await setToken(data.token);
   return data;

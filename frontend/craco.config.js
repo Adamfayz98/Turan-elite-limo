@@ -61,6 +61,18 @@ let webpackConfig = {
 };
 
 webpackConfig.devServer = (devServerConfig) => {
+  // SPA fallback for the embedded mobile web export at /m — deep paths like
+  // /m/r/REF-XXXXXX must serve /m/index.html (expo-router handles the rest
+  // client-side). Without this, webpack's historyApiFallback rewrites them
+  // to the MAIN app's index.html.
+  devServerConfig.historyApiFallback = {
+    ...(typeof devServerConfig.historyApiFallback === "object" ? devServerConfig.historyApiFallback : {}),
+    disableDotRule: true,
+    rewrites: [
+      { from: /^\/m(\/.*)?$/, to: "/m/index.html" },
+    ],
+  };
+
   // Add health check endpoints if enabled
   if (config.enableHealthCheck && setupHealthEndpoints && healthPluginInstance) {
     const originalSetupMiddlewares = devServerConfig.setupMiddlewares;
