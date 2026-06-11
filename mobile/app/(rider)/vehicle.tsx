@@ -12,11 +12,11 @@ const VEHICLE_META: Record<string, { img: string; desc: string; cap: string }> =
   "Executive Sedan": { img: "https://turanelitelimo.com/fleet/executive-sedan.jpg", desc: "Mercedes E-Class · Cadillac XTS", cap: "1–3" },
   "First Class":     { img: "https://turanelitelimo.com/fleet/first-class.jpg", desc: "Mercedes S-Class · Genesis G90", cap: "1–3" },
   "Luxury SUV":      { img: "https://turanelitelimo.com/fleet/luxury-suv.jpg", desc: "Cadillac Escalade · Lincoln Navigator", cap: "1–6" },
-  "Stretch Limousine": { img: "https://images.unsplash.com/photo-1676107648535-931375db52e2?fm=jpg&q=70&w=2000", desc: "Lincoln · Chrysler 300", cap: "1–10" },
+  "Stretch Limousine": { img: "https://turanelitelimo.com/fleet/stretch-limo.jpg", desc: "Lincoln · Chrysler 300", cap: "1–10" },
   "Sprinter Van":    { img: "https://turanelitelimo.com/fleet/sprinter.jpg", desc: "Standard · cloth/leather seats", cap: "10–14" },
   "Executive Sprinter": { img: "https://turanelitelimo.com/fleet/sprinter.jpg", desc: "Captain's chairs · leather · partition", cap: "8–12" },
   "Jet Sprinter":    { img: "https://turanelitelimo.com/fleet/sprinter.jpg", desc: "First-class recliners · bar · mood lighting", cap: "8–10" },
-  "Party Bus":       { img: "https://images.unsplash.com/photo-1545185105-a81262517cf4?fm=jpg&q=70&w=2000", desc: "Limo Bus · Party Bus", cap: "10–30" },
+  "Party Bus":       { img: "https://turanelitelimo.com/fleet/party-bus.jpg", desc: "Limo Bus · Party Bus", cap: "10–30" },
 };
 
 interface QuoteRow { vehicle_type: string; price: number | null; formatted_price: string | null; message: string | null }

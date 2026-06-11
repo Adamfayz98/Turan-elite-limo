@@ -10,6 +10,14 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
 - **Android:** Closed Testing on Play Console (Build #23).
 
+
+## Recent Changes (this session)
+- ✅ **Fleet vehicle imagery overhaul** — Feb 12, 2026
+  - User uploaded 6 new studio shots (Cadillac XTS, Mercedes S-Class, Cadillac Escalade ESV, Mercedes Sprinter, Hummer Stretch, Party Bus).
+  - Auto-processed each PNG: corner flood-fill replaces the light-gray studio backdrop with the card's `#0A0A0A` background (so the vehicle blends seamlessly into the dark UI), tight-crop to the vehicle bounding box with 8% padding, then center-paste onto a 3:2 1500×1000 canvas. Result: vehicles always render fully on web + mobile fleet cards regardless of container aspect (`object-cover` no longer crops the car off-screen).
+  - Updated `/app/frontend/src/lib/fleet.js`, `/app/mobile/app/index.tsx`, `/app/mobile/app/(rider)/(tabs)/discover.tsx`, `/app/mobile/app/(rider)/vehicle.tsx` to use the new local files (`/fleet/stretch-limo.jpg` and `/fleet/party-bus.jpg`) instead of generic Unsplash URLs.
+  - All processed JPEGs saved under `/app/frontend/public/fleet/` (≤80 KB each, progressive). Mobile app fetches them via `https://turanelitelimo.com/fleet/*.jpg` after next web deploy.
+
 ## Recent Changes (this session)
 - ✅ **Backend modular refactor: server.py 8,210 → 4,734 lines** — Jun 10, 2026
   - Programmatic AST-based extraction split the monolithic `server.py` into 4 modular routers under `/app/backend/routes/`:

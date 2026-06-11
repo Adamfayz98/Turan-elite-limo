@@ -32,11 +32,11 @@ const FLEET = [
   { name: "Executive Sedan", model: "Cadillac XTS · Mercedes E-Class", img: "https://turanelitelimo.com/fleet/executive-sedan.jpg", cap: "1–3" },
   { name: "First Class", model: "Mercedes S-Class · BMW 7", img: "https://turanelitelimo.com/fleet/first-class.jpg", cap: "1–3" },
   { name: "Luxury SUV", model: "Escalade · Yukon Denali", img: "https://turanelitelimo.com/fleet/luxury-suv.jpg", cap: "1–6" },
-  { name: "Stretch Limo", model: "Hummer · Chrysler 300", img: "https://images.unsplash.com/photo-1676107648535-931375db52e2?fm=jpg&q=70&w=1200", cap: "8–14" },
+  { name: "Stretch Limo", model: "Hummer · Chrysler 300", img: "https://turanelitelimo.com/fleet/stretch-limo.jpg", cap: "8–14" },
   { name: "Sprinter Van", model: "Mercedes Sprinter · cloth/leather", img: "https://turanelitelimo.com/fleet/sprinter.jpg", cap: "10–14" },
   { name: "Executive Sprinter", model: "Captain's chairs · partition", img: "https://turanelitelimo.com/fleet/sprinter.jpg", cap: "8–12" },
   { name: "Jet Sprinter", model: "First-class recliners · bar", img: "https://turanelitelimo.com/fleet/sprinter.jpg", cap: "8–10" },
-  { name: "Party Bus", model: "14–30 Passenger Coach", img: "https://images.unsplash.com/photo-1545185105-a81262517cf4?fm=jpg&q=70&w=1200", cap: "14–30" },
+  { name: "Party Bus", model: "14–30 Passenger Coach", img: "https://turanelitelimo.com/fleet/party-bus.jpg", cap: "14–30" },
 ];
 
 const SERVICES = [
