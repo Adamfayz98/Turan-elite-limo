@@ -32,13 +32,13 @@ import { useAuth } from "@/store/auth";
 import { api } from "@/api";
 
 const FLEET = [
-  { name: "Executive Sedan", model: "Cadillac XTS · Mercedes E-Class", img: "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=1200", cap: "1–3" },
-  { name: "First Class", model: "Mercedes S-Class · BMW 7", img: "https://images.unsplash.com/photo-1609521247503-8de40462e427?fm=jpg&q=70&w=1200", cap: "1–3" },
-  { name: "Luxury SUV", model: "Escalade · Yukon Denali", img: "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?fm=jpg&q=70&w=1200", cap: "1–6" },
+  { name: "Executive Sedan", model: "Cadillac XTS · Mercedes E-Class", img: "https://turanelitelimo.com/fleet/executive-sedan.jpg", cap: "1–3" },
+  { name: "First Class", model: "Mercedes S-Class · BMW 7", img: "https://turanelitelimo.com/fleet/first-class.jpg", cap: "1–3" },
+  { name: "Luxury SUV", model: "Escalade · Yukon Denali", img: "https://turanelitelimo.com/fleet/luxury-suv.jpg", cap: "1–6" },
   { name: "Stretch Limo", model: "Hummer · Chrysler 300", img: "https://images.unsplash.com/photo-1676107648535-931375db52e2?fm=jpg&q=70&w=1200", cap: "8–14" },
-  { name: "Sprinter Van", model: "Mercedes Sprinter · cloth/leather", img: "https://customer-assets.emergentagent.com/job_limo-experience-1/artifacts/z9hc1910_IMG_0001.webp", cap: "10–14" },
-  { name: "Executive Sprinter", model: "Captain's chairs · partition", img: "https://customer-assets.emergentagent.com/job_limo-experience-1/artifacts/z9hc1910_IMG_0001.webp", cap: "8–12" },
-  { name: "Jet Sprinter", model: "First-class recliners · bar", img: "https://customer-assets.emergentagent.com/job_limo-experience-1/artifacts/z9hc1910_IMG_0001.webp", cap: "8–10" },
+  { name: "Sprinter Van", model: "Mercedes Sprinter · cloth/leather", img: "https://turanelitelimo.com/fleet/sprinter.jpg", cap: "10–14" },
+  { name: "Executive Sprinter", model: "Captain's chairs · partition", img: "https://turanelitelimo.com/fleet/sprinter.jpg", cap: "8–12" },
+  { name: "Jet Sprinter", model: "First-class recliners · bar", img: "https://turanelitelimo.com/fleet/sprinter.jpg", cap: "8–10" },
   { name: "Party Bus", model: "14–30 Passenger Coach", img: "https://images.unsplash.com/photo-1545185105-a81262517cf4?fm=jpg&q=70&w=1200", cap: "14–30" },
 ];
 

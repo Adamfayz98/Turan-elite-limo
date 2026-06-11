@@ -9,13 +9,13 @@ import { useBooking } from "@/store/booking";
 import { getQuote, fetchVehicleTypes } from "@/api";
 
 const VEHICLE_META: Record<string, { img: string; desc: string; cap: string }> = {
-  "Executive Sedan": { img: "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=2000", desc: "Mercedes E-Class · Cadillac XTS", cap: "1–3" },
-  "First Class":     { img: "https://images.unsplash.com/photo-1609521247503-8de40462e427?fm=jpg&q=70&w=2000", desc: "Mercedes S-Class · Genesis G90", cap: "1–3" },
-  "Luxury SUV":      { img: "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?fm=jpg&q=70&w=2000", desc: "Cadillac Escalade · Lincoln Navigator", cap: "1–6" },
+  "Executive Sedan": { img: "https://turanelitelimo.com/fleet/executive-sedan.jpg", desc: "Mercedes E-Class · Cadillac XTS", cap: "1–3" },
+  "First Class":     { img: "https://turanelitelimo.com/fleet/first-class.jpg", desc: "Mercedes S-Class · Genesis G90", cap: "1–3" },
+  "Luxury SUV":      { img: "https://turanelitelimo.com/fleet/luxury-suv.jpg", desc: "Cadillac Escalade · Lincoln Navigator", cap: "1–6" },
   "Stretch Limousine": { img: "https://images.unsplash.com/photo-1676107648535-931375db52e2?fm=jpg&q=70&w=2000", desc: "Lincoln · Chrysler 300", cap: "1–10" },
-  "Sprinter Van":    { img: "https://customer-assets.emergentagent.com/job_limo-experience-1/artifacts/z9hc1910_IMG_0001.webp", desc: "Standard · cloth/leather seats", cap: "10–14" },
-  "Executive Sprinter": { img: "https://customer-assets.emergentagent.com/job_limo-experience-1/artifacts/z9hc1910_IMG_0001.webp", desc: "Captain's chairs · leather · partition", cap: "8–12" },
-  "Jet Sprinter":    { img: "https://customer-assets.emergentagent.com/job_limo-experience-1/artifacts/z9hc1910_IMG_0001.webp", desc: "First-class recliners · bar · mood lighting", cap: "8–10" },
+  "Sprinter Van":    { img: "https://turanelitelimo.com/fleet/sprinter.jpg", desc: "Standard · cloth/leather seats", cap: "10–14" },
+  "Executive Sprinter": { img: "https://turanelitelimo.com/fleet/sprinter.jpg", desc: "Captain's chairs · leather · partition", cap: "8–12" },
+  "Jet Sprinter":    { img: "https://turanelitelimo.com/fleet/sprinter.jpg", desc: "First-class recliners · bar · mood lighting", cap: "8–10" },
   "Party Bus":       { img: "https://images.unsplash.com/photo-1545185105-a81262517cf4?fm=jpg&q=70&w=2000", desc: "Limo Bus · Party Bus", cap: "10–30" },
 };
 

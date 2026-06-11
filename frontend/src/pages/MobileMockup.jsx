@@ -31,9 +31,9 @@ const C = {
 
 const MAP_BG = "https://static.prod-images.emergentagent.com/jobs/1689fe63-929d-4e0f-9a68-ee41e3772b20/images/8fadd6148d386fdf9d2dfb3d804989709c16bb90eddcf9adec5ae5aebd807148.png";
 const ABSTRACT_GOLD = "https://static.prod-images.emergentagent.com/jobs/1689fe63-929d-4e0f-9a68-ee41e3772b20/images/552a1c8656efc0533fd136ccd9396126f7b4d6677e70677000c2f04374d4d979.png";
-const SEDAN = "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0";
-const SUV = "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwxfHxsdXh1cnklMjBibGFjayUyMHN1diUyMGNhcnxlbnwwfHx8fDE3NzkyNDUyODV8MA&ixlib=rb-4.1.0&q=85";
-const FIRST_CLASS = "https://images.unsplash.com/photo-1609521247503-8de40462e427?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0";
+const SEDAN = "/fleet/executive-sedan.jpg";
+const SUV = "/fleet/luxury-suv.jpg";
+const FIRST_CLASS = "/fleet/first-class.jpg";
 const STRETCH = "https://images.unsplash.com/photo-1676107648535-931375db52e2?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0";
 const DRIVER_PHOTO = "https://images.unsplash.com/photo-1603122101829-e56305b0a5f7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjaGF1ZmZldXIlMjBzdWl0fGVufDB8fHx8MTc3OTI0NTI4NXww&ixlib=rb-4.1.0&q=85";
 const LOGO_MARK = "/logo-mark.png";

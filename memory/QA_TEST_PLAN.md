@@ -1,6 +1,6 @@
 # TuranEliteLimo — 51-Step Manual QA Test Plan
 
-> **Updated:** Jun 10, 2026 — after backend refactor (server.py → 4 modular routers), Places autocomplete on FloatingQuoteWidget, auto-apply promos with strike-through pricing, Refer-a-Friend, Push Broadcast, 4 themed landing pages, SmartAppBanner stacking fix, sedan image swap.
+> **Updated:** Jun 11, 2026 — adds Section J: mobile referral deep-linking, fleet studio-photo swap (user-provided black Mercedes/Escalade/Sprinter images), Android App Links fingerprint installed.
 >
 > **Environment to test:** PREVIEW (the Emergent preview URL). Do NOT click Deploy until this QA passes.
 >
@@ -134,7 +134,7 @@
 
 | # | Test | Expected |
 |---|------|----------|
-| 52 | Web: open homepage fleet section + `/airport`, `/wedding`, `/wine-tours`, `/corporate`, `/worldcup2026` | Executive Sedan photo is a BLACK Cadillac sedan (NOT a white Tesla) on every page |
+| 52 | Web: open homepage fleet section + `/airport`, `/wedding`, `/wine-tours`, `/corporate`, `/worldcup2026` | Executive Sedan photo is the BLACK Mercedes studio shot on white background (NOT a white Tesla, NOT the Chinese-signage Cadillac). First Class, Luxury SUV (Escalade) and Sprinter cards use the matching studio-style photos |
 | 53 | Web: open `/r/REF-XXXXXX` (use code from `/refer`) in incognito | Invite page renders with referrer first name + "$20 off"; WELCOME20 locked in (regression of step 23) |
 | 54 | Phone WITH app installed (after OTA + website deploy): tap a referral link `https://turanelitelimo.com/r/REF-XXXXXX` from Messages/WhatsApp | Opens the APP directly on a gold "You're invited" screen showing referrer's name and "$20 off your first ride" |
 | 55 | On that invite screen, tap "Claim $20 & Create Account" | Lands on signup tab with gold banner "_Name_'s invite is active — $20 off your first ride" |

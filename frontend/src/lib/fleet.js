@@ -10,7 +10,7 @@ export const FLEET = [
     pax: "1–3",
     bags: "3",
     note: "The standard for daily executive transport. Discreet, smooth, on time.",
-    img: "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
+    img: "/fleet/executive-sedan.jpg",
   },
   {
     name: "First Class",
@@ -18,7 +18,7 @@ export const FLEET = [
     pax: "1–3",
     bags: "3",
     note: "First-class flagship. Hush-quiet cabin, executive rear seating.",
-    img: "https://images.unsplash.com/photo-1609521247503-8de40462e427?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0",
+    img: "/fleet/first-class.jpg",
   },
   {
     name: "Luxury SUV",
@@ -26,7 +26,7 @@ export const FLEET = [
     pax: "1–6",
     bags: "6",
     note: "Captain's chairs, cavernous trunk, redefined comfort.",
-    img: "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&q=85&w=1600&ixlib=rb-4.1.0",
+    img: "/fleet/luxury-suv.jpg",
   },
   {
     name: "Stretch Limousine",
@@ -44,7 +44,7 @@ export const FLEET = [
     bags: "14",
     callOnly: true,
     note: "Standard group travel. Cloth or leather seating, AC, ample luggage. Best value for airport runs and team transport.",
-    img: "https://customer-assets.emergentagent.com/job_limo-experience-1/artifacts/z9hc1910_IMG_0001.webp",
+    img: "/fleet/sprinter.jpg",
   },
   {
     name: "Executive Sprinter",
@@ -53,7 +53,7 @@ export const FLEET = [
     bags: "12",
     callOnly: true,
     note: "Captain's chairs, leather, wood trim, partition. Corporate roadshows, executive groups, premium airport transfers.",
-    img: "https://customer-assets.emergentagent.com/job_limo-experience-1/artifacts/z9hc1910_IMG_0001.webp",
+    img: "/fleet/sprinter.jpg",
   },
   {
     name: "Jet Sprinter",
@@ -62,7 +62,7 @@ export const FLEET = [
     bags: "10",
     callOnly: true,
     note: "First-class recliners, mood lighting, premium bar, club sound. Weddings, prom, special events, VIP airport.",
-    img: "https://customer-assets.emergentagent.com/job_limo-experience-1/artifacts/z9hc1910_IMG_0001.webp",
+    img: "/fleet/sprinter.jpg",
   },
   {
     name: "Party Bus",

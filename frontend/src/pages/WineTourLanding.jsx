@@ -1,8 +1,8 @@
 import LandingPage from "@/components/LandingPage";
 
-const SUV_IMG = "https://images.unsplash.com/photo-1767749995450-7b63ab7cd4fd?crop=entropy&cs=srgb&fm=jpg&q=85&w=1600&ixlib=rb-4.1.0";
-const SPRINTER_IMG = "https://customer-assets.emergentagent.com/job_limo-experience-1/artifacts/z9hc1910_IMG_0001.webp";
-const SEDAN_IMG = "https://images.unsplash.com/photo-1657980928345-2c89a303a695?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0";
+const SUV_IMG = "/fleet/luxury-suv.jpg";
+const SPRINTER_IMG = "/fleet/sprinter.jpg";
+const SEDAN_IMG = "/fleet/executive-sedan.jpg";
 
 export default function WineTourLanding() {
   return (
@@ -48,7 +48,7 @@ export default function WineTourLanding() {
       gallery={[
         SUV_IMG, SPRINTER_IMG, SEDAN_IMG,
         "https://images.unsplash.com/photo-1545185105-a81262517cf4?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
-        "https://images.unsplash.com/photo-1609521247503-8de40462e427?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
+        "/fleet/first-class.jpg",
       ]}
       ctaEyebrow="Tomorrow's tasting day"
       ctaTitleA="Lock in your private chauffeur in"

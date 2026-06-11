@@ -57,9 +57,9 @@ export default function FleetPicker({ quote, selected, onSelect, supportPhone = 
               src={v.img}
               alt={v.name}
               loading="lazy"
-              className="absolute inset-0 w-full h-full object-cover opacity-65 group-hover:opacity-85 group-hover:scale-105 transition-all duration-700 pointer-events-none"
+              className="absolute inset-0 w-full h-full object-cover opacity-85 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700 pointer-events-none"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/10 pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-transparent pointer-events-none" />
 
             {isSelected && !callOnly && (
               <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-full bg-[#D4AF37] text-black text-[10px] font-semibold uppercase tracking-[0.2em] flex items-center gap-1">

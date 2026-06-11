@@ -40,9 +40,9 @@ export default function Fleet() {
               <img
                 src={v.img}
                 alt={v.name}
-                className="absolute inset-0 w-full h-full object-cover opacity-70 group-hover:opacity-90 group-hover:scale-105 transition-all duration-700"
+                className="absolute inset-0 w-full h-full object-cover opacity-85 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent" />
               <div className="relative h-full flex flex-col justify-end p-6 md:p-7">
                 <div className="flex items-center gap-2 text-[#D4AF37]/90 text-xs">
                   <Sparkles className="w-3.5 h-3.5" />

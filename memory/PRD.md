@@ -111,3 +111,36 @@ See `/app/memory/CHANGELOG.md` for full feature changelog and `/app/memory/ROADM
 
 ## Test Credentials
 See `/app/memory/test_credentials.md`
+
+## 2026-06-11 — Mobile Referral Deep-Linking + Fleet Studio Photos
+
+**Mobile identifiers (PERMANENT RECORD — do not lose):**
+- Android package: `com.turanelitelimo.app`
+- Play App Signing SHA-1: `AC:99:46:BC:C3:61:D6:53:3E:8A:CC:9A:9B:A4:71:E8:4C:A0:A0:09`
+- Play App Signing SHA-256: `C2:FE:8D:FC:75:5A:E4:6D:D1:84:C2:E5:5F:40:68:76:60:9E:33:BC:72:6A:3E:32:8C:64:0D:C1:3D:7C:B4:5D`
+- Apple Team IDs seen in history: `X5PCWL9H76` (used by build-ios.exp) and `9M7CK4W8HM` (older PRD) — AASA includes BOTH
+- iOS bundle: `com.turanelitelimo.app`, ASC App ID 6771610380
+
+**Deep-linking implemented:**
+- `/app/frontend/public/.well-known/apple-app-site-association` (scoped to /r/*, both team IDs)
+- `/app/frontend/public/.well-known/assetlinks.json` (real SHA-256 installed)
+- Mobile: `app/r/[code].tsx` invite screen, `src/referral.ts` pending-code storage, auth.tsx signup banner + referred_by_code, SocialSignInButtons pass code on Apple/Google
+- Backend: SocialLoginRequest.referred_by_code; _login_or_link_social attributes referrer on NEW social accounts only
+- app.json: Android intentFilter scoped pathPrefix /r (needs new native build to apply; existing builds match all paths which is a superset, OK)
+- craco devServer: /m/* SPA fallback rewrite; InteractiveMap.web.tsx stub fixes expo web export
+- Tested e2e: link → invite screen → signup → referred_by in DB ✓ (web /m demo + curl + direct unit test of social path)
+
+**Fleet studio images (user-provided, white-bg side profiles):**
+- Web serves cropped versions: `/fleet/executive-sedan.jpg`, `/fleet/first-class.jpg`, `/fleet/luxury-suv.jpg`, `/fleet/sprinter.jpg` (in frontend/public/fleet/, 1600x864)
+- Mobile uses `https://turanelitelimo.com/fleet/*.jpg` (live after web deploy)
+- Originals on customer-assets: whmcsomm_4E881F51 (exec sedan), ee1xq2fw_E7451852 (first class), mss04701_68AACA5D (Escalade), 8kl4awce_B9271A1E (Sprinter)
+- White Tesla photo removed from all 7 web pages; Fleet/FleetPicker overlays lightened (opacity-85, via-black/30-35)
+
+**QA plan now 58 steps** (Section J added: steps 52-58 for deep links + photos).
+
+**PENDING / NEXT:**
+1. User runs 58-step QA via CAI → fix any failures
+2. User deploys website (puts AASA + assetlinks + /fleet images live)
+3. Push OTA update (`eas update --channel production`) so existing app installs get invite screen + new images — EXPO_TOKEN in watch-and-submit.sh
+4. Optional: new EAS native build (applies Android pathPrefix /r scoping; not blocking — old filter is superset)
+5. P2 backlog: Saved Cards / 1-tap rebooking (Stripe SetupIntent); P3: Apple account linking
