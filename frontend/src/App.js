@@ -23,6 +23,7 @@ import AirportLanding from "@/pages/AirportLanding";
 import WeddingLanding from "@/pages/WeddingLanding";
 import WineTourLanding from "@/pages/WineTourLanding";
 import CorporateLanding from "@/pages/CorporateLanding";
+import PartyBusLanding from "@/pages/PartyBusLanding";
 import ReferralRedirect from "@/pages/ReferralRedirect";
 import MyReferrals from "@/pages/MyReferrals";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
@@ -77,6 +78,11 @@ function App() {
           <Route path="/corporate" element={<CorporateLanding />} />
           <Route path="/corporate-chauffeur" element={<CorporateLanding />} />
           <Route path="/silicon-valley-chauffeur" element={<CorporateLanding />} />
+          <Route path="/party-bus" element={<PartyBusLanding />} />
+          <Route path="/party-bus-rental" element={<PartyBusLanding />} />
+          <Route path="/party-bus-san-francisco" element={<PartyBusLanding />} />
+          <Route path="/party-bus-bay-area" element={<PartyBusLanding />} />
+          <Route path="/limo-bus" element={<PartyBusLanding />} />
           <Route path="/r/:code" element={<ReferralRedirect />} />
           <Route path="/refer" element={<MyReferrals />} />
           <Route path="/admin/login" element={<AdminLogin />} />
