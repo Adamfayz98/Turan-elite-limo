@@ -11,6 +11,14 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Android:** Closed Testing on Play Console (Build #23).
 
 
+
+## 🔔 Active Reminder (Jun 13, 2026)
+- **iOS native build is failing at "Install pods" 3× in a row** — needs revisit.
+  - OTA update is already live on production (build group `49d51794-ffbf-4cb8-b377-898791f58ffd`) so all current JS code (referral screen, new fleet images, party-bus route) is deployed to existing TestFlight 41 / Play 23 installs.
+  - Android native build is in progress (build #25, versionCode 25) and will auto-submit to Play Store Closed Testing.
+  - **iOS Universal Links** (tapping `https://turanelitelimo.com/r/REF-XXX` opens app) won't work until iOS native build #48+ succeeds. Until then, iOS taps fall back to Safari web invite page.
+  - **Next attempt**: ask user (or someone with a laptop) to copy the last 50 red error lines from `https://expo.dev/accounts/adamfayz98/projects/turanelitelimo/builds/8f5b6b1a-cc2e-4297-9d23-7329392120b7` — most likely cause is `associatedDomains` entitlement missing on App ID at developer.apple.com. Workaround: temporarily drop `associatedDomains` from `app.json` iOS section, ship build, add later.
+
 ## Recent Changes (this session)
 - ✅ **Fleet vehicle imagery overhaul** — Feb 12, 2026
   - User uploaded 6 new studio shots (Cadillac XTS, Mercedes S-Class, Cadillac Escalade ESV, Mercedes Sprinter, Hummer Stretch, Party Bus).
