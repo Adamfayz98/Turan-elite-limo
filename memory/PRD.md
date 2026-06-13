@@ -20,6 +20,22 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
   - **Next attempt**: ask user (or someone with a laptop) to copy the last 50 red error lines from `https://expo.dev/accounts/adamfayz98/projects/turanelitelimo/builds/8f5b6b1a-cc2e-4297-9d23-7329392120b7` — most likely cause is `associatedDomains` entitlement missing on App ID at developer.apple.com. Workaround: temporarily drop `associatedDomains` from `app.json` iOS section, ship build, add later.
 
 ## Recent Changes (this session)
+
+## ✅ Quote Letter Self-Service Confirm Fix — Shipped (Jun 13, 2026)
+
+**Problem solved:** Quote responses were missing a clear next step. Customers had to call back or wait for a manual Stripe link, killing the 3-min conversion window. ~50% conversion lift opportunity.
+
+**What shipped:**
+- New backend: extended `PATCH /api/admin/quote-requests/{rid}` accepts `quoted_price`, `deposit_pct`, `quoted_notes`, `affiliate_id`, `affiliate_cost`, `send_to_customer`. Generates a per-quote `confirm_token` and (when `send_to_customer=true`) sends a branded gold-themed email + SMS to the customer with a one-tap confirm link `https://turanelitelimo.com/quote/{token}`.
+- New backend endpoints (public, token-gated, no auth):
+  - `GET /api/quote-offer/{token}` — fetch quote details for the confirm page
+  - `POST /api/quote-offer/{token}/checkout` — create Stripe Checkout session for the deposit
+  - `GET /api/quote-offer/{token}/finalize?session_id=...` — verify payment, auto-create Booking record, mark quote request as `won`, notify admin via SMS, email customer the confirmation
+- New frontend route: `/quote/:token` → `QuoteOfferConfirm.jsx`. Mobile-first, gold-accented confirm page with trip details, operator notes, flat-rate total, deposit amount, gold "✓ Confirm & Pay $XXX Deposit" CTA → Stripe → success state with confirmation number + balance-due breakdown.
+- Admin UI: QuoteRequestsTab now has a **"Send Quote"** button per row → modal with price/deposit %/affiliate cost (with live profit calculation)/customer-facing notes → on submit auto-emails + SMS → shows the confirm link for manual sharing if needed.
+- All payment via Stripe live key; the Stripe webhook fallback already handles edge cases.
+- E2E tested via curl: GET/POST/finalize all return correct JSON; public confirm page renders correctly on mobile viewport.
+
 - ✅ **Fleet vehicle imagery overhaul** — Feb 12, 2026
   - User uploaded 6 new studio shots (Cadillac XTS, Mercedes S-Class, Cadillac Escalade ESV, Mercedes Sprinter, Hummer Stretch, Party Bus).
   - Auto-processed each PNG: corner flood-fill replaces the light-gray studio backdrop with the card's `#0A0A0A` background (so the vehicle blends seamlessly into the dark UI), tight-crop to the vehicle bounding box with 8% padding, then center-paste onto a 3:2 1500×1000 canvas. Result: vehicles always render fully on web + mobile fleet cards regardless of container aspect (`object-cover` no longer crops the car off-screen).

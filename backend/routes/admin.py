@@ -503,17 +503,430 @@ async def admin_push_history(_: dict = Depends(require_admin)):
 
 
 @router.patch("/admin/quote-requests/{rid}")
-async def admin_update_quote_request(rid: str, payload: dict, _: dict = Depends(require_admin)):
-    update = {}
-    if "status" in payload and payload["status"] in {"new", "contacted", "won", "lost"}:
+async def admin_update_quote_request(rid: str, payload: dict, request: Request, _: dict = Depends(require_admin)):
+    """Update a quote request. Supports plain status flips AND the richer
+    "send the customer a quote with a one-tap confirm link" flow.
+
+    Accepted payload fields:
+      • status: new | contacted | quoted | won | lost
+      • quoted_price: dollars (number)
+      • deposit_pct: 0-100 (default 50)
+      • quoted_notes: free-text shown to customer on confirm page
+      • affiliate_id: optional, linked at booking time
+      • affiliate_cost: optional, what we pay the affiliate
+      • send_to_customer: bool — when true (and quoted_price/email present),
+        emails the customer the confirm link.
+    """
+    q = await db.quote_requests.find_one({"id": rid}, {"_id": 0})
+    if not q:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    update: dict = {}
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    valid_statuses = {"new", "contacted", "quoted", "won", "lost"}
+    if "status" in payload and payload["status"] in valid_statuses:
         update["status"] = payload["status"]
-        update["status_updated_at"] = datetime.now(timezone.utc).isoformat()
+        update["status_updated_at"] = now_iso
+
+    # Quote price (dollars). Generates a confirm_token the first time we set a price.
+    if "quoted_price" in payload and payload["quoted_price"] is not None:
+        try:
+            price = round(float(payload["quoted_price"]), 2)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="quoted_price must be a number")
+        if price < 1 or price > 50000:
+            raise HTTPException(status_code=400, detail="quoted_price out of range")
+        update["quoted_price"] = price
+        update["quoted_at"] = now_iso
+        # Auto-flip status to "quoted" if not explicitly overridden
+        if "status" not in update:
+            update["status"] = "quoted"
+            update["status_updated_at"] = now_iso
+
+    if "deposit_pct" in payload and payload["deposit_pct"] is not None:
+        try:
+            dp = float(payload["deposit_pct"])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="deposit_pct must be a number")
+        if dp < 0 or dp > 100:
+            raise HTTPException(status_code=400, detail="deposit_pct must be 0-100")
+        update["deposit_pct"] = dp
+
+    if "quoted_notes" in payload:
+        update["quoted_notes"] = (payload.get("quoted_notes") or "")[:1000]
+
+    if "affiliate_id" in payload:
+        update["affiliate_id"] = payload.get("affiliate_id") or None
+    if "affiliate_cost" in payload and payload["affiliate_cost"] is not None:
+        try:
+            update["affiliate_cost"] = round(float(payload["affiliate_cost"]), 2)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="affiliate_cost must be a number")
+
+    # First time we're quoting → mint a confirm token
+    if update.get("quoted_price") and not q.get("confirm_token"):
+        import secrets as _secrets
+        update["confirm_token"] = _secrets.token_urlsafe(24)
+
     if not update:
         raise HTTPException(status_code=400, detail="No valid fields to update")
+
     r = await db.quote_requests.update_one({"id": rid}, {"$set": update})
     if not r.matched_count:
         raise HTTPException(status_code=404, detail="Not found")
-    return {"ok": True}
+
+    # Refresh
+    q = await db.quote_requests.find_one({"id": rid}, {"_id": 0})
+
+    # Optionally send the customer the quote email (with one-tap confirm link).
+    sent_to = None
+    if payload.get("send_to_customer") and q.get("quoted_price") and q.get("confirm_token"):
+        origin = _frontend_origin_from_request(request)
+        confirm_url = f"{origin}/quote/{q['confirm_token']}"
+        try:
+            if q.get("email"):
+                html = _render_quote_offer_email(q, confirm_url)
+                subj = f"Your TuranEliteLimo quote · ${q['quoted_price']:.2f}"
+                await send_email(to=q["email"], subject=subj, html=html)
+                sent_to = q["email"]
+        except Exception as e:
+            logger.warning(f"Quote-offer email send failed: {e}")
+        # Always SMS too — most limo customers reply faster on text
+        try:
+            phone_raw = (q.get("phone") or "").strip()
+            if phone_raw:
+                deposit_pct = q.get("deposit_pct", 50)
+                deposit_amt = round(float(q["quoted_price"]) * float(deposit_pct) / 100.0, 2)
+                sms = (
+                    f"TuranEliteLimo · Your quote is ready 🚘\n"
+                    f"{q['vehicle_type']} · ${q['quoted_price']:.0f} flat\n"
+                    f"Tap to confirm & pay ${deposit_amt:.0f} deposit:\n"
+                    f"{confirm_url}"
+                )
+                await sms_service.send_sms(phone_raw, sms)
+        except Exception as e:
+            logger.warning(f"Quote-offer SMS send failed: {e}")
+
+    return {
+        "ok": True,
+        "confirm_token": q.get("confirm_token"),
+        "confirm_url": f"{_frontend_origin_from_request(request)}/quote/{q['confirm_token']}" if q.get("confirm_token") else None,
+        "sent_to": sent_to,
+        "quote": q,
+    }
+
+
+def _render_quote_offer_email(q: dict, confirm_url: str) -> str:
+    """Branded email sent to the customer with the trip details + a single
+    bold "Confirm & Pay Deposit" CTA button that opens the public quote page."""
+    price = float(q.get("quoted_price") or 0)
+    dp_pct = float(q.get("deposit_pct") or 50)
+    deposit = round(price * dp_pct / 100.0, 2)
+    notes = (q.get("quoted_notes") or "").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+
+    def row(label, value):
+        if not value:
+            return ""
+        v = str(value).replace("<", "&lt;").replace(">", "&gt;")
+        return (
+            f'<tr><td style="padding:9px 0;color:#888;font-size:11px;text-transform:uppercase;'
+            f'letter-spacing:.18em;width:42%;">{label}</td>'
+            f'<td style="padding:9px 0;color:#fff;font-size:14px;font-weight:500;">{v}</td></tr>'
+        )
+
+    rows = "".join([
+        row("Vehicle", q.get("vehicle_type")),
+        row("Date / Time", f"{q.get('pickup_date','')} {q.get('pickup_time','')}".strip()),
+        row("Pickup", q.get("pickup_location")),
+        row("Drop-off", q.get("dropoff_location")),
+        row("Passengers", q.get("passengers")),
+        row("Occasion", q.get("occasion")),
+    ])
+
+    notes_block = (
+        f'<div style="margin:24px 0 0 0;padding:16px 20px;background:rgba(212,175,55,0.06);'
+        f'border:1px solid rgba(212,175,55,0.2);border-radius:10px;color:#e8d9a6;'
+        f'font-size:13px;line-height:1.7;">{notes}</div>'
+    ) if notes else ""
+
+    return f"""<!doctype html>
+<html><body style="margin:0;background:#050505;color:#eee;font-family:-apple-system,Segoe UI,Roboto,sans-serif;">
+<table cellpadding=0 cellspacing=0 width="100%" style="background:#050505;padding:36px 0;">
+  <tr><td align="center">
+    <table cellpadding=0 cellspacing=0 width="600" style="background:#0c0c0c;border:1px solid #1c1c1c;border-radius:16px;overflow:hidden;">
+      <tr><td style="padding:30px 36px 24px 36px;background:linear-gradient(135deg,#1a1410 0%,#0c0c0c 100%);">
+        <div style="color:#D4AF37;font-size:11px;text-transform:uppercase;letter-spacing:.3em;font-weight:600;">TuranEliteLimo</div>
+        <div style="color:#fff;font-size:22px;margin-top:14px;font-weight:600;letter-spacing:-0.01em;">Your quote is ready, {(q.get("full_name") or "").split(" ")[0]}</div>
+        <div style="color:#aaa;font-size:14px;margin-top:8px;line-height:1.6;">Here are the trip details. Tap the gold button below to confirm and lock in your booking with a {dp_pct:.0f}% deposit.</div>
+      </td></tr>
+
+      <tr><td style="padding:24px 36px 8px 36px;">
+        <table cellpadding=0 cellspacing=0 width="100%" style="border-collapse:collapse;">{rows}</table>
+      </td></tr>
+
+      <tr><td style="padding:8px 36px 0 36px;">
+        <table cellpadding=0 cellspacing=0 width="100%" style="border-top:1px solid #1c1c1c;margin-top:10px;">
+          <tr><td style="padding:18px 0 6px 0;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.18em;">Total · flat rate</td>
+              <td style="padding:18px 0 6px 0;text-align:right;color:#D4AF37;font-size:26px;font-weight:600;">${price:,.2f}</td></tr>
+          <tr><td style="padding:0 0 4px 0;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.18em;">Deposit due today</td>
+              <td style="padding:0 0 4px 0;text-align:right;color:#fff;font-size:18px;font-weight:600;">${deposit:,.2f}</td></tr>
+          <tr><td colspan=2 style="padding:6px 0 0 0;color:#666;font-size:11px;line-height:1.6;">Remaining balance charged the day before service. Gratuity not included.</td></tr>
+        </table>
+      </td></tr>
+
+      {f'<tr><td style="padding:0 36px;">{notes_block}</td></tr>' if notes else ''}
+
+      <tr><td style="padding:30px 36px 8px 36px;" align="center">
+        <a href="{confirm_url}" style="display:inline-block;padding:16px 38px;background:#D4AF37;color:#0a0a0a;text-decoration:none;border-radius:999px;font-weight:700;font-size:14px;letter-spacing:0.02em;">
+          ✓ Confirm &amp; Pay ${deposit:,.0f} Deposit →
+        </a>
+        <div style="color:#666;font-size:11px;margin-top:14px;line-height:1.6;">Secure payment via Stripe · Or call us at (650) 410-0687</div>
+      </td></tr>
+
+      <tr><td style="padding:24px 36px 30px 36px;color:#555;font-size:11px;line-height:1.7;text-align:center;border-top:1px solid #1c1c1c;margin-top:18px;">
+        Free cancellation up to 7 days before service · 50% fee inside 7 days · Non-refundable inside 48 hrs.<br>
+        This quote is valid for 48 hours. After that, prices and availability may change.
+      </td></tr>
+    </table>
+    <div style="color:#444;font-size:10px;margin-top:18px;">TuranEliteLimo · Bay Area · (650) 410-0687 · turanelitelimo.com</div>
+  </td></tr>
+</table>
+</body></html>"""
+
+
+# ---------- Public quote-offer endpoints (no auth, signed token) ----------
+
+@router.get("/quote-offer/{token}")
+async def public_get_quote_offer(token: str):
+    """Public endpoint — fetches a quote-offer by signed token. Used by the
+    /quote/[token] page to render trip details before payment."""
+    if not token or len(token) < 16:
+        raise HTTPException(status_code=404, detail="Invalid link")
+    q = await db.quote_requests.find_one({"confirm_token": token}, {"_id": 0})
+    if not q or not q.get("quoted_price"):
+        raise HTTPException(status_code=404, detail="Quote not found or expired")
+    if q.get("confirmed_at") and q.get("booking_id"):
+        return {
+            "already_confirmed": True,
+            "booking_id": q["booking_id"],
+            "vehicle_type": q["vehicle_type"],
+            "full_name": q.get("full_name"),
+            "quoted_price": q.get("quoted_price"),
+        }
+    price = float(q.get("quoted_price") or 0)
+    dp_pct = float(q.get("deposit_pct") or 50)
+    deposit = round(price * dp_pct / 100.0, 2)
+    return {
+        "id": q["id"],
+        "full_name": q.get("full_name"),
+        "vehicle_type": q.get("vehicle_type"),
+        "pickup_date": q.get("pickup_date"),
+        "pickup_time": q.get("pickup_time"),
+        "pickup_location": q.get("pickup_location"),
+        "dropoff_location": q.get("dropoff_location"),
+        "passengers": q.get("passengers"),
+        "occasion": q.get("occasion"),
+        "quoted_price": price,
+        "deposit_pct": dp_pct,
+        "deposit_amount": deposit,
+        "quoted_notes": q.get("quoted_notes"),
+        "quoted_at": q.get("quoted_at"),
+    }
+
+
+@router.post("/quote-offer/{token}/checkout")
+async def public_quote_offer_checkout(token: str, payload: dict, request: Request):
+    """Creates a Stripe Checkout session for the deposit. Returns the URL."""
+    q = await db.quote_requests.find_one({"confirm_token": token}, {"_id": 0})
+    if not q or not q.get("quoted_price"):
+        raise HTTPException(status_code=404, detail="Quote not found")
+    if q.get("confirmed_at"):
+        raise HTTPException(status_code=400, detail="This quote has already been confirmed.")
+
+    price = float(q["quoted_price"])
+    dp_pct = float(q.get("deposit_pct") or 50)
+    deposit = round(price * dp_pct / 100.0, 2)
+    if deposit < 0.5:
+        raise HTTPException(status_code=400, detail="Deposit amount too small.")
+
+    origin = (payload or {}).get("origin_url") or _frontend_origin_from_request(request)
+    origin = origin.rstrip("/")
+    success_url = f"{origin}/quote/{token}?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/quote/{token}"
+
+    checkout = _get_stripe_checkout(request)
+    session = await checkout.create_checkout_session(
+        CheckoutSessionRequest(
+            amount=deposit,
+            currency="usd",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "quote_request_id": q["id"],
+                "confirm_token": token,
+                "kind": "quote_offer_deposit",
+                "customer_email": q.get("email") or "",
+                "customer_name": q.get("full_name") or "",
+            },
+        )
+    )
+
+    await db.quote_requests.update_one(
+        {"id": q["id"]},
+        {"$set": {
+            "deposit_session_id": session.session_id,
+            "deposit_amount_pending": deposit,
+        }},
+    )
+    return {"url": session.url, "session_id": session.session_id, "amount": deposit}
+
+
+@router.get("/quote-offer/{token}/finalize")
+async def public_quote_offer_finalize(token: str, session_id: str, request: Request):
+    """Customer returned from Stripe — verify payment, mark quote won,
+    auto-create a Booking, and notify admin. Idempotent."""
+    q = await db.quote_requests.find_one({"confirm_token": token}, {"_id": 0})
+    if not q:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    if q.get("confirmed_at") and q.get("booking_id"):
+        # Already finalized — return cached state
+        return {
+            "ok": True,
+            "already_confirmed": True,
+            "booking_id": q["booking_id"],
+        }
+
+    if q.get("deposit_session_id") != session_id:
+        raise HTTPException(status_code=400, detail="Session does not match this quote.")
+
+    # Verify with Stripe (use existing sync helper, wrapped in to_thread)
+    try:
+        import asyncio as _asyncio
+        s = await _asyncio.to_thread(_stripe_retrieve_session, session_id)
+        if not s:
+            raise RuntimeError("Stripe not configured or session missing")
+        paid = s.get("payment_status") == "paid" or s.get("status") == "complete"
+    except Exception as e:
+        logger.error(f"Stripe session retrieve failed: {e}")
+        raise HTTPException(status_code=502, detail="Could not verify payment with Stripe")
+
+    if not paid:
+        return {"ok": False, "paid": False, "status": s.get("payment_status")}
+
+    # Create the booking now. Use the existing bookings collection schema.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    booking_id = str(uuid.uuid4())
+    confirmation_number = _next_confirmation_number()
+    manage_token = secrets.token_urlsafe(24)
+    deposit_amt = float(q.get("deposit_amount_pending") or 0)
+    total_amt = float(q.get("quoted_price") or 0)
+
+    booking_doc = {
+        "id": booking_id,
+        "confirmation_number": confirmation_number,
+        "manage_token": manage_token,
+        "name": q.get("full_name") or "",
+        "email": q.get("email") or "",
+        "phone": q.get("phone") or "",
+        "vehicle_type": q.get("vehicle_type"),
+        "pickup_location": q.get("pickup_location") or "",
+        "dropoff_location": q.get("dropoff_location") or "",
+        "pickup_date": q.get("pickup_date") or "",
+        "pickup_time": q.get("pickup_time") or "",
+        "passengers": q.get("passengers") or 1,
+        "occasion": q.get("occasion") or "",
+        "notes": q.get("notes") or "",
+        "amount": total_amt,
+        "deposit_paid": deposit_amt,
+        "balance_due": round(total_amt - deposit_amt, 2),
+        "currency": "usd",
+        "status": "confirmed",
+        "payment_status": "deposit_paid",
+        "is_read": False,
+        "source": "quote_offer",
+        "quote_request_id": q["id"],
+        "affiliate_id": q.get("affiliate_id"),
+        "affiliate_cost": q.get("affiliate_cost"),
+        "stripe_session_id": session_id,
+        "created_at": now_iso,
+    }
+    await db.bookings.insert_one(booking_doc.copy())
+
+    # Mark the quote request as won + link the booking
+    await db.quote_requests.update_one(
+        {"id": q["id"]},
+        {"$set": {
+            "status": "won",
+            "confirmed_at": now_iso,
+            "booking_id": booking_id,
+            "confirmation_number": confirmation_number,
+            "status_updated_at": now_iso,
+        }},
+    )
+
+    # Notify admin
+    try:
+        admin_to = sms_service.admin_phone()
+        if admin_to:
+            sms = (
+                f"🎉 QUOTE WON · ${total_amt:.0f}\n"
+                f"{q.get('full_name')} · {q.get('vehicle_type')}\n"
+                f"Deposit ${deposit_amt:.0f} paid · #{confirmation_number}"
+            )
+            await sms_service.send_sms(admin_to, sms)
+    except Exception as e:
+        logger.warning(f"Quote-won admin SMS failed: {e}")
+
+    # Customer confirmation email — simple inline
+    try:
+        if q.get("email"):
+            balance = round(total_amt - deposit_amt, 2)
+            customer_html = f"""<!doctype html>
+<html><body style="margin:0;background:#050505;color:#eee;font-family:-apple-system,Segoe UI,Roboto,sans-serif;">
+<table width="100%" cellpadding=0 cellspacing=0 style="padding:36px 0;background:#050505;">
+  <tr><td align="center"><table width="600" cellpadding=0 cellspacing=0 style="background:#0c0c0c;border:1px solid #1c1c1c;border-radius:16px;overflow:hidden;">
+    <tr><td style="padding:34px 36px;background:linear-gradient(135deg,#1a3a1f 0%,#0c0c0c 100%);">
+      <div style="color:#a3e6b3;font-size:11px;text-transform:uppercase;letter-spacing:.3em;font-weight:600;">Booking confirmed</div>
+      <div style="color:#fff;font-size:24px;margin-top:14px;font-weight:600;">Thank you, {(q.get("full_name") or "").split(" ")[0]} — you're booked.</div>
+      <div style="color:#aaa;font-size:14px;margin-top:10px;">Confirmation #{confirmation_number}</div>
+    </td></tr>
+    <tr><td style="padding:24px 36px;">
+      <div style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.18em;">Trip</div>
+      <div style="color:#fff;font-size:14px;line-height:1.8;margin-top:8px;">
+        {q.get("vehicle_type") or ""}<br>
+        {q.get("pickup_date") or ""} {q.get("pickup_time") or ""}<br>
+        From: {q.get("pickup_location") or "—"}<br>
+        To: {q.get("dropoff_location") or "—"}
+      </div>
+      <div style="margin-top:24px;padding-top:18px;border-top:1px solid #1c1c1c;">
+        <table width="100%"><tr><td style="color:#888;font-size:12px;">Total</td><td align="right" style="color:#fff;font-size:14px;">${total_amt:,.2f}</td></tr>
+        <tr><td style="color:#888;font-size:12px;padding-top:4px;">Deposit paid</td><td align="right" style="color:#86efac;font-size:14px;padding-top:4px;">${deposit_amt:,.2f}</td></tr>
+        <tr><td style="color:#888;font-size:12px;padding-top:4px;">Balance due day-before</td><td align="right" style="color:#fff;font-size:14px;padding-top:4px;">${balance:,.2f}</td></tr></table>
+      </div>
+    </td></tr>
+    <tr><td style="padding:6px 36px 30px 36px;color:#666;font-size:11px;line-height:1.7;border-top:1px solid #1c1c1c;">
+      Questions? Call (650) 410-0687 or reply to this email.
+    </td></tr>
+  </table></td></tr></table></body></html>"""
+            await send_email(
+                to=q["email"],
+                subject=f"Booking confirmed · #{confirmation_number}",
+                html=customer_html,
+            )
+    except Exception as e:
+        logger.warning(f"Quote-confirmation customer email failed: {e}")
+
+    return {
+        "ok": True,
+        "paid": True,
+        "booking_id": booking_id,
+        "confirmation_number": confirmation_number,
+        "manage_token": manage_token,
+        "amount_paid": deposit_amt,
+        "total": total_amt,
+    }
 
 
 @router.delete("/admin/quote-requests/{rid}")
