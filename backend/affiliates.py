@@ -12,6 +12,7 @@ Routes mounted in server.py via `include_router(affiliates_router)`.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -20,6 +21,62 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 
 router = APIRouter(prefix="/admin/affiliates", tags=["affiliates"])
+
+
+# ----- standardized service regions (used by chips & suggestion engine) ----
+# Each region maps to a list of substrings (lowercase) we look for in the
+# pickup/dropoff free-text. Order matters — first match wins.
+REGION_KEYWORDS: dict[str, list[str]] = {
+    "Bay Area": [
+        "san francisco", "sfo", " sf,", " sf ", "oakland", "berkeley", "san mateo",
+        "burlingame", "south sf", "south san francisco", "daly city", "san bruno",
+        "palo alto", "menlo park", "redwood city", "mountain view", "sunnyvale",
+        "san jose", "sjc", "santa clara", "milpitas", "cupertino", "fremont",
+        "hayward", "san leandro", "alameda", "richmond", "el cerrito", "albany",
+        "marin", "sausalito", "san rafael", "novato", "tiburon",
+        "walnut creek", "concord", "pleasanton", "dublin", "livermore",
+        "half moon bay", "pacifica",
+    ],
+    "Wine Country": [
+        "napa", "sonoma", "yountville", "st. helena", "st helena", "calistoga",
+        "rutherford", "healdsburg", "windsor, ca", "kenwood", "glen ellen",
+    ],
+    "Sacramento": [
+        "sacramento", "elk grove", "rancho cordova", "folsom", "el dorado hills",
+        "roseville", "rocklin", "lincoln, ca", "auburn", "granite bay",
+        "citrus heights", "carmichael", "fair oaks", "orangevale", "antelope",
+        "natomas", "north highlands", "smf",
+    ],
+    "Tahoe / Reno": [
+        "lake tahoe", "south lake tahoe", "tahoe city", "kings beach", "incline village",
+        "truckee", "northstar", "heavenly", "squaw valley", "olympic valley",
+        "alpine meadows", "reno, nv", "sparks, nv",
+    ],
+    "Monterey / Carmel": [
+        "monterey", "carmel", "pebble beach", "pacific grove", "salinas",
+        "big sur", "carmel valley", "marina, ca", "seaside, ca",
+    ],
+    "Central Valley": [
+        "stockton", "modesto", "tracy, ca", "manteca", "lodi, ca", "merced",
+        "fresno", "turlock", "ceres,",
+    ],
+}
+
+REGIONS: list[str] = list(REGION_KEYWORDS.keys())
+
+
+def detect_region(*texts: str) -> Optional[str]:
+    """Given one or more pickup/dropoff strings, return the first matching
+    region name. Returns None if nothing matches."""
+    blob = " ".join((t or "").lower() for t in texts if t)
+    if not blob.strip():
+        return None
+    for region, keywords in REGION_KEYWORDS.items():
+        for kw in keywords:
+            # Word-boundary or substring (substring is fine — keywords are specific)
+            if kw in blob:
+                return region
+    return None
 
 
 # ----- models ---------------------------------------------------------------
@@ -202,6 +259,44 @@ def _build_router():
         if not result.matched_count:
             raise HTTPException(status_code=404, detail="Booking not found")
         return {"ok": True}
+
+    @r.get("/regions")
+    async def list_regions(_=Depends(require_admin)):
+        """Returns the standardized region names used by chips/filters."""
+        return {"regions": REGIONS}
+
+    @r.get("/suggest")
+    async def suggest_affiliates(
+        pickup: str = "",
+        dropoff: str = "",
+        region: str = "",
+        vehicle_type: str = "",
+        _=Depends(require_admin),
+    ):
+        """Suggest active affiliates that can fulfill a given trip. Accepts
+        either an explicit `region` OR free-text `pickup` + `dropoff` strings
+        (we detect the region automatically)."""
+        detected = (region or "").strip() or detect_region(pickup, dropoff)
+        query: dict = {"active": True}
+        if detected:
+            query["service_areas"] = detected
+        if vehicle_type:
+            # case-insensitive substring match against the affiliate's
+            # vehicle_types array
+            query["vehicle_types"] = {
+                "$elemMatch": {"$regex": re.escape(vehicle_type), "$options": "i"}
+            }
+
+        results = []
+        async for doc in db.affiliates.find(query, {"_id": 0}).sort("name", 1):
+            results.append(doc)
+
+        return {
+            "detected_region": detected,
+            "vehicle_type_filter": vehicle_type or None,
+            "count": len(results),
+            "affiliates": results,
+        }
 
     return r
 

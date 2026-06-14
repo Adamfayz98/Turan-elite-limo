@@ -50,6 +50,8 @@ export default function AffiliatesTab() {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [regionFilter, setRegionFilter] = useState("All");
+  const [regions, setRegions] = useState([]);
 
   const load = async () => {
     setLoading(true);
@@ -63,6 +65,13 @@ export default function AffiliatesTab() {
     }
   };
 
+  // Load the standardized region list once
+  useEffect(() => {
+    api.get("/admin/affiliates/regions")
+      .then((res) => setRegions(res.data?.regions || []))
+      .catch(() => setRegions([]));
+  }, []);
+
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [showInactive]);
 
   const totals = useMemo(() => {
@@ -70,6 +79,21 @@ export default function AffiliatesTab() {
     const profit = items.reduce((sum, a) => sum + (a.profit_total || 0), 0);
     return { rides, profit };
   }, [items]);
+
+  // Filter the visible list by region pill
+  const filteredItems = useMemo(() => {
+    if (regionFilter === "All") return items;
+    return items.filter((a) => (a.service_areas || []).includes(regionFilter));
+  }, [items, regionFilter]);
+
+  // Per-region counts for the pill badges
+  const regionCounts = useMemo(() => {
+    const out = { All: items.length };
+    for (const r of regions) {
+      out[r] = items.filter((a) => (a.service_areas || []).includes(r)).length;
+    }
+    return out;
+  }, [items, regions]);
 
   const save = async () => {
     if (!editing) return;
@@ -157,21 +181,54 @@ export default function AffiliatesTab() {
         </label>
       </div>
 
+      {/* Region filter pills */}
+      {regions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" data-testid="affiliates-region-filter">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-white/40 mr-1">Region</span>
+          {["All", ...regions].map((r) => {
+            const active = regionFilter === r;
+            const count = regionCounts[r] || 0;
+            return (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRegionFilter(r)}
+                data-testid={`affiliates-region-pill-${r.replace(/\s+/g, "-").toLowerCase()}`}
+                className={`px-3 py-1.5 rounded-full text-xs border transition ${
+                  active
+                    ? "bg-[#D4AF37] text-black border-[#D4AF37]"
+                    : "bg-white/[0.02] text-white/65 border-white/10 hover:border-white/25"
+                }`}
+              >
+                {r}
+                <span className={`ml-1.5 text-[10px] ${active ? "text-black/60" : "text-white/40"}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Affiliate list */}
       {loading ? (
         <div className="flex items-center gap-2 text-white/55 py-12 justify-center">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading affiliates...
         </div>
-      ) : items.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <div className="border border-dashed border-white/15 rounded-2xl p-10 text-center" data-testid="affiliates-empty">
-          <p className="text-white/55 text-sm">No affiliates added yet.</p>
+          <p className="text-white/55 text-sm">
+            {regionFilter === "All"
+              ? "No affiliates added yet."
+              : `No affiliates cover ${regionFilter} yet.`}
+          </p>
           <p className="text-white/35 text-xs mt-2 max-w-md mx-auto">
             Add Sacramento, Tahoe, Monterey, Napa or other partner operators here so you can broker out-of-territory rides without owning the vehicles.
           </p>
         </div>
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map((a) => (
+          {filteredItems.map((a) => (
             <div
               key={a.id}
               data-testid={`affiliate-card-${a.id}`}
@@ -359,6 +416,35 @@ export default function AffiliatesTab() {
                   placeholder="Sacramento, Davis, Stockton, Lake Tahoe"
                   className="bg-[#0E0E0E] border-[#27272A] mt-1"
                 />
+                {regions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    <span className="text-[10px] uppercase tracking-wider text-white/35 self-center mr-1">Quick-add:</span>
+                    {regions.map((r) => {
+                      const current = csvToArray(editing.service_areas);
+                      const selected = current.includes(r);
+                      return (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => {
+                            const next = selected
+                              ? current.filter((x) => x !== r)
+                              : [...current, r];
+                            setEditing({ ...editing, service_areas: next.join(", ") });
+                          }}
+                          data-testid={`affiliate-region-chip-${r.replace(/\s+/g, "-").toLowerCase()}`}
+                          className={`px-2 py-0.5 rounded-full text-[10px] border transition ${
+                            selected
+                              ? "bg-[#D4AF37] text-black border-[#D4AF37]"
+                              : "bg-white/[0.02] text-white/55 border-white/10 hover:border-[#D4AF37]/40"
+                          }`}
+                        >
+                          {selected ? "✓ " : "+ "}{r}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
               <div className="sm:col-span-2">
                 <Label className="text-white/70 text-xs">Vehicle Types (comma separated)</Label>

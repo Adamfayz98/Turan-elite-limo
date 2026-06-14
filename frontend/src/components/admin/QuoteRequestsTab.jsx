@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2 } from "lucide-react";
+import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2, Sparkles, ExternalLink } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -81,6 +81,9 @@ export default function QuoteRequestsTab() {
   };
 
   const newCount = items.filter((q) => (q.status || "new") === "new").length;
+
+  // "Suggested affiliates" modal state (per-quote)
+  const [suggestState, setSuggestState] = useState(null); // { request }
 
   return (
     <div className="space-y-6" data-testid="quote-requests-tab">
@@ -181,6 +184,14 @@ export default function QuoteRequestsTab() {
                         <DollarSign className="w-3 h-3" /> {q.quoted_price ? "Re-send quote" : "Send quote"}
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => setSuggestState({ request: q })}
+                      data-testid={`quote-suggest-${q.id}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#D4AF37]/40 bg-[#D4AF37]/[0.07] text-[#D4AF37] text-xs hover:bg-[#D4AF37]/[0.15]"
+                    >
+                      <Sparkles className="w-3 h-3" /> Suggest affiliates
+                    </button>
                     <a
                       href={`tel:${phoneTel}`}
                       data-testid={`quote-call-${q.id}`}
@@ -223,6 +234,11 @@ export default function QuoteRequestsTab() {
         state={quoteModal}
         onClose={() => setQuoteModal(null)}
         onSent={onQuoteSent}
+      />
+
+      <SuggestAffiliatesDialog
+        state={suggestState}
+        onClose={() => setSuggestState(null)}
       />
     </div>
   );
@@ -420,6 +436,155 @@ function SendQuoteDialog({ state, onClose, onSent }) {
             </DialogFooter>
           </>
         )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+// ------- Modal: Suggested affiliates for a given quote request -------
+
+function SuggestAffiliatesDialog({ state, onClose }) {
+  const q = state?.request;
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!q) {
+      setData(null);
+      return;
+    }
+    setLoading(true);
+    api
+      .get("/admin/affiliates/suggest", {
+        params: {
+          pickup: q.pickup_location || "",
+          dropoff: q.dropoff_location || "",
+          vehicle_type: q.vehicle_type || "",
+        },
+      })
+      .then((res) => setData(res.data))
+      .catch((err) => {
+        toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't load suggestions");
+        setData({ detected_region: null, affiliates: [], count: 0 });
+      })
+      .finally(() => setLoading(false));
+  }, [q]);
+
+  if (!state) return null;
+
+  const copyAffiliateOutreachText = async (a) => {
+    const text = `Hi ${a.contact_name || a.name},\n\nSourcing a ${q.vehicle_type} job:\n\n${q.pickup_date || ""} ${q.pickup_time || ""}\nPickup: ${q.pickup_location || "—"}\nDrop: ${q.dropoff_location || "—"}\n${q.passengers ? `Passengers: ${q.passengers}\n` : ""}${q.occasion ? `Occasion: ${q.occasion}\n` : ""}\nWhat's your best rate + minimum? Reply with quote.\n\nThanks — Adam · TuranElite Limo · (650) 410-0687`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`Outreach text copied — paste into SMS/email to ${a.name}`);
+    } catch {
+      toast.error("Couldn't copy. Long-press the text to copy manually.");
+    }
+  };
+
+  return (
+    <Dialog open={!!state} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        data-testid="suggest-affiliates-dialog"
+        className="bg-[#0c0c0c] border-[#1f1f1f] text-white max-w-2xl max-h-[90vh] overflow-y-auto"
+      >
+        <DialogHeader>
+          <DialogTitle className="text-white flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-[#D4AF37]" /> Suggested affiliates
+          </DialogTitle>
+          <DialogDescription className="text-white/55">
+            {loading
+              ? "Finding affiliates that cover this trip..."
+              : data?.detected_region
+                ? <>Detected region: <span className="text-[#D4AF37] font-semibold">{data.detected_region}</span>{q?.vehicle_type ? <> · {q.vehicle_type}</> : null} · <span className="text-white">{data.count}</span> match{data.count === 1 ? "" : "es"}.</>
+                : <>Couldn&apos;t auto-detect a region from the pickup/drop-off. Showing your full active roster.</>}
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="py-12 flex justify-center">
+            <Loader2 className="w-5 h-5 animate-spin text-[#D4AF37]" />
+          </div>
+        ) : data?.affiliates?.length === 0 ? (
+          <div className="py-10 text-center text-white/55 text-sm">
+            <div className="mb-3">No affiliates cover {data.detected_region || "this region"} yet.</div>
+            <a
+              href="/admin#affiliates"
+              className="inline-flex items-center gap-1 text-[#D4AF37] text-xs underline"
+            >
+              Add one to your roster <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        ) : (
+          <div className="space-y-3 mt-2">
+            {data.affiliates.map((a) => {
+              const phoneTel = (a.phone || "").replace(/[^\d+]/g, "");
+              return (
+                <div
+                  key={a.id}
+                  data-testid={`suggested-affiliate-${a.id}`}
+                  className="rounded-xl border border-white/10 bg-white/[0.02] p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-white font-medium">{a.name}</div>
+                      {a.contact_name && <div className="text-white/50 text-xs mt-0.5">{a.contact_name}</div>}
+                      <div className="flex flex-wrap gap-1.5 mt-2.5">
+                        {(a.service_areas || []).slice(0, 4).map((s) => (
+                          <span key={s} className="px-2 py-0.5 rounded-full bg-white/5 text-white/55 text-[10px]">{s}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-2 flex-shrink-0">
+                      {a.phone && (
+                        <a
+                          href={`tel:${phoneTel}`}
+                          className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-300 text-xs border border-emerald-500/30 hover:bg-emerald-500/20"
+                        >
+                          <Phone className="w-3 h-3" /> Call
+                        </a>
+                      )}
+                      {a.phone && (
+                        <a
+                          href={`sms:${phoneTel}`}
+                          className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-white/15 text-white/75 text-xs hover:bg-white/5"
+                        >
+                          <MessageSquare className="w-3 h-3" /> SMS
+                        </a>
+                      )}
+                      {a.email && (
+                        <a
+                          href={`mailto:${a.email}`}
+                          className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-white/15 text-white/75 text-xs hover:bg-white/5"
+                        >
+                          <Mail className="w-3 h-3" /> Email
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between gap-3">
+                    <div className="text-[11px] text-white/45">
+                      {(a.vehicle_types || []).join(" · ") || "Vehicle types not set"}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyAffiliateOutreachText(a)}
+                      data-testid={`copy-outreach-${a.id}`}
+                      className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#D4AF37] text-black text-xs font-semibold hover:bg-[#B3922E]"
+                    >
+                      <Copy className="w-3 h-3" /> Copy outreach text
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <DialogFooter className="mt-4">
+          <Button onClick={onClose} className="bg-white/10 hover:bg-white/15 text-white">Close</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
