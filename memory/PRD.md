@@ -1,6 +1,6 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Jun 4, 2026 (Feb 2026 development context)
+> Last refreshed: Feb 14, 2026
 
 ## Original Problem Statement
 Build a fully functioning website + native iOS/Android mobile app for TuranEliteLimo (premium chauffeur service, Bay Area). Stack: React + FastAPI + MongoDB + Expo React Native. Features: dynamic pricing, Stripe checkout, admin dashboard, driver live tracking. Recently expanded to: 2026 FIFA World Cup surge ops, custom invoices for affiliate brokered trips, social logins (Apple + Google).
@@ -10,7 +10,40 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
 - **Android:** Closed Testing on Play Console (Build #23).
 
+## ✅ Safety / Anti-Fraud System — Phase 1 + 2 + 3 (Feb 14, 2026)
 
+**Shipped (all green, 14/14 pytest passing):**
+
+- **Phase 1 — Risk scoring + scam blacklist**
+  - New backend module `/app/backend/safety.py`: pure-Python scoring engine, blacklist matcher, ip-api geo lookup with in-process + 30-day Mongo cache (`ip_geo_cache` coll), disposable/free-email lists, area-code → state map for US phones, address-state extractor.
+  - Every `POST /api/quote-requests` now captures `ip_address` (from X-Forwarded-For), `user_agent`, computes `risk_score` (0-100), `risk_band` (green ≤30, yellow ≤60, red 61+), `risk_flags[]`, `blacklisted` bool, plus full `ip_geo` block. Quote-offer `/finalize` carries these fields into the resulting `bookings` row + stamps `deposit_ip`.
+  - Internal blacklist (`scam_blacklist` collection) — admin CRUD via `/api/admin/safety/blacklist`. Supports email-exact + domain wildcards (`@evil.com`), phone last-10-digit suffix match, IP exact + `/24` CIDR, name normalized match. **Silent-accept** policy: blacklisted submissions still return `{ok:true}` to the customer (so true positives still get a human follow-up) but are flagged + pushed into the review queue.
+  - Visual `RiskBadge` (green/yellow/red, score) + flag-chip list shown inline on the admin Quote Requests tab for any flagged row.
+
+- **Phase 2 — Manual review queue + verification**
+  - New Settings: `safety_review_threshold` (default $1,500), `safety_phone_verify_required` (bool), `safety_phone_verify_threshold` ($).
+  - `GET /api/admin/safety/review-queue` returns quotes + bookings flagged yellow/red, blacklisted, or above the $ threshold; admin can mark cleared via `POST /api/admin/safety/{quote-requests|bookings}/{id}/clear-risk`.
+  - Phone-OTP gate: when `safety_phone_verify_required=true` AND quote price >= threshold, `POST /api/quote-offer/{token}/checkout` returns HTTP 428 with `detail="phone_verify_required"`. Frontend `QuoteOfferConfirm` catches 428 and shows the OTP UI (`Send code` → `Verify`). Twilio-Verify-ready (set `TWILIO_VERIFY_SID` env to enable real SMS); **currently MOCKED** — codes stored in `db.phone_verifications` and surfaced in `/api/admin/safety/pending-otps`.
+  - Email reputation: syntax + disposable-domain detection (free-domain detection contributes only a light weight).
+
+- **Phase 3 (partial) — Device IP tracking**
+  - Real client-IP extraction from k8s ingress `X-Forwarded-For`. ip-api.com (free, 45 req/min, no key) provides Country/Region/City/ISP + proxy/hosting flags. Cached in-process + persistent Mongo 30-day cache.
+  - IP velocity check: 1+/3+ quotes from same IP with different names within 24h adds risk weight.
+  - Admin-tool `GET /api/admin/safety/ip-lookup?ip=...` for one-off forensic lookups.
+
+- **Admin UI**
+  - New tab in `/admin` → `Safety` (data-testid `tab-safety`) with 4 sub-tabs:
+    1. **Review queue** — flagged quotes + bookings with mark-safe buttons.
+    2. **Blacklist** — add/remove emails/phones/IPs/names with domain wildcards + CIDR support.
+    3. **IP lookup** — paste an IP, see Country/ISP/Proxy/Hosting in 1 click.
+    4. **Pending OTPs** — MOCK-mode helper showing live codes so admin can read them to a customer over the phone if needed (auto-refreshes 15s).
+  - Settings tab now has a "Safety & anti-fraud" section with all 3 toggles.
+
+**Files changed:**
+- NEW: `/app/backend/safety.py`, `/app/frontend/src/components/admin/SafetyTab.jsx`, `/app/backend/tests/test_safety_antifraud.py`
+- Updated: `/app/backend/server.py` (Settings model + submit_quote_request scoring), `/app/backend/routes/admin.py` (added 7 safety endpoints + 428 gate + booking risk-field copy), `/app/frontend/src/components/admin/QuoteRequestsTab.jsx` (RiskBadge + flag chips), `/app/frontend/src/components/admin/SettingsTab.jsx` (Safety section), `/app/frontend/src/pages/AdminDashboard.jsx` (Safety tab), `/app/frontend/src/pages/QuoteOfferConfirm.jsx` (OTP gate)
+
+**Testing:** 14/14 pytest cases pass. Frontend Playwright verification: all `data-testid`s present and functional. Zero regressions on existing flows. See `/app/test_reports/iteration_36.json`.
 
 ## 🔔 Active Reminder (Jun 13, 2026)
 - **iOS native build is failing at "Install pods" 3× in a row** — needs revisit.
