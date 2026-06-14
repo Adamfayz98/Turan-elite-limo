@@ -801,24 +801,41 @@ async def public_quote_offer_finalize(token: str, session_id: str, request: Requ
     if q.get("deposit_session_id") != session_id:
         raise HTTPException(status_code=400, detail="Session does not match this quote.")
 
-    # Verify with Stripe (use existing sync helper, wrapped in to_thread)
+    # Verify with Stripe via direct REST (most reliable; matches the
+    # post_trip_confirm_tip pattern already in production).
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        logger.error("Quote-offer finalize: STRIPE_API_KEY missing")
+        raise HTTPException(status_code=500, detail="Payment system not configured. Please contact support.")
     try:
-        import asyncio as _asyncio
-        s = await _asyncio.to_thread(_stripe_retrieve_session, session_id)
-        if not s:
-            raise RuntimeError("Stripe not configured or session missing")
-        paid = s.get("payment_status") == "paid" or s.get("status") == "complete"
+        async with httpx.AsyncClient(timeout=15.0) as cli:
+            r = await cli.get(
+                f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
     except Exception as e:
-        logger.error(f"Stripe session retrieve failed: {e}")
-        raise HTTPException(status_code=502, detail="Could not verify payment with Stripe")
+        logger.error(f"Quote-offer Stripe lookup failed (network): {e}")
+        raise HTTPException(status_code=502, detail="Couldn't reach Stripe. Please refresh in a moment.")
+    if r.status_code != 200:
+        logger.error(f"Quote-offer Stripe lookup HTTP {r.status_code}: {r.text[:300]}")
+        raise HTTPException(status_code=502, detail="Stripe lookup failed. Please contact support.")
+    s = r.json()
+    paid = s.get("payment_status") == "paid" or s.get("status") == "complete"
 
     if not paid:
-        return {"ok": False, "paid": False, "status": s.get("payment_status")}
+        # Customer hit cancel or payment is still processing — surface a useful state.
+        return {"ok": False, "paid": False, "status": s.get("payment_status") or s.get("status")}
 
-    # Create the booking now. Use the existing bookings collection schema.
+    # Create the booking now. Wrap critical write ops in try/except — if any
+    # secondary step fails AFTER the customer already paid, we still want to
+    # confirm the payment to them so they don't think it failed.
     now_iso = datetime.now(timezone.utc).isoformat()
     booking_id = str(uuid.uuid4())
-    confirmation_number = _next_confirmation_number()
+    try:
+        confirmation_number = await _next_unique_confirmation_number()
+    except Exception as e:
+        logger.error(f"Quote finalize: confirmation_number generation failed: {e}", exc_info=True)
+        confirmation_number = f"Q{booking_id[:8].upper()}"
     manage_token = secrets.token_urlsafe(24)
     deposit_amt = float(q.get("deposit_amount_pending") or 0)
     total_amt = float(q.get("quoted_price") or 0)
@@ -852,19 +869,25 @@ async def public_quote_offer_finalize(token: str, session_id: str, request: Requ
         "stripe_session_id": session_id,
         "created_at": now_iso,
     }
-    await db.bookings.insert_one(booking_doc.copy())
+    try:
+        await db.bookings.insert_one(booking_doc.copy())
+    except Exception as e:
+        logger.error(f"Quote finalize: bookings.insert_one failed: {e}", exc_info=True)
 
-    # Mark the quote request as won + link the booking
-    await db.quote_requests.update_one(
-        {"id": q["id"]},
-        {"$set": {
-            "status": "won",
-            "confirmed_at": now_iso,
-            "booking_id": booking_id,
-            "confirmation_number": confirmation_number,
-            "status_updated_at": now_iso,
-        }},
-    )
+    # Mark the quote request as won + link the booking (best-effort)
+    try:
+        await db.quote_requests.update_one(
+            {"id": q["id"]},
+            {"$set": {
+                "status": "won",
+                "confirmed_at": now_iso,
+                "booking_id": booking_id,
+                "confirmation_number": confirmation_number,
+                "status_updated_at": now_iso,
+            }},
+        )
+    except Exception as e:
+        logger.error(f"Quote finalize: quote_request mark-won failed: {e}", exc_info=True)
 
     # Notify admin
     try:

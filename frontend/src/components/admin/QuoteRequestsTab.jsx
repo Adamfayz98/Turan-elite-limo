@@ -23,6 +23,70 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
+// ----- Per-vehicle default quote notes (auto-fills the "Notes for customer"
+// field when admin opens "Send Quote" for that vehicle type). Admin can still
+// edit before sending. Keeps every quote consistent and professional.
+
+const VEHICLE_NOTE_TEMPLATES = {
+  "stretch limousine": `Includes 3-hour minimum (standard for stretch limousines on evening bookings). Additional time billed at $150/hr in 30-min increments — only if your group decides to extend on the night, never auto-charged without notice.
+
+Vehicle features: full bar with crystal glassware, premium leather, LED mood lighting, climate control front + rear, professional suited chauffeur. Bring your own drinks (21+ only with valid ID).
+
+Standard policy: 50% deposit confirms · remaining 50% charged day-before · Free cancel 7+ days out · 50% fee inside 7 days · Non-refundable inside 48 hrs. Chauffeur gratuity (20% suggested) not included.`,
+
+  "party bus": `Includes 4-hour minimum (industry standard for party bus bookings). Additional time billed at $180/hr in 30-min increments, only if your group extends on the night.
+
+Vehicle features: 14–30 passenger limo coach with LED ceiling lighting, dance floor, premium sound system, full bar with stocked ice, climate control, privacy curtains. Bring your own drinks and playlist — we handle the rest. Riders 21+ only with valid ID for alcohol.
+
+Standard policy: 50% deposit confirms · remaining 50% charged day-before · Free cancel 7+ days out · 50% fee inside 7 days · Non-refundable inside 48 hrs. Underage drinking ends the trip immediately, no refund. Chauffeur gratuity (20% suggested) not included.`,
+
+  "sprinter van": `Includes 3-hour minimum. Additional time billed at $135/hr in 30-min increments, only if extended on the day-of.
+
+Vehicle features: Mercedes-Benz Sprinter, standard cloth/leather seats, climate control, USB charging, plenty of luggage space. Up to 14 passengers.
+
+Standard policy: 50% deposit confirms · remaining 50% charged day-before · Free cancel 7+ days out · 50% fee inside 7 days · Non-refundable inside 48 hrs. Chauffeur gratuity (20% suggested) not included.`,
+
+  "executive sprinter": `Includes 3-hour minimum. Additional time billed at $145/hr in 30-min increments, only if extended on the day-of.
+
+Vehicle features: Mercedes-Benz Sprinter with captain's chairs, premium leather, divider partition, climate control front + rear, USB + AC outlets. Up to 12 passengers in executive comfort.
+
+Standard policy: 50% deposit confirms · remaining 50% charged day-before · Free cancel 7+ days out · 50% fee inside 7 days · Non-refundable inside 48 hrs. Chauffeur gratuity (20% suggested) not included.`,
+
+  "jet sprinter": `Includes 3-hour minimum. Additional time billed at $165/hr in 30-min increments, only if extended on the day-of.
+
+Vehicle features: Mercedes-Benz Sprinter with first-class recliners, premium leather, full bar with mood lighting, climate control front + rear, USB + AC outlets. Up to 10 passengers in jet-cabin style.
+
+Standard policy: 50% deposit confirms · remaining 50% charged day-before · Free cancel 7+ days out · 50% fee inside 7 days · Non-refundable inside 48 hrs. Chauffeur gratuity (20% suggested) not included.`,
+
+  "luxury suv": `Includes 1-hour minimum for hourly bookings (transfers are flat-rate). Wait time after the first 15 minutes billed at $1/min.
+
+Vehicle features: Cadillac Escalade ESV or GMC Yukon, premium leather, climate control, USB charging, bottled water complimentary, professional suited chauffeur. Up to 6 passengers + luggage.
+
+Standard policy: 50% deposit confirms · remaining 50% charged day-before · Free cancel 24+ hrs out · 50% fee inside 24 hrs · Non-refundable inside 4 hrs. Chauffeur gratuity (20% suggested) not included.`,
+
+  "executive sedan": `Flat-rate one-way transfer or hourly availability. Wait time after the first 15 minutes billed at $1/min.
+
+Vehicle features: Cadillac XTS or equivalent executive sedan, premium leather, climate control, complimentary bottled water, professional suited chauffeur. Up to 3 passengers + luggage.
+
+Standard policy: 50% deposit confirms · remaining 50% charged day-before · Free cancel 24+ hrs out · 50% fee inside 24 hrs · Non-refundable inside 4 hrs. Chauffeur gratuity (20% suggested) not included.`,
+
+  "first class": `Flat-rate one-way transfer or hourly availability. Wait time after the first 15 minutes billed at $1/min.
+
+Vehicle features: Mercedes-Benz S-Class, premium leather, dual-zone climate control, USB + AC outlets, complimentary bottled water, professional suited chauffeur. Up to 3 passengers + luggage.
+
+Standard policy: 50% deposit confirms · remaining 50% charged day-before · Free cancel 24+ hrs out · 50% fee inside 24 hrs · Non-refundable inside 4 hrs. Chauffeur gratuity (20% suggested) not included.`,
+};
+
+const DEFAULT_QUOTE_NOTE = `Flat-rate as quoted. Additional time or stops billed at our standard hourly rate, only if added on the day-of and notified in advance — never auto-charged without your approval.
+
+Standard policy: 50% deposit confirms · remaining 50% charged day-before · Free cancel 7+ days out · 50% fee inside 7 days · Non-refundable inside 48 hrs. Chauffeur gratuity (20% suggested) not included.`;
+
+function getDefaultNotesForVehicle(vehicleType) {
+  if (!vehicleType) return DEFAULT_QUOTE_NOTE;
+  const key = String(vehicleType).toLowerCase().trim();
+  return VEHICLE_NOTE_TEMPLATES[key] || DEFAULT_QUOTE_NOTE;
+}
+
 const STATUS_BADGE = {
   new: { label: "New", className: "bg-[#D4AF37]/15 text-[#D4AF37] border-[#D4AF37]/30" },
   contacted: { label: "Contacted", className: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
@@ -260,7 +324,9 @@ function SendQuoteDialog({ state, onClose, onSent }) {
     if (q && phase === "edit") {
       setPrice(q.quoted_price ? String(q.quoted_price) : "");
       setDepositPct(q.deposit_pct ? String(q.deposit_pct) : "50");
-      setNotes(q.quoted_notes || "");
+      // Auto-fill notes from the vehicle-specific template when the field
+      // is empty. Admin can edit or wipe; we never clobber existing notes.
+      setNotes(q.quoted_notes || getDefaultNotesForVehicle(q.vehicle_type));
       setAffiliateCost(q.affiliate_cost ? String(q.affiliate_cost) : "");
       setCopied(false);
     }
@@ -409,16 +475,26 @@ function SendQuoteDialog({ state, onClose, onSent }) {
                 )}
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-2 block">
-                  Notes for customer <span className="text-white/35 normal-case tracking-normal">(optional — shown on the confirm page)</span>
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block">
+                    Notes for customer <span className="text-white/35 normal-case tracking-normal">(shown on the confirm page · auto-filled from template)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setNotes(getDefaultNotesForVehicle(q?.vehicle_type))}
+                    data-testid="quote-notes-reset"
+                    className="text-[10px] text-[#D4AF37] hover:text-[#B3922E] uppercase tracking-wider"
+                  >
+                    Reset to template
+                  </button>
+                </div>
                 <Textarea
                   data-testid="quote-notes"
-                  rows={3}
+                  rows={8}
                   placeholder="e.g. Includes 3-hour minimum. Additional time billed at $150/hr in 30-min increments."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="bg-[#0E0E0E] border-[#27272A] text-white text-sm"
+                  className="bg-[#0E0E0E] border-[#27272A] text-white text-sm font-mono leading-relaxed"
                 />
               </div>
             </div>
