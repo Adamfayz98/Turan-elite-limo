@@ -382,7 +382,8 @@ export default function BookingForm() {
     <section
       id="booking"
       data-testid="booking-section"
-      className="relative py-24 md:py-32 px-6 md:px-10 border-t border-white/5"
+      translate="no"
+      className="notranslate relative py-24 md:py-32 px-6 md:px-10 border-t border-white/5"
     >
       {checkoutOverlay && (
         <CheckoutRedirectOverlay
