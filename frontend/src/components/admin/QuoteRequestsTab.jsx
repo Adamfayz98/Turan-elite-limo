@@ -23,6 +23,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
+import { RiskBadge } from "@/components/admin/SafetyTab";
+
 // ----- Per-vehicle default quote notes (auto-fills the "Notes for customer"
 // field when admin opens "Send Quote" for that vehicle type). Admin can still
 // edit before sending. Keeps every quote consistent and professional.
@@ -196,6 +198,14 @@ export default function QuoteRequestsTab() {
                       <span className="text-white font-medium">{q.full_name}</span>
                       <Badge className={`${badge.className} text-[10px] uppercase tracking-wider border`}>{badge.label}</Badge>
                       <span className="text-[10px] uppercase tracking-[0.2em] text-[#D4AF37] bg-[#D4AF37]/10 px-2 py-0.5 rounded">{q.vehicle_type}</span>
+                      {(q.risk_band === "yellow" || q.risk_band === "red" || q.blacklisted) && (
+                        <RiskBadge score={q.risk_score ?? (q.blacklisted ? 100 : 50)} band={q.risk_band || "red"} />
+                      )}
+                      {q.blacklisted && (
+                        <Badge className="bg-red-500/20 text-red-200 border border-red-500/40 text-[10px] uppercase">
+                          ⚠ Blacklist
+                        </Badge>
+                      )}
                       {q.occasion && (
                         <span className="text-[10px] uppercase tracking-wider text-white/40 bg-white/5 px-2 py-0.5 rounded">{q.occasion}</span>
                       )}
@@ -205,6 +215,22 @@ export default function QuoteRequestsTab() {
                         </span>
                       )}
                     </div>
+                    {q.risk_flags?.length > 0 && (q.risk_band === "yellow" || q.risk_band === "red" || q.blacklisted) && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {q.risk_flags.slice(0, 4).map((f) => (
+                          <span
+                            key={f.code}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/10 text-white/55"
+                            title={`+${f.weight} risk`}
+                          >
+                            {f.label}
+                          </span>
+                        ))}
+                        {q.risk_flags.length > 4 && (
+                          <span className="text-[10px] text-white/35">+{q.risk_flags.length - 4} more</span>
+                        )}
+                      </div>
+                    )}
                     <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5 text-xs text-white/65">
                       <div className="flex items-center gap-1.5">
                         <Phone className="w-3 h-3 text-[#D4AF37]" />

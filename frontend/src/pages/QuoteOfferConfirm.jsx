@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { CheckCircle2, Loader2, MapPin, Users, CalendarDays, Sparkles, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Loader2, MapPin, Users, CalendarDays, Sparkles, ShieldCheck, Phone } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const fmtMoney = (n) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(n || 0));
@@ -19,6 +20,10 @@ export default function QuoteOfferConfirm() {
   const [paying, setPaying] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [confirmed, setConfirmed] = useState(null);
+  const [otpState, setOtpState] = useState(null); // null | "needs_send" | "code_sent"
+  const [otpCode, setOtpCode] = useState("");
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpPhoneLast4, setOtpPhoneLast4] = useState("");
 
   // 1) Load quote
   useEffect(() => {
@@ -89,8 +94,42 @@ export default function QuoteOfferConfirm() {
         throw new Error("No checkout URL returned");
       }
     } catch (err) {
+      // 428 = phone-verify gate (RFC 6585 "Precondition Required")
+      if (err.response?.status === 428) {
+        setOtpState("needs_send");
+        setPaying(false);
+        return;
+      }
       setError(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't start payment. Please try again.");
       setPaying(false);
+    }
+  };
+
+  const sendOtp = async () => {
+    setOtpSending(true);
+    try {
+      const { data } = await api.post(`/quote-offer/${token}/send-otp`);
+      setOtpPhoneLast4(data.phone_last4 || "");
+      setOtpState("code_sent");
+    } catch (err) {
+      setError(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't send verification code.");
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const verifyOtp = async () => {
+    if (!otpCode || otpCode.length < 4) return;
+    setOtpSending(true);
+    try {
+      await api.post(`/quote-offer/${token}/verify-otp`, { code: otpCode });
+      // Verified — immediately retry checkout
+      setOtpState(null);
+      setOtpCode("");
+      await handlePay();
+    } catch (err) {
+      setError(formatApiErrorDetail(err.response?.data?.detail) || "Invalid or expired code.");
+      setOtpSending(false);
     }
   };
 
@@ -232,6 +271,58 @@ export default function QuoteOfferConfirm() {
 
         {validityNote && (
           <div className="text-[#D4AF37] text-xs text-center mb-4">{validityNote}</div>
+        )}
+
+        {/* Phone OTP gate (only when backend signals required) */}
+        {otpState && (
+          <div className="rounded-2xl border border-[#D4AF37]/30 bg-[#D4AF37]/[0.06] p-5 mb-5" data-testid="otp-gate">
+            <div className="flex items-start gap-3">
+              <Phone className="w-4 h-4 text-[#D4AF37] mt-0.5 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-white text-sm font-medium">Verify your phone first</div>
+                <div className="text-white/55 text-xs mt-1">
+                  For your protection on this booking, we need to confirm a one-time code sent to your phone {otpPhoneLast4 ? <>ending in <span className="text-white">{otpPhoneLast4}</span></> : null}.
+                </div>
+                {otpState === "needs_send" ? (
+                  <Button
+                    onClick={sendOtp}
+                    disabled={otpSending}
+                    data-testid="otp-send-btn"
+                    className="mt-4 bg-[#D4AF37] text-black hover:bg-[#B3922E] h-10 rounded-full px-5 text-sm font-semibold"
+                  >
+                    {otpSending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Sending…</> : "Send verification code"}
+                  </Button>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    <Input
+                      data-testid="otp-code-input"
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="6-digit code"
+                      inputMode="numeric"
+                      maxLength={6}
+                      className="bg-[#0E0E0E] border-[#27272A] text-white text-center text-lg tracking-[0.4em] font-mono h-12"
+                    />
+                    <Button
+                      onClick={verifyOtp}
+                      disabled={otpSending || otpCode.length < 4}
+                      data-testid="otp-verify-btn"
+                      className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] h-11 rounded-full text-sm font-semibold"
+                    >
+                      {otpSending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Verifying…</> : "Verify & continue"}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={sendOtp}
+                      className="text-xs text-white/45 hover:text-white/75 underline w-full text-center"
+                    >
+                      Didn't get it? Resend
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* CTA */}

@@ -40,6 +40,7 @@ from email_service import (
 import sms_service
 import reviews_service
 import referral
+import safety
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
 from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -1982,19 +1983,48 @@ async def submit_quote_request(payload: QuoteRequestCreate, request: Request):
     doc["id"] = str(uuid.uuid4())
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["status"] = "new"
+
+    # ----- Safety / risk scoring -----
+    client_ip = safety.get_client_ip(request)
+    user_agent = safety.get_user_agent(request)
+    doc["ip_address"] = client_ip
+    doc["user_agent"] = user_agent
+    try:
+        risk = await safety.score_submission(
+            db=db,
+            full_name=doc.get("full_name") or "",
+            email=doc.get("email") or "",
+            phone=doc.get("phone") or "",
+            ip=client_ip,
+            user_agent=user_agent,
+            pickup_location=doc.get("pickup_location") or "",
+            dropoff_location=doc.get("dropoff_location") or "",
+            amount=0.0,
+        )
+        doc["risk_score"] = risk["score"]
+        doc["risk_band"] = risk["band"]
+        doc["risk_flags"] = risk["flags"]
+        doc["blacklisted"] = risk["blacklisted"]
+        doc["ip_geo"] = risk["ip_geo"]
+    except Exception as e:
+        logger.warning(f"risk scoring failed: {e}")
+
     await db.quote_requests.insert_one(doc.copy())
 
     # Admin SMS — single short text so it lands cleanly on iOS Messages
     try:
         line_pickup = (doc.get("pickup_location") or "(no pickup)")[:60]
         line_drop = (doc.get("dropoff_location") or "(no drop)")[:60]
+        risk_tag = ""
+        if doc.get("risk_band") in ("yellow", "red"):
+            risk_tag = f"\n⚠️ {doc['risk_band'].upper()} risk · open admin"
         sms_text = (
             f"QUOTE REQUEST · {doc['vehicle_type']}\n"
             f"{doc['full_name']} · {doc['phone']}\n"
             f"{doc.get('pickup_date','') or 'no date'} {doc.get('pickup_time','') or ''}\n"
             f"Pick: {line_pickup}\n"
             f"Drop: {line_drop}\n"
-            f"Pax: {doc.get('passengers','?')} · {doc.get('occasion','')}"
+            f"Pax: {doc.get('passengers','?')} · {doc.get('occasion','')}{risk_tag}"
         )
         await send_admin_sms(sms_text)
     except Exception as e:
@@ -2526,6 +2556,15 @@ class Settings(BaseModel):
     lead_time_6_to_24h: float = Field(1.15, ge=1.0, le=4.0)
     lead_time_24_to_48h: float = Field(1.05, ge=1.0, le=4.0)
 
+    # ---- Safety / anti-fraud (Phase 1-3) ----
+    # Quotes & bookings above this $ threshold are auto-pushed into the manual-
+    # review queue regardless of computed risk score. Set 0 to disable.
+    safety_review_threshold: float = Field(1500.0, ge=0)
+    # When True, customer must complete a phone OTP before confirming the
+    # deposit on a quote whose total >= safety_phone_verify_threshold.
+    safety_phone_verify_required: bool = False
+    safety_phone_verify_threshold: float = Field(0.0, ge=0)
+
 
 async def _load_settings() -> Settings:
     doc = await db.settings.find_one({"key": "global"}, {"_id": 0})
@@ -2567,6 +2606,9 @@ class SettingsUpdate(BaseModel):
     lead_time_2_to_6h: Optional[float] = Field(None, ge=1.0, le=4.0)
     lead_time_6_to_24h: Optional[float] = Field(None, ge=1.0, le=4.0)
     lead_time_24_to_48h: Optional[float] = Field(None, ge=1.0, le=4.0)
+    safety_review_threshold: Optional[float] = Field(None, ge=0)
+    safety_phone_verify_required: Optional[bool] = None
+    safety_phone_verify_threshold: Optional[float] = Field(None, ge=0)
 
 
 # [moved] PATCH /admin/settings -> routes/admin.py

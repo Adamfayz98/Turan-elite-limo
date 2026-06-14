@@ -750,6 +750,19 @@ async def public_quote_offer_checkout(token: str, payload: dict, request: Reques
     if deposit < 0.5:
         raise HTTPException(status_code=400, detail="Deposit amount too small.")
 
+    # ---- Optional phone-verify gating ----
+    s = await _load_settings()
+    threshold = float(getattr(s, "safety_phone_verify_threshold", 0) or 0)
+    if getattr(s, "safety_phone_verify_required", False) and price >= threshold:
+        phone = q.get("phone") or ""
+        if not phone:
+            raise HTTPException(status_code=400, detail="Phone number required for verification.")
+        if not await safety.is_phone_verified(db, phone, purpose="quote_confirm"):
+            raise HTTPException(
+                status_code=428,
+                detail="phone_verify_required",
+            )
+
     origin = (payload or {}).get("origin_url") or _frontend_origin_from_request(request)
     origin = origin.rstrip("/")
     success_url = f"{origin}/quote/{token}?session_id={{CHECKOUT_SESSION_ID}}"
@@ -868,6 +881,16 @@ async def public_quote_offer_finalize(token: str, session_id: str, request: Requ
         "affiliate_cost": q.get("affiliate_cost"),
         "stripe_session_id": session_id,
         "created_at": now_iso,
+        # Safety context — captured at deposit-time (most accurate signal):
+        # which IP/UA actually paid, vs. the IP that originally submitted the
+        # quote request hours/days earlier.
+        "ip_address": safety.get_client_ip(request),
+        "user_agent": safety.get_user_agent(request),
+        "deposit_ip": safety.get_client_ip(request),
+        "risk_score": q.get("risk_score"),
+        "risk_band": q.get("risk_band"),
+        "risk_flags": q.get("risk_flags") or [],
+        "blacklisted": bool(q.get("blacklisted")),
     }
     try:
         await db.bookings.insert_one(booking_doc.copy())
@@ -1941,4 +1964,174 @@ async def admin_assign_driver(payload: AdminAssignDriverRequest, claims: dict = 
             "assigned_at": datetime.now(timezone.utc).isoformat(),
         }},
     )
+    return {"ok": True}
+
+
+# =====================================================================
+# Safety / Anti-Fraud admin endpoints (Phase 1-3)
+# =====================================================================
+
+
+@router.get("/admin/safety/blacklist")
+async def admin_list_blacklist(_: dict = Depends(require_admin)):
+    """Internal scam blacklist — emails, phones, IPs, names."""
+    items = []
+    async for e in db.scam_blacklist.find({}, {"_id": 0}).sort("created_at", -1).limit(1000):
+        items.append(e)
+    return items
+
+
+@router.post("/admin/safety/blacklist")
+async def admin_add_blacklist(payload: dict, claims: dict = Depends(require_admin)):
+    kind = (payload.get("kind") or "").lower().strip()
+    value = (payload.get("value") or "").strip()
+    reason = (payload.get("reason") or "").strip()[:300]
+    if kind not in ("email", "phone", "ip", "name"):
+        raise HTTPException(status_code=400, detail="kind must be email|phone|ip|name")
+    if not value:
+        raise HTTPException(status_code=400, detail="value is required")
+    entry = {
+        "id": str(uuid.uuid4()),
+        "kind": kind,
+        "value": value,
+        "reason": reason,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "added_by": claims.get("email") or claims.get("sub") or "admin",
+    }
+    await db.scam_blacklist.insert_one(entry.copy())
+    entry.pop("_id", None)
+    return entry
+
+
+@router.delete("/admin/safety/blacklist/{entry_id}")
+async def admin_delete_blacklist(entry_id: str, _: dict = Depends(require_admin)):
+    r = await db.scam_blacklist.delete_one({"id": entry_id})
+    if not r.deleted_count:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"deleted": True}
+
+
+@router.get("/admin/safety/review-queue")
+async def admin_review_queue(_: dict = Depends(require_admin)):
+    """Quotes + bookings that need a human eyeball.
+    Includes anything flagged yellow/red OR exceeding the $ review threshold."""
+    s = await _load_settings()
+    threshold = float(getattr(s, "safety_review_threshold", 0) or 0)
+
+    quotes = []
+    qq_query = {"$or": [
+        {"risk_band": {"$in": ["yellow", "red"]}},
+        {"blacklisted": True},
+    ]}
+    if threshold > 0:
+        qq_query["$or"].append({"quoted_price": {"$gte": threshold}})
+    async for q in db.quote_requests.find(qq_query, {"_id": 0}).sort("created_at", -1).limit(200):
+        # Skip quotes already cleared
+        if q.get("risk_cleared_at"):
+            continue
+        quotes.append(q)
+
+    bookings = []
+    bk_query = {"$or": [
+        {"risk_band": {"$in": ["yellow", "red"]}},
+        {"blacklisted": True},
+    ]}
+    if threshold > 0:
+        bk_query["$or"].append({"amount": {"$gte": threshold}})
+    async for b in db.bookings.find(bk_query, {"_id": 0}).sort("created_at", -1).limit(200):
+        if b.get("risk_cleared_at"):
+            continue
+        bookings.append(b)
+
+    return {"quotes": quotes, "bookings": bookings, "threshold": threshold}
+
+
+@router.post("/admin/safety/quote-requests/{rid}/clear-risk")
+async def admin_clear_quote_risk(rid: str, claims: dict = Depends(require_admin)):
+    """Admin reviewed this quote and decided it's safe — remove from queue."""
+    r = await db.quote_requests.update_one(
+        {"id": rid},
+        {"$set": {
+            "risk_cleared_at": datetime.now(timezone.utc).isoformat(),
+            "risk_cleared_by": claims.get("email") or "admin",
+        }},
+    )
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"cleared": True}
+
+
+@router.post("/admin/safety/bookings/{booking_id}/clear-risk")
+async def admin_clear_booking_risk(booking_id: str, claims: dict = Depends(require_admin)):
+    r = await db.bookings.update_one(
+        {"id": booking_id},
+        {"$set": {
+            "risk_cleared_at": datetime.now(timezone.utc).isoformat(),
+            "risk_cleared_by": claims.get("email") or "admin",
+        }},
+    )
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"cleared": True}
+
+
+@router.get("/admin/safety/ip-lookup")
+async def admin_ip_lookup(ip: str, _: dict = Depends(require_admin)):
+    """Geo-lookup proxy for the admin UI."""
+    geo = await safety.lookup_ip_geo(ip, db=db)
+    return {"ip": ip, "geo": geo}
+
+
+@router.get("/admin/safety/pending-otps")
+async def admin_list_pending_otps(_: dict = Depends(require_admin)):
+    """MOCK-mode helper: when Twilio Verify isn't configured, admin can see
+    the active OTP codes here to read them out to a customer over the phone.
+    Once Twilio Verify is wired up, this list will return empty mock entries."""
+    cutoff = datetime.now(timezone.utc).isoformat()
+    items = []
+    async for o in db.phone_verifications.find(
+        {"mocked": True, "verified": False, "expires_at": {"$gt": cutoff}},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(50):
+        items.append({
+            "phone": o.get("phone"),
+            "code": o.get("code"),
+            "purpose": o.get("purpose"),
+            "expires_at": o.get("expires_at"),
+            "attempts": o.get("attempts", 0),
+        })
+    return items
+
+
+# ---- Customer-facing OTP endpoints (used by Quote Confirm page) ----
+
+
+@router.post("/quote-offer/{token}/send-otp")
+async def public_quote_offer_send_otp(token: str, request: Request):
+    """Public endpoint — sends an OTP code to the phone on file for this quote."""
+    q = await db.quote_requests.find_one({"confirm_token": token}, {"_id": 0})
+    if not q:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    phone = q.get("phone") or ""
+    if not phone:
+        raise HTTPException(status_code=400, detail="No phone on file for this quote.")
+    res = await safety.send_phone_otp(db, phone, purpose="quote_confirm")
+    if not res.get("ok"):
+        raise HTTPException(status_code=502, detail="Couldn't send verification code. Please call us.")
+    return {
+        "ok": True,
+        "mocked": res.get("mocked", False),
+        "phone_last4": re.sub(r"\D", "", phone)[-4:] if phone else "",
+    }
+
+
+@router.post("/quote-offer/{token}/verify-otp")
+async def public_quote_offer_verify_otp(token: str, payload: dict):
+    q = await db.quote_requests.find_one({"confirm_token": token}, {"_id": 0})
+    if not q:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    code = (payload or {}).get("code") or ""
+    ok = await safety.verify_phone_otp(db, q.get("phone") or "", code, purpose="quote_confirm")
+    if not ok:
+        raise HTTPException(status_code=400, detail="Invalid or expired code.")
     return {"ok": True}

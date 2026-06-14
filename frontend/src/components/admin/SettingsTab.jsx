@@ -1,17 +1,25 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Save, Percent, DollarSign } from "lucide-react";
+import { Loader2, Save, Percent, DollarSign, Shield } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export default function SettingsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [settings, setSettings] = useState({ deposit_percent: 100, currency: "usd", meet_greet_fee: 25, service_fee_percent: 0, per_stop_fee: 15, cancellation_tiers: [{hours_before_pickup: 24, refund_percent: 100}, {hours_before_pickup: 6, refund_percent: 50}, {hours_before_pickup: 0, refund_percent: 0}] });
+  const [settings, setSettings] = useState({
+    deposit_percent: 100, currency: "usd", meet_greet_fee: 25, service_fee_percent: 0,
+    per_stop_fee: 15,
+    cancellation_tiers: [{hours_before_pickup: 24, refund_percent: 100}, {hours_before_pickup: 6, refund_percent: 50}, {hours_before_pickup: 0, refund_percent: 0}],
+    safety_review_threshold: 1500,
+    safety_phone_verify_required: false,
+    safety_phone_verify_threshold: 0,
+  });
 
   const load = async () => {
     setLoading(true);
@@ -42,6 +50,9 @@ export default function SettingsTab() {
           hours_before_pickup: Number(t.hours_before_pickup) || 0,
           refund_percent: Number(t.refund_percent) || 0,
         })),
+        safety_review_threshold: Number(settings.safety_review_threshold) || 0,
+        safety_phone_verify_required: !!settings.safety_phone_verify_required,
+        safety_phone_verify_threshold: Number(settings.safety_phone_verify_threshold) || 0,
       };
       await api.patch("/admin/settings", payload);
       toast.success("Settings saved");
@@ -268,6 +279,85 @@ export default function SettingsTab() {
             <span className="text-xs text-white/55">
               Added when customer toggles <em>Meet &amp; Greet</em> on an Airport Transfer booking. Set to 0 to disable.
             </span>
+          </div>
+        </div>
+
+        {/* ---------- Safety / anti-fraud ---------- */}
+        <div className="md:col-span-2 pt-6 mt-2 border-t border-[#1F1F1F]">
+          <div className="flex items-center gap-2 mb-1">
+            <Shield className="w-4 h-4 text-[#D4AF37]" />
+            <h4 className="font-serif text-lg text-white">Safety &amp; anti-fraud</h4>
+          </div>
+          <p className="text-xs text-white/55 mb-5 max-w-2xl leading-relaxed">
+            Risk scoring runs automatically on every quote &amp; booking. Use the dedicated <em>Safety</em> tab for the review queue, blacklist, &amp; IP lookup. Below are the global thresholds.
+          </p>
+
+          <div className="grid md:grid-cols-2 gap-5">
+            <div>
+              <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                Manual-review threshold ($)
+              </Label>
+              <div className="mt-2 flex items-center gap-3">
+                <div className="relative w-40">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#D4AF37]" />
+                  <Input
+                    type="number"
+                    min={0}
+                    step="50"
+                    data-testid="settings-safety-review-threshold"
+                    value={settings.safety_review_threshold ?? 1500}
+                    onChange={(e) => setSettings((s) => ({ ...s, safety_review_threshold: e.target.value }))}
+                    className="bg-[#0E0E0E] border-[#27272A] text-white h-11 pl-9"
+                  />
+                </div>
+                <span className="text-xs text-white/55">
+                  Any quote/booking above this dollar amount auto-enters the Safety review queue. <strong className="text-white/80">Default $1,500</strong>. Set 0 to disable.
+                </span>
+              </div>
+            </div>
+
+            <div className="md:col-span-2 pt-4 border-t border-[#1F1F1F]">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                    Require phone verification on high-value quotes
+                  </Label>
+                  <p className="text-xs text-white/55 mt-2 max-w-xl leading-relaxed">
+                    When enabled, the customer must complete a 6-digit phone OTP before paying the deposit on quotes above the threshold. <strong className="text-amber-300">Currently MOCKED</strong> — Twilio Verify keys aren't set; you can read the active code from the <em>Safety → Pending OTPs</em> tab. Add <code className="text-[#D4AF37] text-[10px]">TWILIO_VERIFY_SID</code> to enable real SMS.
+                  </p>
+                </div>
+                <Switch
+                  checked={!!settings.safety_phone_verify_required}
+                  onCheckedChange={(v) => setSettings((s) => ({ ...s, safety_phone_verify_required: v }))}
+                  data-testid="settings-safety-phone-verify"
+                />
+              </div>
+
+              {settings.safety_phone_verify_required && (
+                <div className="mt-4">
+                  <Label className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                    Phone-verify required above ($)
+                  </Label>
+                  <div className="mt-2 flex items-center gap-3">
+                    <div className="relative w-40">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#D4AF37]" />
+                      <Input
+                        type="number"
+                        min={0}
+                        step="50"
+                        data-testid="settings-safety-phone-verify-threshold"
+                        value={settings.safety_phone_verify_threshold ?? 0}
+                        onChange={(e) => setSettings((s) => ({ ...s, safety_phone_verify_threshold: e.target.value }))}
+                        className="bg-[#0E0E0E] border-[#27272A] text-white h-11 pl-9"
+                      />
+                    </div>
+                    <span className="text-xs text-white/55">
+                      Quotes at or above this dollar amount must pass OTP. Set 0 to require for every quote.
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

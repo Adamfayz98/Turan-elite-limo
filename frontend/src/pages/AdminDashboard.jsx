@@ -76,6 +76,7 @@ import QuickQuoteTab from "@/components/admin/QuickQuoteTab";
 import PromoEmailsTab from "@/components/admin/PromoEmailsTab";
 import PushBroadcastTab from "@/components/admin/PushBroadcastTab";
 import QuoteRequestsTab from "@/components/admin/QuoteRequestsTab";
+import SafetyTab from "@/components/admin/SafetyTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
 const STATUS_COLOR = {
@@ -481,6 +482,9 @@ export default function AdminDashboard() {
             </TabsTrigger>
             <TabsTrigger value="quotes" data-testid="tab-quotes" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Quote Requests
+            </TabsTrigger>
+            <TabsTrigger value="safety" data-testid="tab-safety" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Safety
             </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Settings
@@ -1008,6 +1012,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="quotes" className="mt-6">
             <QuoteRequestsTab />
+          </TabsContent>
+
+          <TabsContent value="safety" className="mt-6">
+            <SafetyTab />
           </TabsContent>
 
           <TabsContent value="settings" className="mt-6">
