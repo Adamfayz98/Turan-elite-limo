@@ -5,6 +5,11 @@ const SUV_IMG = "/fleet/luxury-suv.jpg";
 const SPRINTER_IMG = "/fleet/sprinter.jpg";
 const LIMO_IMG = "https://images.unsplash.com/photo-1676107648535-931375db52e2?fm=jpg&q=70&w=2000&auto=format&fit=crop&ixlib=rb-4.1.0";
 
+const WEDDING_HERO = "/landings/wedding/hero.jpg";
+const VENUE_VINEYARD = "/landings/wedding/venue-vineyard.jpg";
+const VENUE_COASTAL = "/landings/wedding/venue-coastal.jpg";
+const VENUE_BALLROOM = "/landings/wedding/venue-ballroom.jpg";
+
 export default function WeddingLanding() {
   return (
     <LandingPage
@@ -47,9 +52,76 @@ export default function WeddingLanding() {
         { name: "Executive Sprinter", seats: "8-12 passengers", desc: "Mercedes Sprinter Executive. The bridal party's choice. Captain's chairs, leather, vanity space, USB charging.", img: SPRINTER_IMG },
         { name: "Stretch Limousine", seats: "8-14 passengers", desc: "Hummer & Chrysler 300 Stretch. Mood lighting, premium bar, room to celebrate. The reception send-off vehicle.", img: LIMO_IMG },
       ]}
+      experienceImage={{
+        src: WEDDING_HERO,
+        alt: "Bride and groom walking hand in hand",
+        kicker: "From the first 'I do' to the send-off",
+        caption: "The bride's first step into the car. The flower girl who can't find her shoe. The grandparents waving from the curb. We hold the timing so you only have to feel the moment.",
+      }}
+      venuesEyebrow="Bay Area wedding venues we know well"
+      venuesTitleA="From wine-country estates to"
+      venuesTitleAccent="coastal chapels"
+      venuesIntro="We've driven brides, grooms, parents, and bridal parties to every kind of Bay Area venue. Here are the styles our couples book most often — tell us your venue and we'll plan the day around its quirks."
+      venues={[
+        {
+          name: "Wine Country Estate",
+          image: VENUE_VINEYARD,
+          blurb: "Napa, Sonoma, Carneros vineyard weddings. Long uphill driveways, gravel paths — we send the SUV, not the sedan. Sunset photo backdrop included.",
+          badge: "Napa · Sonoma",
+        },
+        {
+          name: "Coastal & Carmel Ceremonies",
+          image: VENUE_COASTAL,
+          blurb: "Carmel, Big Sur, Half Moon Bay. Coastal fog timing matters — we'll move the bridal party by 20 min to catch the golden window, no scrambling.",
+          badge: "Pacific Coast",
+        },
+        {
+          name: "City Hall & Ballroom",
+          image: VENUE_BALLROOM,
+          blurb: "SF City Hall, Palace Hotel, Fairmont. Urban venues, valet etiquette, double-park strategy. We've done hundreds. Photo-ready arrival every time.",
+          badge: "SF · Peninsula",
+        },
+      ]}
+      venuesDisclaimer="Not your venue type? We've driven to nearly every major Bay Area wedding location. Tell us where, we'll route the day."
+      itineraryEyebrow="A sample wedding day"
+      itineraryTitleA="The day, hour by hour —"
+      itineraryTitleAccent="held together by your chauffeur"
+      itineraryIntro="Every wedding is different, but this is the rhythm of a typical Bay Area Saturday. Yours will be customized down to the minute."
+      itinerary={[
+        {
+          time: "10:00 AM",
+          title: "Bridal suite arrival · Sedan to salon",
+          blurb: "The bride and one bridesmaid to the hair appointment, with garment bag, sneakers, and a calm chauffeur. Coffee on board, photos discouraged.",
+        },
+        {
+          time: "1:00 PM",
+          title: "Parents & grandparents · SUV pickup",
+          blurb: "Climate-controlled SUV to the hotel, then to the venue. Captain's chairs so dad's tux doesn't crease. Plenty of room for the mother-of-the-bride's hat.",
+        },
+        {
+          time: "2:30 PM",
+          title: "Bridal party · Sprinter to ceremony",
+          blurb: "8 bridesmaids + bouquets + a champagne toast en route. We bring the chilled bottle if you want it. Doors held at the venue, train fluffed, breath taken.",
+        },
+        {
+          time: "3:00 PM",
+          title: "Bride & father · The first arrival",
+          blurb: "Final pickup. 5 minutes of silence in the back. The chauffeur opens the door at the venue entrance, hand extended. The walk down the aisle starts here.",
+        },
+        {
+          time: "5:30 PM",
+          title: "Ceremony → Reception · Sedan with bouquet",
+          blurb: "Newlyweds in the lead car, photographer in the SUV behind. 20-minute scenic route if you want photos en route. Champagne in the cabin, custom playlist on.",
+        },
+        {
+          time: "11:00 PM",
+          title: "Send-off · The decorated stretch",
+          blurb: "Ribbons on the back bumper, sparkler tunnel out front. We pull up at the exact moment the planner signals. You wave goodbye, fall in, drive into the night.",
+        },
+      ]}
       gallery={[
         LIMO_IMG, SEDAN_IMG, SPRINTER_IMG, SUV_IMG,
-        "https://images.unsplash.com/photo-1545185105-a81262517cf4?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
+        VENUE_VINEYARD,
       ]}
       ctaEyebrow="The most important day"
       ctaTitleA="Reserve your wedding fleet in"

@@ -4,6 +4,9 @@ const SPRINTER_IMG = "/fleet/sprinter.jpg";
 const SEDAN_IMG = "/fleet/executive-sedan.jpg";
 const SUV_IMG = "/fleet/luxury-suv.jpg";
 
+const AIRPORT_HERO = "/landings/airport/hero.jpg";
+const CHAUFFEUR_SIGN = "/landings/airport/chauffeur-sign.jpg";
+
 export default function AirportLanding() {
   return (
     <LandingPage
@@ -45,12 +48,54 @@ export default function AirportLanding() {
         { name: "Luxury SUV", seats: "1-6 passengers", desc: "Cadillac Escalade · GMC Yukon. Captain's chairs, massive trunk for international luggage.", img: SUV_IMG },
         { name: "Executive Sprinter", seats: "8-12 passengers", desc: "Mercedes Sprinter Executive. Captain's chairs + leather. Ideal for hospitality groups & family travel.", img: SPRINTER_IMG },
       ]}
+      experienceImage={{
+        src: AIRPORT_HERO,
+        alt: "Airport runway at dusk",
+        kicker: "From wheels-down to in the car",
+        caption: "Your flight lands at 4:18 PM. We see the touchdown ping. By the time you've cleared customs and grabbed your bag, our chauffeur is at baggage claim with a discreet name sign — phone off, charger ready, water in the cup holder.",
+      }}
+      itineraryEyebrow="What an arrival actually feels like"
+      itineraryTitleA="The 30 minutes after you land —"
+      itineraryTitleAccent="handled"
+      itineraryIntro="Every Bay Area airport transfer follows the same choreography. Here's exactly what happens, minute by minute."
+      itinerary={[
+        {
+          time: "T-2 hours",
+          title: "Flight tracking begins",
+          blurb: "We pull your flight number against FlightAware. Delay alerts route to the chauffeur in real time — you don't have to text us if your flight slips. The fee structure adjusts automatically.",
+        },
+        {
+          time: "T-30 min",
+          title: "Chauffeur arrives at the airport",
+          blurb: "Vehicle parks in the cell-phone lot for domestic, or the official meet-and-greet zone for international. The chauffeur walks to baggage claim or the customs exit with your sign.",
+        },
+        {
+          time: "T+0 (touchdown)",
+          title: "Wheels down · Notification sent",
+          blurb: "You get a text the moment your plane lands: 'Welcome to SFO, your chauffeur is at Door 5 baggage carousel 3 with a sign.' No fumbling with apps or trying to find a meeting spot.",
+        },
+        {
+          time: "T+15 min",
+          title: "Meet at baggage claim",
+          blurb: "Chauffeur in dark suit, holding a discreet card with your name. Greets you, takes the luggage, walks to the vehicle. Doors held. Water and a hot towel inside.",
+        },
+        {
+          time: "T+25 min",
+          title: "Curbside to vehicle to highway",
+          blurb: "Cabin climate to your preference (saved from prior rides if you're a returning client). Wi-Fi on. Phone charger out. Music or silence — your call. Off to the hotel.",
+        },
+        {
+          time: "T+90 min",
+          title: "Hotel lobby drop-off",
+          blurb: "Bellhop already alerted (if it's the Four Seasons or St. Regis). Luggage transferred. You walk in already checked in. The chauffeur waves and disappears.",
+        },
+      ]}
       gallery={[
         "/fleet/executive-sedan.jpg",
         "/fleet/luxury-suv.jpg",
         SPRINTER_IMG,
         "/fleet/first-class.jpg",
-        "https://images.unsplash.com/photo-1545185105-a81262517cf4?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
+        CHAUFFEUR_SIGN,
       ]}
       ctaEyebrow="Pre-book for your next flight"
       ctaTitleA="Lock your airport chauffeur in"

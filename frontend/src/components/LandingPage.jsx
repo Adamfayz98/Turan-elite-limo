@@ -44,6 +44,22 @@ export default function LandingPage({
   fleetTitleAccent,
   fleet,
   gallery,
+  // ---- New optional sections (all silently skipped if not provided) ----
+  // Full-bleed editorial image breaking up the page after pillars.
+  experienceImage, // { src, alt, caption?, kicker? }
+  // Grid of named venues / wineries / partners.
+  venuesEyebrow,
+  venuesTitleA,
+  venuesTitleAccent,
+  venuesIntro,
+  venues, // [{ name, image, blurb, badge? }]
+  venuesDisclaimer, // small italic line under the grid (e.g. "Tours customized to your preference")
+  // Timeline / sample day.
+  itineraryEyebrow,
+  itineraryTitleA,
+  itineraryTitleAccent,
+  itineraryIntro,
+  itinerary, // [{ time, title, blurb }]
   ctaEyebrow = "Book in 60 seconds",
   ctaTitleA,
   ctaTitleAccent,
@@ -122,6 +138,33 @@ export default function LandingPage({
         </div>
       </section>
 
+      {/* Experience editorial image — full-bleed, breaks up the text */}
+      {experienceImage?.src && (
+        <section className="relative border-y border-white/5">
+          <div className="relative h-[420px] sm:h-[560px] overflow-hidden">
+            <img
+              src={experienceImage.src}
+              alt={experienceImage.alt || "Experience"}
+              loading="lazy"
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/40 to-black/85" />
+            <div className="relative max-w-4xl mx-auto h-full flex flex-col justify-end px-6 pb-14 sm:pb-20">
+              {experienceImage.kicker && (
+                <p className="text-[#D4AF37] text-xs tracking-[0.35em] uppercase mb-3">
+                  {experienceImage.kicker}
+                </p>
+              )}
+              {experienceImage.caption && (
+                <p className="text-white text-2xl sm:text-4xl font-light leading-[1.15] max-w-3xl">
+                  {experienceImage.caption}
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Routes */}
       {routes && routes.length > 0 && (
         <section className="border-t border-white/5 bg-[#0a0a0a]">
@@ -175,6 +218,88 @@ export default function LandingPage({
           ))}
         </div>
       </section>
+
+      {/* Featured venues / wineries / partners */}
+      {venues && venues.length > 0 && (
+        <section className="border-t border-white/5 bg-[#0a0a0a]">
+          <div className="max-w-6xl mx-auto px-6 py-20 sm:py-24">
+            {venuesEyebrow && (
+              <p className="text-[#D4AF37] text-xs tracking-[0.35em] uppercase mb-4">{venuesEyebrow}</p>
+            )}
+            {(venuesTitleA || venuesTitleAccent) && (
+              <h2 className="text-2xl sm:text-4xl font-light tracking-tight leading-tight max-w-3xl">
+                {venuesTitleA} <span className="italic text-[#D4AF37]">{venuesTitleAccent}</span>.
+              </h2>
+            )}
+            {venuesIntro && (
+              <p className="text-white/55 mt-4 max-w-2xl leading-relaxed">{venuesIntro}</p>
+            )}
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 mt-12" data-testid={`${testId}-venues`}>
+              {venues.map((v) => (
+                <div
+                  key={v.name}
+                  data-testid={`${testId}-venue-${v.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  className="group rounded-2xl overflow-hidden border border-white/10 bg-white/[0.02] hover:border-[#D4AF37]/40 transition"
+                >
+                  <div className="aspect-[4/3] overflow-hidden relative">
+                    <img
+                      src={v.image}
+                      alt={v.name}
+                      loading="lazy"
+                      className="w-full h-full object-cover group-hover:scale-105 transition duration-700"
+                    />
+                    {v.badge && (
+                      <span className="absolute top-3 left-3 text-[10px] tracking-[0.18em] uppercase bg-[#D4AF37]/95 text-black px-2.5 py-1 rounded-full font-medium">
+                        {v.badge}
+                      </span>
+                    )}
+                  </div>
+                  <div className="p-5 border-t border-white/5">
+                    <h3 className="text-white text-base font-medium">{v.name}</h3>
+                    <p className="text-white/55 text-sm mt-2 leading-relaxed">{v.blurb}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {venuesDisclaimer && (
+              <p className="text-white/35 text-xs italic mt-8 max-w-2xl">{venuesDisclaimer}</p>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Sample itinerary — timeline */}
+      {itinerary && itinerary.length > 0 && (
+        <section className="max-w-5xl mx-auto px-6 py-20 sm:py-28">
+          {itineraryEyebrow && (
+            <p className="text-[#D4AF37] text-xs tracking-[0.35em] uppercase mb-4">{itineraryEyebrow}</p>
+          )}
+          {(itineraryTitleA || itineraryTitleAccent) && (
+            <h2 className="text-2xl sm:text-4xl font-light tracking-tight leading-tight max-w-2xl">
+              {itineraryTitleA} <span className="italic text-[#D4AF37]">{itineraryTitleAccent}</span>.
+            </h2>
+          )}
+          {itineraryIntro && (
+            <p className="text-white/55 mt-4 max-w-2xl leading-relaxed">{itineraryIntro}</p>
+          )}
+          <ol className="relative mt-14 border-l border-[#D4AF37]/25 ml-3" data-testid={`${testId}-itinerary`}>
+            {itinerary.map((step, idx) => (
+              <li
+                key={`${step.time}-${idx}`}
+                data-testid={`${testId}-itinerary-step-${idx}`}
+                className="relative pl-8 pb-10 last:pb-0"
+              >
+                <span className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-[#D4AF37] ring-4 ring-black" />
+                <p className="text-[#D4AF37] text-[11px] tracking-[0.25em] uppercase font-mono">{step.time}</p>
+                <h3 className="text-white text-lg mt-1.5">{step.title}</h3>
+                {step.blurb && (
+                  <p className="text-white/55 text-sm mt-2 leading-relaxed max-w-xl">{step.blurb}</p>
+                )}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {/* Gallery */}
       {gallery && gallery.length > 0 && (

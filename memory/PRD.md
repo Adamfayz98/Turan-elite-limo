@@ -10,6 +10,23 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
 - **Android:** Closed Testing on Play Console (Build #23).
 
+## ✅ Landing Pages Visual & Editorial Refresh (Feb 15, 2026 PM)
+
+**Shipped:**
+- **Shared `LandingPage` component** gained 3 new optional props (all backward-compatible):
+  - `experienceImage` — full-bleed editorial hero between pillars and routes ({src, alt, kicker, caption}).
+  - `venues` + `venuesEyebrow/Title/Intro/Disclaimer` — 3-up image grid of named venues/wineries/partners with badge support.
+  - `itinerary` — vertical timeline ({time, title, blurb}) with gold dot + ring markers.
+- **Wine Tour landing** (`/wine-tour`) fully rewritten with rich editorial content: 6 featured wineries (Stags Leap, Opus One, Castello di Amorosa, Domaine Chandon, Schramsberg, Frog's Leap) with badges and individual blurbs + non-affiliation disclaimer, 8-step sample tasting day (9:30 AM hotel pickup → 7:00 PM return), expanded FAQs, full-bleed Napa hero image with editorial caption.
+- **Wedding landing** (`/wedding`) gained an editorial bride-and-groom hero image, 3 venue-style cards (Wine Country Estate, Coastal & Carmel, City Hall & Ballroom) with non-specific imagery, and a 6-step wedding-day timeline (10 AM bridal suite → 11 PM send-off).
+- **Corporate landing** (`/corporate`) gained an SF skyline hero with the editorial caption explaining the Silicon Valley roadshow pitch, and a 7-step executive day (7:30 AM SFO → Sequoia → a16z → working lunch → 5:30 PM dinner at Quince/Atelier Crenn → Four Seasons return).
+- **Airport landing** (`/airport`) gained an airplane-wing-at-sunset hero with the editorial caption ("Your flight lands at 4:18 PM. We see the touchdown ping…"), plus a 6-step T-2hr → T+90min arrival choreography timeline.
+- **All landing imagery** stored locally in `/app/frontend/public/landings/{winetour,wedding,corporate,airport}/` (no CDN drift risk; stable for production deploy).
+
+**Files changed:**
+- Updated: `/app/frontend/src/components/LandingPage.jsx` (+3 new prop blocks), `/app/frontend/src/pages/WineTourLanding.jsx` (complete rewrite), `/app/frontend/src/pages/WeddingLanding.jsx` (added venues + itinerary), `/app/frontend/src/pages/CorporateLanding.jsx` (added experience hero + itinerary), `/app/frontend/src/pages/AirportLanding.jsx` (added experience hero + itinerary)
+- NEW assets: ~12 images in `/app/frontend/public/landings/winetour/`, 4 in `/wedding/`, 2 in `/corporate/`, 2 in `/airport/`
+
 ## ✅ Saved Cards / Invoice Charges + Twilio Verify Live + Promo Bug Fix + removeChild Crash Fix (Feb 15, 2026)
 
 **All shipped today + tested green (iter 37, 13/13 pytest passing):**

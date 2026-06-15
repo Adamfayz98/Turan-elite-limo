@@ -4,6 +4,9 @@ const SEDAN_IMG = "/fleet/executive-sedan.jpg";
 const SUV_IMG = "/fleet/luxury-suv.jpg";
 const SPRINTER_IMG = "/fleet/sprinter.jpg";
 
+const CORPORATE_HERO = "/landings/corporate/hero.jpg";
+const SF_SKYLINE = "/landings/corporate/sf-skyline.jpg";
+
 export default function CorporateLanding() {
   return (
     <LandingPage
@@ -45,9 +48,56 @@ export default function CorporateLanding() {
         { name: "Luxury SUV", seats: "1-6 passengers", desc: "Cadillac Escalade · GMC Yukon. Board member transport, partner roadshows, room for laptops & roller bags.", img: SUV_IMG },
         { name: "Executive Sprinter", seats: "8-12 passengers", desc: "Mercedes Sprinter Executive. Mobile boardroom — conference seating, Wi-Fi, screens, tables. The roadshow vehicle.", img: SPRINTER_IMG },
       ]}
+      experienceImage={{
+        src: CORPORATE_HERO,
+        alt: "San Francisco skyline at dusk",
+        kicker: "Built for Silicon Valley schedules",
+        caption: "Your investor lands at 7:42 AM. Your board meeting is at 9. The roadshow has six stops between Sand Hill Road and the Financial District. We've already mapped the chauffeur rotation.",
+      }}
+      itineraryEyebrow="A sample executive day"
+      itineraryTitleA="Roadshow rhythm —"
+      itineraryTitleAccent="6 meetings, 1 chauffeur, zero stress"
+      itineraryIntro="Most of our corporate clients book recurring weekly rides or full-day roadshows. Here's how a typical 'Sand Hill day' looks for a CEO doing an investor tour."
+      itinerary={[
+        {
+          time: "7:30 AM",
+          title: "Airport arrival · SFO terminal pickup",
+          blurb: "Chauffeur tracks the inbound flight, meets at baggage claim with a discreet sign. Coffee on board (your usual order is on file). Wi-Fi powered on, no small talk unless invited.",
+        },
+        {
+          time: "9:00 AM",
+          title: "Sand Hill Road · Sequoia",
+          blurb: "30-min meeting. Chauffeur circles or parks at the lot, ready in 25 min. You walk out, door already open, next presentation pulled up on the cabin screen.",
+        },
+        {
+          time: "10:30 AM",
+          title: "Menlo Park · Andreessen Horowitz",
+          blurb: "Second stop. The chauffeur has already routed for traffic, called ahead to the receptionist with your arrival time. You arrive 2 minutes before scheduled.",
+        },
+        {
+          time: "12:30 PM",
+          title: "Working lunch · Cabin or Madera",
+          blurb: "Either eat in the SUV between stops (full table service, hot food, no spills on the suit) or we drop at Rosewood's Madera. Your choice; we accommodate either.",
+        },
+        {
+          time: "2:00 PM",
+          title: "Palo Alto → SF · Two more partners",
+          blurb: "The afternoon arc up to the city. Chauffeur takes 280 N if you're tight on time, or 101 if you want one last call window. You decide between meetings.",
+        },
+        {
+          time: "5:30 PM",
+          title: "Dinner reservation · Quince or Atelier Crenn",
+          blurb: "We drop you at the restaurant. Vehicle and chauffeur stand by — or released for the night with a return pickup at 9 PM. Your call, in writing 1 hour before.",
+        },
+        {
+          time: "10:00 PM",
+          title: "Return to hotel · Four Seasons or St. Regis",
+          blurb: "Quiet ride back. Cabin lights dimmed, climate to your preference (on file). Tomorrow's schedule emailed before the chauffeur signs off.",
+        },
+      ]}
       gallery={[
         SEDAN_IMG, SUV_IMG, SPRINTER_IMG,
-        "https://images.unsplash.com/photo-1545185105-a81262517cf4?fm=jpg&q=70&w=1200&auto=format&fit=crop&ixlib=rb-4.1.0",
+        SF_SKYLINE,
         "/fleet/first-class.jpg",
       ]}
       ctaEyebrow="Set up a corporate account"
