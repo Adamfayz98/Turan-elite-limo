@@ -198,8 +198,11 @@ export default function QuoteRequestsTab() {
                       <span className="text-white font-medium">{q.full_name}</span>
                       <Badge className={`${badge.className} text-[10px] uppercase tracking-wider border`}>{badge.label}</Badge>
                       <span className="text-[10px] uppercase tracking-[0.2em] text-[#D4AF37] bg-[#D4AF37]/10 px-2 py-0.5 rounded">{q.vehicle_type}</span>
-                      {(q.risk_band === "yellow" || q.risk_band === "red" || q.blacklisted) && (
-                        <RiskBadge score={q.risk_score ?? (q.blacklisted ? 100 : 50)} band={q.risk_band || "red"} />
+                      {(q.risk_score !== undefined && q.risk_score !== null) && (
+                        <RiskBadge
+                          score={q.risk_score ?? (q.blacklisted ? 100 : 0)}
+                          band={q.risk_band || (q.blacklisted ? "red" : "green")}
+                        />
                       )}
                       {q.blacklisted && (
                         <Badge className="bg-red-500/20 text-red-200 border border-red-500/40 text-[10px] uppercase">

@@ -240,15 +240,19 @@ function RiskItem({ item, amount, label, onClear }) {
 
 export function RiskBadge({ score, band, compact = false }) {
   if (score === undefined || score === null) return null;
-  const cls = BAND_COLOR[band || "yellow"] || BAND_COLOR.yellow;
+  const resolvedBand = band || "yellow";
+  const cls = BAND_COLOR[resolvedBand] || BAND_COLOR.yellow;
+  const isGreen = resolvedBand === "green";
+  const Icon = isGreen ? CheckCircle2 : AlertTriangle;
+  const label = isGreen ? "Clean" : `Risk ${score}`;
   return (
     <span
       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase tracking-wider border ${cls}`}
-      title={`Risk score ${score}/100`}
-      data-testid="risk-badge"
+      title={isGreen ? `Safety screened · score ${score}/100` : `Risk score ${score}/100`}
+      data-testid={`risk-badge-${resolvedBand}`}
     >
-      <AlertTriangle className="w-3 h-3" />
-      {compact ? score : `Risk ${score}`}
+      <Icon className="w-3 h-3" />
+      {compact ? score : label}
     </span>
   );
 }

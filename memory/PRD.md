@@ -1,6 +1,6 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 15, 2026
+> Last refreshed: Feb 16, 2026
 
 ## Original Problem Statement
 Build a fully functioning website + native iOS/Android mobile app for TuranEliteLimo (premium chauffeur service, Bay Area). Stack: React + FastAPI + MongoDB + Expo React Native. Features: dynamic pricing, Stripe checkout, admin dashboard, driver live tracking. Recently expanded to: 2026 FIFA World Cup surge ops, custom invoices for affiliate brokered trips, social logins (Apple + Google).
@@ -9,6 +9,19 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Web:** `https://turanelitelimo.com` (deployed via Emergent)
 - **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
 - **Android:** Closed Testing on Play Console (Build #23).
+
+## ✅ Green "Clean" Risk Badge for safe quote requests (Feb 16, 2026)
+
+**Shipped:**
+- `RiskBadge` component (`SafetyTab.jsx`) now renders a green `CheckCircle2` icon + "Clean" label when `risk_band === "green"` (previously only rendered for yellow/red).
+- `QuoteRequestsTab.jsx` now displays the badge for ALL scored quote requests, so the user gets visual confirmation that the safety system analyzed each lead — green dot = clean, yellow = review, red = blacklisted.
+- No backend changes — `risk_band` was already being computed and stored at intake.
+- Verified DB has 2 existing "green" quote requests that will now render the badge.
+
+**Files changed:**
+- `/app/frontend/src/components/admin/SafetyTab.jsx` (RiskBadge component icon/label logic)
+- `/app/frontend/src/components/admin/QuoteRequestsTab.jsx` (render badge for all bands)
+
 
 ## ✅ Landing Pages Visual & Editorial Refresh (Feb 15, 2026 PM)
 
