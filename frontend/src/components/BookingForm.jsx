@@ -112,8 +112,11 @@ export default function BookingForm() {
   const [marketingOptIn, setMarketingOptIn] = useState(false);
   // Promo code state
   const [promoCode, setPromoCode] = useState("");
-  const [promoApplied, setPromoApplied] = useState(null); // {code, discount, final_amount, description}
+  const [promoApplied, setPromoApplied] = useState(null); // {code, discount, final_amount, description, auto_applied?}
   const [promoStatus, setPromoStatus] = useState({ checking: false, error: null });
+  // Codes the customer explicitly dismissed via Remove — prevents the
+  // auto-apply mirror from immediately re-applying them.
+  const [dismissedAutoCodes, setDismissedAutoCodes] = useState([]);
   // Visible "Opening secure checkout..." overlay with manual-click fallback
   // for browsers that silently block window.location.href to Stripe.
   const [checkoutOverlay, setCheckoutOverlay] = useState(null); // { url, bookingId, sessionId } | null
@@ -216,6 +219,14 @@ export default function BookingForm() {
   const applyPromo = async () => {
     const code = promoCode.trim().toUpperCase();
     if (!code) return;
+    // Guard against re-applying a code that's already on the booking — e.g.
+    // when the customer types the same code that the backend already
+    // auto-applied. Without this guard, the validate endpoint would compute
+    // a second discount against the already-discounted price.
+    if (promoApplied && promoApplied.code === code) {
+      setPromoStatus({ checking: false, error: "This code is already applied to your quote." });
+      return;
+    }
     const price = currentVehiclePrice();
     if (!price) {
       setPromoStatus({ checking: false, error: "Select a vehicle with an instant price first" });
@@ -245,13 +256,26 @@ export default function BookingForm() {
   };
 
   const clearPromo = () => {
+    // If the customer removes an auto-applied promo, remember the code so
+    // the mirror effect doesn't immediately re-apply it on the next quote
+    // refresh. If they switch vehicles or refresh the page the auto-apply
+    // will eventually come back — that's the right behavior.
+    if (promoApplied?.auto_applied && promoApplied.code) {
+      setDismissedAutoCodes((arr) =>
+        arr.includes(promoApplied.code) ? arr : [...arr, promoApplied.code],
+      );
+    }
     setPromoApplied(null);
     setPromoCode("");
     setPromoStatus({ checking: false, error: null });
   };
 
-  // If the vehicle changes after applying, re-validate against new amount
+  // If the vehicle changes after applying, re-validate against new amount.
+  // SKIP for auto-applied promos: the backend already handles auto-promo
+  // pricing inside _apply_auto_promo_to_quote_response, and re-validating
+  // against the already-discounted price would double-apply the discount.
   useEffect(() => {
+    if (promoApplied?.auto_applied) return;
     if (promoApplied && currentVehiclePrice() !== null) {
       // re-validate silently
       (async () => {
@@ -280,19 +304,57 @@ export default function BookingForm() {
   }, [form.vehicle_type, quote]);
 
   // When the quote response carries an auto-applied promo on the selected
-  // vehicle, surface it in the promo code field so the customer pays the
-  // discounted amount at checkout (no manual typing required).
+  // vehicle, surface it as ALREADY-APPLIED (green chip) — NOT as a pre-filled
+  // input the customer can re-apply. Previously the input was pre-filled with
+  // the auto-applied code and a customer click on "Apply" stacked the discount
+  // on top of the already-discounted price (silent revenue leak).
+  //
+  // Now: we mirror the auto-applied promo into `promoApplied` state so the UI
+  // renders the green chip + Remove button. If the customer hits Remove, they
+  // get the empty input back and can type a different code if they have one.
   useEffect(() => {
     try {
       const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
-      const autoCode = vq?.applied_promo?.code;
-      if (autoCode && !promoCode) {
-        setPromoCode(autoCode);
+      const auto = vq?.applied_promo;
+      // The auto-apply promo metadata lives on `q.applied_promo` (code,
+      // description, type, value) and the resolved discount amount lives on
+      // `q.discount_amount` + `q.original_price` (see _apply_auto_promo_to_quote_response).
+      const discountAmt = Number(vq?.discount_amount || 0);
+      const finalAmt = Number(vq?.price || 0);
+      if (!auto?.code || discountAmt <= 0) return;
+
+      // Customer already explicitly removed this auto-apply code — respect
+      // their choice and don't immediately re-apply it.
+      if (dismissedAutoCodes.includes(auto.code)) return;
+
+      // Don't clobber a manually-applied promo if it's a DIFFERENT code.
+      if (promoApplied && promoApplied.code && promoApplied.code !== auto.code) return;
+
+      // Idempotent: skip if we've already mirrored this exact code + amount.
+      if (
+        promoApplied &&
+        promoApplied.code === auto.code &&
+        Math.abs((promoApplied.discount || 0) - discountAmt) < 0.01
+      ) {
+        return;
       }
+
+      setPromoApplied({
+        code: auto.code,
+        discount: discountAmt,
+        final_amount: finalAmt,
+        description: auto.description || "Automatically applied",
+        auto_applied: true,
+      });
+      // Clear the manual input — if the customer later hits Remove, they
+      // should see an empty field, not a pre-filled one (which is what
+      // caused the original double-apply bug).
+      setPromoCode("");
+      setPromoStatus({ checking: false, error: null });
     } catch (e) {
       // silent — never block the form
     }
-  }, [quote, form.vehicle_type, promoCode]);
+  }, [quote, form.vehicle_type, promoApplied, dismissedAutoCodes]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -1021,11 +1083,16 @@ export default function BookingForm() {
                       {promoApplied.code}
                     </div>
                     <div className="text-sm">
-                      <div className="text-emerald-300">
+                      <div className="text-emerald-300 flex items-center gap-2 flex-wrap">
                         Saved ${promoApplied.discount.toFixed(2)} ·{" "}
                         <span className="text-white/65">
                           New total ${promoApplied.final_amount.toFixed(2)}
                         </span>
+                        {promoApplied.auto_applied && (
+                          <span className="text-[9px] uppercase tracking-[0.18em] text-[#D4AF37] bg-[#D4AF37]/10 border border-[#D4AF37]/30 rounded px-1.5 py-[1px]">
+                            Auto-applied
+                          </span>
+                        )}
                       </div>
                       {promoApplied.description && (
                         <div className="text-white/45 text-xs mt-0.5">{promoApplied.description}</div>

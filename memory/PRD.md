@@ -10,21 +10,35 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
 - **Android:** Closed Testing on Play Console (Build #23).
 
-## ✅ Saved Cards / Invoice Charges + Twilio Verify Live + removeChild Crash Fix (Feb 15, 2026)
+## ✅ Saved Cards / Invoice Charges + Twilio Verify Live + Promo Bug Fix + removeChild Crash Fix (Feb 15, 2026)
 
-**Shipped today (iter 37, 13/13 pytest passing, zero issues):**
+**All shipped today + tested green (iter 37, 13/13 pytest passing):**
 
 - **Production crash fix** — Google Translate + React 18 `removeChild` crash on Android Chrome mobile. Added `installTranslateResilientDomPatches()` (silent no-op for detached-node `removeChild` / `insertBefore` calls) + `translate="no"` + `className="notranslate"` on the booking form section. Same pattern Microsoft Teams / Slack / Stripe use.
 - **Quote-Offer Saved Cards** — `/quote/{token}` deposit checkout now uses direct Stripe REST API with `payment_intent_data[setup_future_usage]=off_session` + `customer_creation=always`. Finalize endpoint expands `payment_intent.payment_method` and saves `stripe_customer_id`, `stripe_payment_method_id`, `stripe_payment_intent_id`, `card_brand`, `card_last4`, plus `wait_time_consent=true` + `consent_accepted_at` timestamp on the resulting booking row.
 - **Customer consent UI** — Reassuring checkbox on `/quote/{token}` and updated wording on the main `BookingForm` wait-time-consent-block. Both credit Stripe as the vault, clarify "we only charge if those things actually happen," list exactly what may be charged (remaining balance, wait time, damages, extra stops). Backend enforces `consent_accepted: true` in the POST body or returns 400.
 - **Generic admin "Charge card on file"** — `POST /api/admin/bookings/{id}/charge-card` with `{amount, reason, description}`. Reasons: `balance`, `extra_hour`, `extra_stop`, `tolls`, `gratuity`, `other`. Min $0.50, max $10k. Uses existing `_stripe_off_session_charge` helper. Sends itemized customer receipt email. Appends to `bookings.extra_charges[]` for full history. New "Charge card on file" section in `BookingDetailsDialog.jsx` admin UI with amount + reason dropdown + description textarea + per-booking history.
-- **Twilio Verify is LIVE** — `TWILIO_VERIFY_SID=VA9206b73740102bb36be85f5bc371122c` added to `backend/.env`. The OTP gate built in iter 36 will now send real SMS the moment admin flips "Require phone verification on high-value quotes" toggle in Settings → Safety & anti-fraud.
+- **Twilio Verify is LIVE** — `TWILIO_VERIFY_SID=VA9206b73740102bb36be85f5bc371122c` added to `backend/.env`. The OTP gate built in iter 36 will now send real SMS the moment admin flips "Require phone verification on high-value quotes" toggle in Settings → Safety & anti-fraud. Recommended: ON with $1000 threshold.
+- **Promo double-apply bug fixed** — When backend auto-applies a promo (`auto_apply: true` on a promo doc), the frontend now mirrors it as `promoApplied` state so the GREEN CHIP shows (not the manual Apply input). New "Auto-applied" badge on the chip. Re-validate effect skipped for auto-applied promos (preventing the silent double-discount on already-discounted prices). Manual `applyPromo` blocks re-applying the currently-applied code with a friendly error. Customer can hit Remove + the dismissed code is tracked so the mirror doesn't immediately re-apply.
 
-**Files changed (iter 37):**
+**Files changed (today, iter 37):**
 - NEW: `/app/frontend/src/lib/translatePatch.js`, `/app/backend/tests/test_iteration37_saved_cards_charge.py`
-- Updated: `/app/frontend/src/index.js` (translate patch boot), `/app/frontend/src/components/BookingForm.jsx` (translate="no" + improved consent text), `/app/backend/routes/admin.py` (quote-offer checkout → direct REST + consent gate; finalize → saves payment method), `/app/backend/routes/payments.py` (new `/admin/bookings/{id}/charge-card`), `/app/frontend/src/pages/QuoteOfferConfirm.jsx` (consent checkbox + reassuring text), `/app/frontend/src/components/admin/BookingDetailsDialog.jsx` (Charge card on file UI), `/app/backend/.env` (TWILIO_VERIFY_SID)
+- Updated: `/app/frontend/src/index.js` (translate patch boot), `/app/frontend/src/components/BookingForm.jsx` (translate="no" + improved consent text + promo double-apply fix + auto-apply mirror with dismiss tracking), `/app/backend/routes/admin.py` (quote-offer checkout → direct REST + consent gate; finalize → saves payment method), `/app/backend/routes/payments.py` (new `/admin/bookings/{id}/charge-card`), `/app/frontend/src/pages/QuoteOfferConfirm.jsx` (consent checkbox + reassuring text), `/app/frontend/src/components/admin/BookingDetailsDialog.jsx` (Charge card on file UI), `/app/backend/.env` (TWILIO_VERIFY_SID)
 
-⚠ **One note worth flagging**: testing agent noticed `backend/.env` `STRIPE_API_KEY` is a live key (`sk_live_...`). Preview-env Stripe test cards (`4242 4242 4242 4242`) won't work against it. For the success-path of the quote-offer flow to be testable end-to-end in preview, you'd need a separate `sk_test_` key for the preview env. This is pre-existing setup — not a regression — but worth knowing.
+## 📋 Stripe Radar rules (for user to paste in dashboard — Settings → Radar → Rules)
+
+Block:
+- `Block if :card_number_failed_count: > 2 AND :ip_address: matches the same IP` (card testing)
+- `Block if :email: matches any of (chargeback list)` (your manual blacklist)
+
+Review (not block):
+- `Review if :amount: > 1500 AND :card_country: != :ip_country:` (foreign+foreign+high$)
+- `Review if :card_funding: == 'prepaid'`
+- `Review if :ip_address::risk_level: == 'highest'`
+
+Allow (override review for good actors):
+- `Allow if :customer: in (any previous successful charge)` — critical for conference attendees who re-book
+- `Allow if :email_risk_level: == 'low' AND :amount: < 500`
 
 ## ✅ Safety / Anti-Fraud System — Phase 1 + 2 + 3 (Feb 14, 2026)
 
