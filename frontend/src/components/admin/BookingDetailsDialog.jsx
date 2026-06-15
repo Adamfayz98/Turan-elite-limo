@@ -76,6 +76,10 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
   const [chargingStopId, setChargingStopId] = useState(null);
   const [damageAmount, setDamageAmount] = useState("");
   const [damageReason, setDamageReason] = useState("");
+  const [extraChargeAmount, setExtraChargeAmount] = useState("");
+  const [extraChargeReason, setExtraChargeReason] = useState("balance");
+  const [extraChargeDescription, setExtraChargeDescription] = useState("");
+  const [chargingExtra, setChargingExtra] = useState(false);
   if (!booking) return null;
   const b = booking;
   const formattedDate = b.pickup_date
@@ -303,6 +307,36 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Charge failed");
     } finally {
       setChargingDamage(false);
+    }
+  };
+
+  const chargeExtra = async () => {
+    const amt = parseFloat(extraChargeAmount);
+    if (!amt || amt <= 0) {
+      toast.error("Enter a valid amount");
+      return;
+    }
+    if ((extraChargeDescription || "").trim().length < 4) {
+      toast.error("Add a short description — it shows on the customer's receipt");
+      return;
+    }
+    if (!window.confirm(`Charge customer $${amt.toFixed(2)} for: "${extraChargeDescription.trim()}"?`)) return;
+    setChargingExtra(true);
+    try {
+      const { data } = await api.post(`/admin/bookings/${b.id}/charge-card`, {
+        amount: amt,
+        reason: extraChargeReason,
+        description: extraChargeDescription.trim(),
+      });
+      toast.success(`Charged $${data.amount?.toFixed(2)} (${data.reason})`);
+      setExtraChargeAmount("");
+      setExtraChargeDescription("");
+      onChanged?.();
+      onClose?.();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Charge failed");
+    } finally {
+      setChargingExtra(false);
     }
   };
 
@@ -795,6 +829,109 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
               : "No saved card / consent on this booking — charge via Stripe dashboard or call the customer, then click \"Mark as charged externally\" above."}
           </p>
         </div>
+
+        {/* ---------- Generic "Charge card on file" — for arbitrary fees ---------- */}
+        {canChargeOffSession && (
+          <div className="mt-4 rounded-2xl border border-[#1F1F1F] bg-[#0A0A0A] p-5" data-testid="charge-card-on-file-block">
+            <div className="flex items-center gap-2 mb-3">
+              <CreditCard className="w-4 h-4 text-[#D4AF37]" />
+              <div className="text-xs uppercase tracking-[0.22em] text-[#D4AF37] font-semibold">
+                Charge card on file
+              </div>
+              {b.card_brand && b.card_last4 && (
+                <span className="text-[11px] text-white/45 font-mono">
+                  · {b.card_brand} •••• {b.card_last4}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-white/55 mb-4 leading-relaxed">
+              Use for anything not covered above — day-before balance, extra hour added on the night-of, tolls, or any other approved charge. The customer gets an itemized email receipt.
+            </p>
+            <div className="grid sm:grid-cols-[140px_180px_1fr] gap-3">
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider text-white/45">Amount</Label>
+                <div className="relative mt-1">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#D4AF37]" />
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.5"
+                    data-testid="extra-charge-amount"
+                    value={extraChargeAmount}
+                    onChange={(e) => setExtraChargeAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="bg-[#0E0E0E] border-[#27272A] text-white pl-9 h-10"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider text-white/45">Reason</Label>
+                <select
+                  data-testid="extra-charge-reason"
+                  value={extraChargeReason}
+                  onChange={(e) => setExtraChargeReason(e.target.value)}
+                  className="mt-1 w-full h-10 rounded-md bg-[#0E0E0E] border border-[#27272A] text-white text-sm px-3 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                >
+                  <option value="balance">Balance / remaining</option>
+                  <option value="extra_hour">Extra hour</option>
+                  <option value="extra_stop">Extra stop</option>
+                  <option value="tolls">Tolls / bridge fees</option>
+                  <option value="gratuity">Gratuity (pre-approved)</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider text-white/45">Description (shown on receipt)</Label>
+                <Textarea
+                  data-testid="extra-charge-description"
+                  value={extraChargeDescription}
+                  onChange={(e) => setExtraChargeDescription(e.target.value)}
+                  placeholder="e.g., Extra hour added during trip per customer request"
+                  className="bg-[#0E0E0E] border-[#27272A] text-white mt-1 min-h-[60px] text-sm focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37]"
+                  maxLength={400}
+                />
+              </div>
+            </div>
+            <div className="mt-3">
+              <Button
+                onClick={chargeExtra}
+                disabled={chargingExtra || !extraChargeAmount || (extraChargeDescription || "").trim().length < 4}
+                data-testid="charge-card-on-file-btn"
+                className="bg-[#D4AF37] text-black hover:bg-[#B3922E] disabled:opacity-40 rounded-full h-10 text-sm font-semibold px-5"
+              >
+                {chargingExtra ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <CreditCard className="w-4 h-4 mr-2" />
+                )}
+                Charge ${parseFloat(extraChargeAmount || 0).toFixed(2)}
+              </Button>
+            </div>
+            {Array.isArray(b.extra_charges) && b.extra_charges.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-[#1F1F1F]">
+                <div className="text-[10px] uppercase tracking-wider text-white/40 mb-2">
+                  Previous charges on this booking
+                </div>
+                <div className="space-y-1.5">
+                  {b.extra_charges.map((ec) => (
+                    <div
+                      key={ec.id}
+                      data-testid={`extra-charge-${ec.id}`}
+                      className="text-xs text-white/65 flex items-center justify-between gap-3"
+                    >
+                      <span className="truncate">
+                        ${Number(ec.amount).toFixed(2)} · {ec.reason} · <span className="text-white/45">{ec.description}</span>
+                      </span>
+                      <span className="text-white/35 text-[10px] flex-shrink-0">
+                        {ec.charged_at ? new Date(ec.charged_at).toLocaleDateString() : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

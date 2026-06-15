@@ -24,6 +24,7 @@ export default function QuoteOfferConfirm() {
   const [otpCode, setOtpCode] = useState("");
   const [otpSending, setOtpSending] = useState(false);
   const [otpPhoneLast4, setOtpPhoneLast4] = useState("");
+  const [consentAccepted, setConsentAccepted] = useState(false);
 
   // 1) Load quote
   useEffect(() => {
@@ -83,10 +84,15 @@ export default function QuoteOfferConfirm() {
   }, [sessionId, token, confirmed]);
 
   const handlePay = async () => {
+    if (!consentAccepted) {
+      setError("Please accept the card-on-file authorization to continue.");
+      return;
+    }
     setPaying(true);
     try {
       const { data } = await api.post(`/quote-offer/${token}/checkout`, {
         origin_url: window.location.origin,
+        consent_accepted: true,
       });
       if (data?.url) {
         window.location.href = data.url;
@@ -273,6 +279,36 @@ export default function QuoteOfferConfirm() {
           <div className="text-[#D4AF37] text-xs text-center mb-4">{validityNote}</div>
         )}
 
+        {/* Card-on-file consent — required before the pay button enables.
+             Explains in plain language: card stays with Stripe (not us), only
+             charged when something actually happens, every charge emailed. */}
+        <label
+          data-testid="quote-consent-label"
+          className="block mb-5 rounded-2xl border border-white/10 bg-white/[0.02] p-5 cursor-pointer hover:border-white/20 transition-colors"
+        >
+          <div className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              data-testid="quote-consent-checkbox"
+              checked={consentAccepted}
+              onChange={(e) => setConsentAccepted(e.target.checked)}
+              className="mt-1 h-5 w-5 accent-[#D4AF37] cursor-pointer flex-shrink-0"
+              required
+            />
+            <div className="text-[13px] text-white/80 leading-relaxed">
+              I authorize TuranEliteLimo to keep this card{" "}
+              <strong className="text-white">securely on file with Stripe</strong>{" "}
+              (we never see or store the full card number), and to charge it for the{" "}
+              <strong className="text-white">remaining balance</strong> the day before service, plus any{" "}
+              <strong className="text-white">wait time, damages, or extra stops</strong>{" "}
+              that actually occur during my trip.
+              <span className="block mt-2 text-white/50 text-[12px]">
+                If the trip goes smoothly, nothing extra is charged — we only bill if those things actually happen, and every charge is itemized and emailed to you with a receipt.
+              </span>
+            </div>
+          </div>
+        </label>
+
         {/* Phone OTP gate (only when backend signals required) */}
         {otpState && (
           <div className="rounded-2xl border border-[#D4AF37]/30 bg-[#D4AF37]/[0.06] p-5 mb-5" data-testid="otp-gate">
@@ -329,8 +365,8 @@ export default function QuoteOfferConfirm() {
         <Button
           data-testid="quote-confirm-pay-button"
           onClick={handlePay}
-          disabled={paying}
-          className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] disabled:opacity-60 h-14 rounded-full text-base font-bold tracking-wide shadow-lg shadow-[#D4AF37]/10"
+          disabled={paying || !consentAccepted}
+          className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] disabled:opacity-40 disabled:cursor-not-allowed h-14 rounded-full text-base font-bold tracking-wide shadow-lg shadow-[#D4AF37]/10"
         >
           {paying ? (
             <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Opening secure checkout…</>

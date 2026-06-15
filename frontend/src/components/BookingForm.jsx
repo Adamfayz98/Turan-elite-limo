@@ -1121,6 +1121,9 @@ export default function BookingForm() {
                 <p className="pt-1 border-t border-white/5">
                   <strong className="text-white">Damages &amp; incidentals.</strong> If the vehicle is damaged, soiled, or requires special cleaning during your trip, the actual repair/cleaning cost may be charged to the card on file. Every charge is itemized with the reason and emailed to you.
                 </p>
+                <p className="pt-2 text-white/65 text-[13px]">
+                  Your card stays securely on file with <strong className="text-white">Stripe</strong> (we never see or store the full card number). <strong className="text-white">We only charge it if something actually happens</strong> — the remaining balance the day before your trip, plus wait time, damages, or extra stops only if they occur. If your trip goes smoothly, nothing extra is charged. Every charge is emailed to you with a receipt.
+                </p>
               </div>
               <label
                 data-testid="wait-consent-label"
@@ -1135,9 +1138,9 @@ export default function BookingForm() {
                   className="mt-1 h-5 w-5 accent-[#D4AF37] cursor-pointer flex-shrink-0"
                 />
                 <span className="text-sm text-white/85 leading-relaxed">
-                  I authorize TuranEliteLimo to charge my card on file for{" "}
-                  <strong className="text-white">wait time fees</strong> beyond the grace period and for{" "}
-                  <strong className="text-white">trip damages or incidentals</strong> (e.g., spills, vehicle damage, excessive cleaning), per the policy above. All charges are itemized and emailed to me.
+                  I authorize TuranEliteLimo to charge the card I&apos;m about to enter (kept securely on file by Stripe) for the{" "}
+                  <strong className="text-white">remaining balance</strong> the day before service, plus any{" "}
+                  <strong className="text-white">wait time, damages, or extra stops</strong> that actually occur during my trip, per the policy above. I&apos;ll get an email receipt for every charge.
                 </span>
               </label>
 

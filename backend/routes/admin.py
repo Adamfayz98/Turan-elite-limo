@@ -768,31 +768,81 @@ async def public_quote_offer_checkout(token: str, payload: dict, request: Reques
     success_url = f"{origin}/quote/{token}?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{origin}/quote/{token}"
 
-    checkout = _get_stripe_checkout(request)
-    session = await checkout.create_checkout_session(
-        CheckoutSessionRequest(
-            amount=deposit,
-            currency="usd",
-            success_url=success_url,
-            cancel_url=cancel_url,
-            metadata={
-                "quote_request_id": q["id"],
-                "confirm_token": token,
-                "kind": "quote_offer_deposit",
-                "customer_email": q.get("email") or "",
-                "customer_name": q.get("full_name") or "",
-            },
+    # ---- Consent capture (REQUIRED for off-session future charges) ----
+    consent_accepted = bool((payload or {}).get("consent_accepted"))
+    if not consent_accepted:
+        raise HTTPException(
+            status_code=400,
+            detail="Please accept the card-on-file authorization to continue.",
         )
-    )
+
+    # We create the Stripe Checkout session via direct REST (the
+    # emergentintegrations wrapper doesn't expose
+    # `payment_intent_data[setup_future_usage]`). Saving the card here lets
+    # the admin charge for the day-before balance, wait time, damages, or
+    # extra stops without sending a new invoice — consistent with the main
+    # booking flow at routes/payments.py:create_payment_checkout.
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Payment system not configured.")
+    deposit_cents = int(round(deposit * 100))
+    customer_email = q.get("email") or ""
+    product_name = f"TuranEliteLimo — {q.get('vehicle_type', 'Quote')} deposit"
+    form_pairs = [
+        ("mode", "payment"),
+        ("success_url", success_url),
+        ("cancel_url", cancel_url),
+        ("payment_method_types[]", "card"),
+        ("customer_creation", "always"),
+        ("line_items[0][quantity]", "1"),
+        ("line_items[0][price_data][currency]", "usd"),
+        ("line_items[0][price_data][unit_amount]", str(deposit_cents)),
+        ("line_items[0][price_data][product_data][name]", product_name),
+        ("payment_intent_data[setup_future_usage]", "off_session"),
+        ("payment_intent_data[metadata][quote_request_id]", q["id"]),
+        ("payment_intent_data[metadata][confirm_token]", token),
+        ("payment_intent_data[metadata][kind]", "quote_offer_deposit"),
+        ("metadata[quote_request_id]", q["id"]),
+        ("metadata[confirm_token]", token),
+        ("metadata[kind]", "quote_offer_deposit"),
+        ("metadata[customer_name]", q.get("full_name") or ""),
+        ("metadata[consent_accepted]", "true"),
+    ]
+    if customer_email:
+        form_pairs.append(("customer_email", customer_email))
+        form_pairs.append(("metadata[customer_email]", customer_email))
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as cli:
+            r = await cli.post(
+                "https://api.stripe.com/v1/checkout/sessions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                content=urlencode(form_pairs).encode("utf-8"),
+            )
+    except Exception as e:
+        logger.error(f"Quote-offer Stripe checkout create network failure: {e}")
+        raise HTTPException(status_code=502, detail="Couldn't reach Stripe. Please try again.")
+    if r.status_code != 200:
+        logger.error(f"Quote-offer Stripe checkout HTTP {r.status_code}: {r.text[:300]}")
+        raise HTTPException(status_code=502, detail="Stripe couldn't open checkout. Please contact support.")
+    sess_json = r.json()
+    session_url = sess_json.get("url")
+    session_id_new = sess_json.get("id")
+    if not session_url or not session_id_new:
+        raise HTTPException(status_code=502, detail="Stripe returned an invalid session.")
 
     await db.quote_requests.update_one(
         {"id": q["id"]},
         {"$set": {
-            "deposit_session_id": session.session_id,
+            "deposit_session_id": session_id_new,
             "deposit_amount_pending": deposit,
+            "consent_accepted_at": datetime.now(timezone.utc).isoformat(),
         }},
     )
-    return {"url": session.url, "session_id": session.session_id, "amount": deposit}
+    return {"url": session_url, "session_id": session_id_new, "amount": deposit}
 
 
 @router.get("/quote-offer/{token}/finalize")
@@ -825,6 +875,7 @@ async def public_quote_offer_finalize(token: str, session_id: str, request: Requ
             r = await cli.get(
                 f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
                 headers={"Authorization": f"Bearer {api_key}"},
+                params={"expand[]": ["payment_intent.payment_method"]},
             )
     except Exception as e:
         logger.error(f"Quote-offer Stripe lookup failed (network): {e}")
@@ -838,6 +889,28 @@ async def public_quote_offer_finalize(token: str, session_id: str, request: Requ
     if not paid:
         # Customer hit cancel or payment is still processing — surface a useful state.
         return {"ok": False, "paid": False, "status": s.get("payment_status") or s.get("status")}
+
+    # ---- Extract the saved card (payment_method) + Stripe customer id ----
+    # Both are needed to charge the card later for balance, wait time,
+    # damages, or extra stops without sending a new invoice.
+    stripe_customer_id = s.get("customer") or ""
+    stripe_payment_intent_id = ""
+    stripe_payment_method_id = ""
+    card_brand = ""
+    card_last4 = ""
+    pi = s.get("payment_intent")
+    if isinstance(pi, dict):
+        stripe_payment_intent_id = pi.get("id") or ""
+        pm = pi.get("payment_method")
+        if isinstance(pm, dict):
+            stripe_payment_method_id = pm.get("id") or ""
+            card = pm.get("card") or {}
+            card_brand = card.get("brand") or ""
+            card_last4 = card.get("last4") or ""
+        elif isinstance(pm, str):
+            stripe_payment_method_id = pm
+    elif isinstance(pi, str):
+        stripe_payment_intent_id = pi
 
     # Create the booking now. Wrap critical write ops in try/except — if any
     # secondary step fails AFTER the customer already paid, we still want to
@@ -891,6 +964,18 @@ async def public_quote_offer_finalize(token: str, session_id: str, request: Requ
         "risk_band": q.get("risk_band"),
         "risk_flags": q.get("risk_flags") or [],
         "blacklisted": bool(q.get("blacklisted")),
+        # ---- Saved-card / off-session charging ----
+        # Customer accepted the on-screen authorization in QuoteOfferConfirm
+        # before clicking Pay (we re-check on the backend at checkout time).
+        # These IDs power admin charge-on-file for balance, wait time,
+        # damages, or extra stops — no second invoice needed.
+        "stripe_customer_id": stripe_customer_id,
+        "stripe_payment_method_id": stripe_payment_method_id,
+        "stripe_payment_intent_id": stripe_payment_intent_id,
+        "card_brand": card_brand,
+        "card_last4": card_last4,
+        "wait_time_consent": True,
+        "consent_accepted_at": q.get("consent_accepted_at") or now_iso,
     }
     try:
         await db.bookings.insert_one(booking_doc.copy())

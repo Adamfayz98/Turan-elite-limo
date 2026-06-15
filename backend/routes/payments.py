@@ -963,3 +963,117 @@ async def admin_force_sync_payment(
             "confirmation_number"
         ),
     }
+
+
+
+# =====================================================================
+# Generic "Charge card on file" — for arbitrary fees not covered by the
+# specific wait-time / damages / mid-trip-stop endpoints. Examples:
+#   - extra hour added on the night-of
+#   - tolls reimbursement
+#   - special-request stop after the trip already ended
+#   - day-before balance auto-charge when the customer was unreachable
+# =====================================================================
+
+
+@router.post("/admin/bookings/{booking_id}/charge-card")
+async def admin_charge_card_on_file(
+    booking_id: str,
+    payload: dict,
+    _: dict = Depends(require_admin),
+):
+    """Generic off-session charge against the saved card. Requires:
+      - amount (USD, > $0.50)
+      - reason (short label: 'extra_hour' | 'extra_stop' | 'tolls' | 'balance' | 'other')
+      - description (free-text shown on the customer's receipt + Stripe dashboard)
+    """
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if not b.get("wait_time_consent"):
+        raise HTTPException(
+            status_code=400,
+            detail="Customer did not consent to off-session charges on this booking.",
+        )
+    pm_id = b.get("stripe_payment_method_id")
+    customer_id = b.get("stripe_customer_id")
+    if not pm_id or not customer_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No saved card on this booking. Use Backfill saved card first, or send a new invoice.",
+        )
+
+    try:
+        amount = float(payload.get("amount") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="amount must be a number")
+    if amount < 0.50:
+        raise HTTPException(status_code=400, detail="Charge too small (under $0.50 minimum).")
+    if amount > 10000:
+        raise HTTPException(
+            status_code=400,
+            detail="Charge exceeds $10,000 — please split into smaller charges or contact Stripe support.",
+        )
+    reason = (payload.get("reason") or "other").strip().lower()[:40]
+    description = (payload.get("description") or "").strip()[:400]
+    if not description:
+        description = f"Additional charge ({reason}) — #{b.get('confirmation_number','')}"
+
+    pi = await _stripe_off_session_charge(
+        customer_id=customer_id,
+        payment_method_id=pm_id,
+        amount_cents=int(round(amount * 100)),
+        description=description,
+        metadata={
+            "booking_id": b["id"],
+            "kind": "charge_card_on_file",
+            "reason": reason,
+        },
+    )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    charge_record = {
+        "id": str(uuid.uuid4()),
+        "amount": amount,
+        "reason": reason,
+        "description": description,
+        "stripe_payment_intent_id": pi.get("id") or "",
+        "charged_at": now_iso,
+    }
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {"$push": {"extra_charges": charge_record}},
+    )
+
+    # Email the customer a simple receipt — no fancy template; this is rare.
+    try:
+        if b.get("email"):
+            cn = b.get("confirmation_number") or b["id"][:8]
+            html = f"""<!doctype html><html><body style="background:#050505;color:#eee;font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:32px;">
+<div style="max-width:560px;margin:0 auto;background:#0c0c0c;border:1px solid #1c1c1c;border-radius:14px;padding:28px;">
+  <div style="color:#D4AF37;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:600;">Charge receipt</div>
+  <h2 style="color:#fff;font-size:20px;margin:10px 0 4px;">${amount:,.2f} charged · #{cn}</h2>
+  <div style="color:#888;font-size:13px;line-height:1.7;margin-top:10px;">
+    {description.replace('<','&lt;').replace('>','&gt;')}
+  </div>
+  <div style="margin-top:20px;padding-top:16px;border-top:1px solid #1c1c1c;color:#666;font-size:11px;line-height:1.7;">
+    Card on file: {b.get('card_brand','card')} ending {b.get('card_last4','••••')}.<br>
+    Questions? Reply to this email or call (650) 410-0687.
+  </div>
+</div></body></html>"""
+            await send_email(
+                to=b["email"],
+                subject=f"Charge receipt · ${amount:,.2f} · #{cn}",
+                html=html,
+                bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+            )
+    except Exception as e:
+        logger.warning(f"charge-card-on-file customer receipt email failed: {e}")
+
+    return {
+        "charged": True,
+        "amount": amount,
+        "reason": reason,
+        "description": description,
+        "stripe_payment_intent_id": pi.get("id"),
+    }
