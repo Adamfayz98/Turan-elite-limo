@@ -1,6 +1,6 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 14, 2026
+> Last refreshed: Feb 15, 2026
 
 ## Original Problem Statement
 Build a fully functioning website + native iOS/Android mobile app for TuranEliteLimo (premium chauffeur service, Bay Area). Stack: React + FastAPI + MongoDB + Expo React Native. Features: dynamic pricing, Stripe checkout, admin dashboard, driver live tracking. Recently expanded to: 2026 FIFA World Cup surge ops, custom invoices for affiliate brokered trips, social logins (Apple + Google).
@@ -9,6 +9,22 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Web:** `https://turanelitelimo.com` (deployed via Emergent)
 - **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
 - **Android:** Closed Testing on Play Console (Build #23).
+
+## ✅ Saved Cards / Invoice Charges + Twilio Verify Live + removeChild Crash Fix (Feb 15, 2026)
+
+**Shipped today (iter 37, 13/13 pytest passing, zero issues):**
+
+- **Production crash fix** — Google Translate + React 18 `removeChild` crash on Android Chrome mobile. Added `installTranslateResilientDomPatches()` (silent no-op for detached-node `removeChild` / `insertBefore` calls) + `translate="no"` + `className="notranslate"` on the booking form section. Same pattern Microsoft Teams / Slack / Stripe use.
+- **Quote-Offer Saved Cards** — `/quote/{token}` deposit checkout now uses direct Stripe REST API with `payment_intent_data[setup_future_usage]=off_session` + `customer_creation=always`. Finalize endpoint expands `payment_intent.payment_method` and saves `stripe_customer_id`, `stripe_payment_method_id`, `stripe_payment_intent_id`, `card_brand`, `card_last4`, plus `wait_time_consent=true` + `consent_accepted_at` timestamp on the resulting booking row.
+- **Customer consent UI** — Reassuring checkbox on `/quote/{token}` and updated wording on the main `BookingForm` wait-time-consent-block. Both credit Stripe as the vault, clarify "we only charge if those things actually happen," list exactly what may be charged (remaining balance, wait time, damages, extra stops). Backend enforces `consent_accepted: true` in the POST body or returns 400.
+- **Generic admin "Charge card on file"** — `POST /api/admin/bookings/{id}/charge-card` with `{amount, reason, description}`. Reasons: `balance`, `extra_hour`, `extra_stop`, `tolls`, `gratuity`, `other`. Min $0.50, max $10k. Uses existing `_stripe_off_session_charge` helper. Sends itemized customer receipt email. Appends to `bookings.extra_charges[]` for full history. New "Charge card on file" section in `BookingDetailsDialog.jsx` admin UI with amount + reason dropdown + description textarea + per-booking history.
+- **Twilio Verify is LIVE** — `TWILIO_VERIFY_SID=VA9206b73740102bb36be85f5bc371122c` added to `backend/.env`. The OTP gate built in iter 36 will now send real SMS the moment admin flips "Require phone verification on high-value quotes" toggle in Settings → Safety & anti-fraud.
+
+**Files changed (iter 37):**
+- NEW: `/app/frontend/src/lib/translatePatch.js`, `/app/backend/tests/test_iteration37_saved_cards_charge.py`
+- Updated: `/app/frontend/src/index.js` (translate patch boot), `/app/frontend/src/components/BookingForm.jsx` (translate="no" + improved consent text), `/app/backend/routes/admin.py` (quote-offer checkout → direct REST + consent gate; finalize → saves payment method), `/app/backend/routes/payments.py` (new `/admin/bookings/{id}/charge-card`), `/app/frontend/src/pages/QuoteOfferConfirm.jsx` (consent checkbox + reassuring text), `/app/frontend/src/components/admin/BookingDetailsDialog.jsx` (Charge card on file UI), `/app/backend/.env` (TWILIO_VERIFY_SID)
+
+⚠ **One note worth flagging**: testing agent noticed `backend/.env` `STRIPE_API_KEY` is a live key (`sk_live_...`). Preview-env Stripe test cards (`4242 4242 4242 4242`) won't work against it. For the success-path of the quote-offer flow to be testable end-to-end in preview, you'd need a separate `sk_test_` key for the preview env. This is pre-existing setup — not a regression — but worth knowing.
 
 ## ✅ Safety / Anti-Fraud System — Phase 1 + 2 + 3 (Feb 14, 2026)
 
@@ -23,27 +39,12 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Phase 2 — Manual review queue + verification**
   - New Settings: `safety_review_threshold` (default $1,500), `safety_phone_verify_required` (bool), `safety_phone_verify_threshold` ($).
   - `GET /api/admin/safety/review-queue` returns quotes + bookings flagged yellow/red, blacklisted, or above the $ threshold; admin can mark cleared via `POST /api/admin/safety/{quote-requests|bookings}/{id}/clear-risk`.
-  - Phone-OTP gate: when `safety_phone_verify_required=true` AND quote price >= threshold, `POST /api/quote-offer/{token}/checkout` returns HTTP 428 with `detail="phone_verify_required"`. Frontend `QuoteOfferConfirm` catches 428 and shows the OTP UI (`Send code` → `Verify`). Twilio-Verify-ready (set `TWILIO_VERIFY_SID` env to enable real SMS); **currently MOCKED** — codes stored in `db.phone_verifications` and surfaced in `/api/admin/safety/pending-otps`.
-  - Email reputation: syntax + disposable-domain detection (free-domain detection contributes only a light weight).
+  - Phone-OTP gate: when `safety_phone_verify_required=true` AND quote price >= threshold, `POST /api/quote-offer/{token}/checkout` returns HTTP 428 with `detail="phone_verify_required"`. Frontend `QuoteOfferConfirm` catches 428 and shows the OTP UI (`Send code` → `Verify`). **Twilio Verify is now LIVE** (see iter 37 above).
 
 - **Phase 3 (partial) — Device IP tracking**
   - Real client-IP extraction from k8s ingress `X-Forwarded-For`. ip-api.com (free, 45 req/min, no key) provides Country/Region/City/ISP + proxy/hosting flags. Cached in-process + persistent Mongo 30-day cache.
-  - IP velocity check: 1+/3+ quotes from same IP with different names within 24h adds risk weight.
-  - Admin-tool `GET /api/admin/safety/ip-lookup?ip=...` for one-off forensic lookups.
 
-- **Admin UI**
-  - New tab in `/admin` → `Safety` (data-testid `tab-safety`) with 4 sub-tabs:
-    1. **Review queue** — flagged quotes + bookings with mark-safe buttons.
-    2. **Blacklist** — add/remove emails/phones/IPs/names with domain wildcards + CIDR support.
-    3. **IP lookup** — paste an IP, see Country/ISP/Proxy/Hosting in 1 click.
-    4. **Pending OTPs** — MOCK-mode helper showing live codes so admin can read them to a customer over the phone if needed (auto-refreshes 15s).
-  - Settings tab now has a "Safety & anti-fraud" section with all 3 toggles.
-
-**Files changed:**
-- NEW: `/app/backend/safety.py`, `/app/frontend/src/components/admin/SafetyTab.jsx`, `/app/backend/tests/test_safety_antifraud.py`
-- Updated: `/app/backend/server.py` (Settings model + submit_quote_request scoring), `/app/backend/routes/admin.py` (added 7 safety endpoints + 428 gate + booking risk-field copy), `/app/frontend/src/components/admin/QuoteRequestsTab.jsx` (RiskBadge + flag chips), `/app/frontend/src/components/admin/SettingsTab.jsx` (Safety section), `/app/frontend/src/pages/AdminDashboard.jsx` (Safety tab), `/app/frontend/src/pages/QuoteOfferConfirm.jsx` (OTP gate)
-
-**Testing:** 14/14 pytest cases pass. Frontend Playwright verification: all `data-testid`s present and functional. Zero regressions on existing flows. See `/app/test_reports/iteration_36.json`.
+- **Admin UI** — `Safety` tab with 4 sub-tabs: Review queue / Blacklist / IP lookup / Pending OTPs. Risk badges + flag chips on Quote Requests tab. Safety section in Settings tab with 3 new toggles.
 
 ## 🔔 Active Reminder (Jun 13, 2026)
 - **iOS native build is failing at "Install pods" 3× in a row** — needs revisit.
