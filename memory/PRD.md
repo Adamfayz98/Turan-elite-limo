@@ -10,15 +10,15 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
 - **Android:** Closed Testing on Play Console (Build #23).
 
-## ✅ AI-Powered Off-Platform Lead Import (Feb 16, 2026 — iter 39)
+## ✅ AI-Powered Off-Platform Lead Import + AI Reply Drafts (Feb 16, 2026 evening — iter 39+)
 
 **Shipped:**
-- **POST /api/admin/quote-requests/import-lead** — accepts `{source, raw_text}`, calls Gemini 2.5 Flash via emergentintegrations + EMERGENT_LLM_KEY, returns strict JSON extraction `{full_name, phone, email, vehicle_type, pickup_date, pickup_time, pickup_location, dropoff_location, passengers, occasion, notes}` + risk score from `safety.score_submission()`.
-- **POST /api/admin/quote-requests/import-lead/commit** — admin reviews/edits extracted fields, then commits. Creates a `quote_request` row with `source` tag and `raw_lead_text` audit trail. Defensive coercion: passengers → int|None, pickup_date → YYYY-MM-DD or empty, pickup_time → HH:MM or empty.
-- **ImportLeadDialog** in `QuoteRequestsTab` — paste raw text, pick source (Yelp / Google Business / Phone Call / Email / Referral / Other), click "Parse with AI", review fields side-by-side with risk badge, click "Create quote request".
-- **Source tag badge** on each quote row — non-website leads get a blue `[YELP] / [GOOGLE_BUSINESS] / [PHONE_CALL] / ...` chip next to the vehicle/risk badges so attribution is visible at a glance.
+- **POST /api/admin/quote-requests/import-lead** — Gemini 2.5 Flash extracts 11 structured fields AND drafts a polished, channel-aware first-response reply (warm + emoji for Yelp, brief for phone-call) in a single LLM call. ~$0.0003 per parse.
+- **POST /api/admin/quote-requests/import-lead/commit** — admin reviews/edits + commits. Defensive coercion: passengers → int|None, pickup_date → YYYY-MM-DD or empty, pickup_time → HH:MM or empty.
+- **ImportLeadDialog** — paste raw text, pick source, click Parse → see extracted fields + risk badge + **AI-drafted reply** in a dedicated gold panel with one-click Copy. Editable inline if voice doesn't match.
+- **Source tag badge** on each quote row.
 
-**Verified on Spencer Pahlke's real Yelp text:** all 11 fields extracted correctly, risk=5/green, full round-trip create→list→delete confirmed via pytest. LLM call ~3-5s.
+**Verified on Spencer's actual Yelp text:** all 11 fields extracted correctly, risk=5/green, suggested_reply opens with acknowledgment, asks for missing name/contact, mentions formal quote within 1-2 hr, mentions refundable deposit, closes with brand sign-off + tasteful emoji. Channel-tone aware.
 
 **Files changed:**
 - `/app/backend/routes/admin.py` (two new endpoints with LLM call + defensive coercion)

@@ -353,11 +353,16 @@ async def admin_list_quote_requests(_: dict = Depends(require_admin)):
 # matches the shape of `QuoteRequestCreate` so the lead lands on the
 # Quote Requests tab identically to a website-submitted lead — same risk
 # badge, same SMS alert, same downstream pipeline.
-_LEAD_EXTRACTION_SYSTEM_PROMPT = """You are a structured-data extractor for a chauffeur company's CRM.
+_LEAD_EXTRACTION_SYSTEM_PROMPT = """You are a structured-data extractor AND a friendly concierge copywriter for TuranEliteLimo (premium chauffeur service, Bay Area).
 
 You will receive a raw, free-form lead message from a customer (Yelp inbox, Google
 Business Profile, voicemail transcript, inbound email, or hand-typed phone-call
-notes). Your job is to extract ONLY the booking details into JSON.
+notes). You have TWO jobs:
+
+1. Extract the booking details into structured JSON.
+2. Draft a warm, professional first-response message the operator can send back
+   on the same channel to acknowledge the lead, ask the few details still missing,
+   and set expectations for when a formal quote follows.
 
 Return ONLY a single JSON object with these exact keys (use null when unknown):
 
@@ -372,17 +377,28 @@ Return ONLY a single JSON object with these exact keys (use null when unknown):
   "dropoff_location": string | null,
   "passengers": number | null,          // integer, total bodies (adults + kids)
   "occasion": string | null,            // "Wedding" | "Wine Tour" | "Concert" | "Airport" | "Birthday" | "Family Event" | "Corporate" | "Prom" | "Funeral" | "Other"
-  "notes": string | null                // any other useful details: adult/kid breakdown, return time, dietary, requests
+  "notes": string | null,               // any other useful details
+  "suggested_reply": string             // first-response message ready to paste back to the customer
 }
 
-Rules:
-- Output JSON ONLY. No markdown fences, no commentary, no preamble.
-- Dates: convert to YYYY-MM-DD. If only month/day given without year, assume the next future occurrence.
-- Times: convert 12-hour to 24-hour ("1pm" -> "13:00", "4:30 PM" -> "16:30").
-- passengers: a single integer (total). Put adult/kid breakdown in notes.
-- vehicle_type: infer from context if not stated (e.g., "party bus" -> "Party Bus", "limo" -> "Sprinter", "SUV"; if unclear -> null).
+Extraction rules:
+- Dates → YYYY-MM-DD. If only month/day given without year, assume next future occurrence.
+- Times → 24-hour HH:MM ("1pm" → "13:00", "4:30 PM" → "16:30").
+- passengers → single integer (total). Put adult/kid breakdown in notes.
+- vehicle_type → infer from context ("party bus" → "Party Bus", "limo" → "Sprinter", "SUV"). Null if unclear.
 - Round-trip details (return time, return pickup) go in notes.
-- If a field cannot be confidently extracted, use null. Do NOT hallucinate.
+- Do NOT hallucinate. Use null for anything you can't extract confidently.
+
+Suggested-reply rules:
+- 80-180 words, friendly but professional. Match the channel tone (Yelp = warm, conversational; phone-call = brief).
+- Open by acknowledging their request and confirming you have the key details.
+- Ask 1-3 of the most important MISSING details (e.g., exact pickup address if only zip given, concert start time, return time, driveway access for mountain destinations).
+- Mention you're confirming availability with their preferred vehicle type and will follow up with formal pricing within 1-2 hours.
+- Mention a refundable deposit holds the date.
+- Sign off as "— Turan Elite Limo".
+- Do NOT include a phone number or specific dollar amounts (operator fills that on the formal quote).
+- Do NOT use heavy markdown formatting (no headings or bullet lists) — write as plain prose suitable for SMS/Yelp inbox.
+- Use 1-2 tasteful emoji max if and only if the source is Yelp or Email; phone-call notes get zero emoji.
 """
 
 
@@ -414,8 +430,11 @@ async def admin_import_lead(payload: dict, _: dict = Depends(require_admin)):
         system_message=_LEAD_EXTRACTION_SYSTEM_PROMPT,
     ).with_model("gemini", "gemini-2.5-flash")
 
+    # Wrap the raw text with explicit source context so the LLM knows how
+    # to tone the suggested_reply (Yelp = warm + emoji OK; phone = brief).
+    framed = f"Lead source: {source}\n\n---\nRaw lead text:\n{raw_text}"
     try:
-        llm_response = await chat.send_message(UserMessage(text=raw_text))
+        llm_response = await chat.send_message(UserMessage(text=framed))
     except Exception as e:
         logger.warning(f"Lead extraction LLM call failed: {e}")
         raise HTTPException(status_code=502, detail=f"LLM extraction failed: {e}")

@@ -936,6 +936,45 @@ function ImportLeadDialog({ open, onClose, onCreated }) {
                   ))}
                 </div>
               )}
+
+              {extracted.suggested_reply && (
+                <div
+                  className="rounded-lg border border-[#D4AF37]/30 bg-[#D4AF37]/5 p-3 space-y-2"
+                  data-testid="suggested-reply"
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="text-[10px] uppercase tracking-wider text-[#D4AF37] font-semibold flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" /> AI-drafted reply for the customer
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-testid="copy-reply"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(extracted.suggested_reply || "");
+                          toast.success("Reply copied — paste it into Yelp / SMS / email.");
+                        } catch (e) {
+                          toast.error("Couldn't copy to clipboard");
+                        }
+                      }}
+                      className="h-7 px-2 text-xs bg-transparent border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10"
+                    >
+                      <Copy className="w-3 h-3 mr-1" /> Copy
+                    </Button>
+                  </div>
+                  <Textarea
+                    value={extracted.suggested_reply || ""}
+                    onChange={(e) => update("suggested_reply", e.target.value)}
+                    rows={6}
+                    className="bg-[#0A0A0A] border-[#27272A] text-white text-sm leading-relaxed"
+                  />
+                  <div className="text-[10px] text-white/45 leading-relaxed">
+                    Edit anything that doesn&apos;t match your voice, then copy & paste back to the customer.
+                    Sends as plain text — works on Yelp, SMS, email, or in-app messaging.
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
