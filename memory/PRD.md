@@ -1,6 +1,6 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 16, 2026 PM (post-iter 38)
+> Last refreshed: Feb 16, 2026 evening — iter 39, 100% green
 
 ## Original Problem Statement
 Build a fully functioning website + native iOS/Android mobile app for TuranEliteLimo (premium chauffeur service, Bay Area). Stack: React + FastAPI + MongoDB + Expo React Native. Features: dynamic pricing, Stripe checkout, admin dashboard, driver live tracking. Recently expanded to: 2026 FIFA World Cup surge ops, custom invoices for affiliate brokered trips, social logins (Apple + Google).
@@ -9,6 +9,23 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Web:** `https://turanelitelimo.com` (deployed via Emergent)
 - **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
 - **Android:** Closed Testing on Play Console (Build #23).
+
+## ✅ AI-Powered Off-Platform Lead Import (Feb 16, 2026 — iter 39)
+
+**Shipped:**
+- **POST /api/admin/quote-requests/import-lead** — accepts `{source, raw_text}`, calls Gemini 2.5 Flash via emergentintegrations + EMERGENT_LLM_KEY, returns strict JSON extraction `{full_name, phone, email, vehicle_type, pickup_date, pickup_time, pickup_location, dropoff_location, passengers, occasion, notes}` + risk score from `safety.score_submission()`.
+- **POST /api/admin/quote-requests/import-lead/commit** — admin reviews/edits extracted fields, then commits. Creates a `quote_request` row with `source` tag and `raw_lead_text` audit trail. Defensive coercion: passengers → int|None, pickup_date → YYYY-MM-DD or empty, pickup_time → HH:MM or empty.
+- **ImportLeadDialog** in `QuoteRequestsTab` — paste raw text, pick source (Yelp / Google Business / Phone Call / Email / Referral / Other), click "Parse with AI", review fields side-by-side with risk badge, click "Create quote request".
+- **Source tag badge** on each quote row — non-website leads get a blue `[YELP] / [GOOGLE_BUSINESS] / [PHONE_CALL] / ...` chip next to the vehicle/risk badges so attribution is visible at a glance.
+
+**Verified on Spencer Pahlke's real Yelp text:** all 11 fields extracted correctly, risk=5/green, full round-trip create→list→delete confirmed via pytest. LLM call ~3-5s.
+
+**Files changed:**
+- `/app/backend/routes/admin.py` (two new endpoints with LLM call + defensive coercion)
+- `/app/backend/server.py` (added `import json`)
+- `/app/frontend/src/components/admin/QuoteRequestsTab.jsx` (Import lead button, ImportLeadDialog, source tag badge)
+- `/app/backend/tests/test_iteration39_import_lead.py` (NEW — 13 pytest cases)
+
 
 ## ✅ Quick Risk Check tool for off-platform leads (Feb 16, 2026 PM)
 

@@ -485,6 +485,28 @@ async def admin_import_lead_commit(payload: dict, _: dict = Depends(require_admi
     ):
         raise HTTPException(status_code=400, detail="At least one of full_name, phone, or email is required.")
 
+    # Pydantic-style coercion on the LLM output before persisting. LLMs
+    # occasionally return passengers as a string or invent natural-language
+    # dates like "next Tuesday" — these would persist as-is and break
+    # downstream date math, so we silently null them out instead.
+    pax_raw = fields.get("passengers")
+    pax = None
+    if pax_raw not in (None, ""):
+        try:
+            pax = int(str(pax_raw).strip())
+            if pax < 1 or pax > 100:
+                pax = None
+        except (TypeError, ValueError):
+            pax = None
+
+    pickup_date_raw = (fields.get("pickup_date") or "").strip()
+    # ISO date guard — anything that doesn't parse as YYYY-MM-DD gets dropped.
+    if pickup_date_raw and not re.match(r"^\d{4}-\d{2}-\d{2}$", pickup_date_raw):
+        pickup_date_raw = ""
+    pickup_time_raw = (fields.get("pickup_time") or "").strip()
+    if pickup_time_raw and not re.match(r"^\d{2}:\d{2}$", pickup_time_raw):
+        pickup_time_raw = ""
+
     doc = {
         "id": str(uuid.uuid4()),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -494,11 +516,11 @@ async def admin_import_lead_commit(payload: dict, _: dict = Depends(require_admi
         "phone": (fields.get("phone") or "")[:30],
         "email": (fields.get("email") or "")[:120],
         "vehicle_type": (fields.get("vehicle_type") or "Other")[:40],
-        "pickup_date": (fields.get("pickup_date") or "")[:20],
-        "pickup_time": (fields.get("pickup_time") or "")[:10],
+        "pickup_date": pickup_date_raw[:20],
+        "pickup_time": pickup_time_raw[:10],
         "pickup_location": (fields.get("pickup_location") or "")[:300],
         "dropoff_location": (fields.get("dropoff_location") or "")[:300],
-        "passengers": fields.get("passengers"),
+        "passengers": pax,
         "occasion": (fields.get("occasion") or "")[:80],
         "notes": (fields.get("notes") or "")[:1000],
         "raw_lead_text": raw_text[:8000],
