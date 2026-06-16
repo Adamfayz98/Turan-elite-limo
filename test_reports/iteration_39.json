@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 39 — Off-platform Lead Import (LLM extraction + commit + UI). Full end-to-end testing of the new POST /api/admin/quote-requests/import-lead and /import-lead/commit endpoints, plus the ImportLeadDialog UI in QuoteRequestsTab. 13/13 backend pytest cases passed (extraction accuracy on Spencer's text, risk band green, edge cases for empty/oversized/unauth payloads, commit guard for missing contact info, full create→list→delete round trip, plus regression on /admin/safety/risk-check). Frontend Playwright run: dialog opens, Yelp source selects, Parse-with-AI populates all 11 expected il-* fields, risk badge renders as CLEAN (green), commit fires the success toast 'Lead imported into Quote Requests', modal closes, and the new row appears at the top of the list with both data-testid=source-tag-yelp and the green RiskBadge. Regression check on source-tag-website passed (0 instances rendered for website-source quotes).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration39_import_lead.py",
+    "/app/test_reports/pytest/iter39_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "admin.py:425-428 — markdown-fence stripping uses cleaned.strip('`') which strips ALL backticks. Works for the common ```json fenced block but would corrupt content containing backticks. Consider regex strip of leading/trailing fences only.",
+    "admin.py:431 — json.loads on raw LLM output without a fallback regex extraction. If Gemini wraps the JSON in prose (rare with system prompt, but possible), the endpoint returns 502. Consider a regex fallback to extract the first {...} block before raising.",
+    "admin.py:497-498 — pickup_date/pickup_time stored as truncated strings (max 20/10 chars) without ISO validation. A bad LLM extraction (e.g., 'next Tuesday') would persist as-is and break downstream date logic. Recommend pydantic validation or a defensive parse + null-out on failure.",
+    "admin.py:501 — passengers is stored as whatever the LLM returned (int, str, or null) with no type coercion. Frontend already normalizes via Number(...), but backend should also coerce to int|None for DB hygiene.",
+    "QuoteRequestsTab.jsx is now 989 lines — the ImportLeadDialog (~250 lines) should be extracted into its own file (components/admin/ImportLeadDialog.jsx) for maintainability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration39_import_lead.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13)",
+    "frontend": "100% (9/9 flow checkpoints)"
+  },
+  "test_credentials": "Admin JWT minted directly via JWT_SECRET (2FA bypassed). Token used in tests covered both backend pytest and Playwright (injected into localStorage as turon_admin_token before navigating to /admin).",
+  "seed_data_creation": "One quote_request row (Spencer Pahlke, source=yelp) was created via UI commit and a second via backend pytest. Both were cleaned up via DELETE /api/admin/quote-requests/{id}. No leftover seed data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 39 is fully green. Spencer's lead text reliably yields: passengers=17, pickup_date=2026-06-27, pickup_time=13:00, pickup contains 'Mayacama', dropoff contains '4902 Redwood Road', risk.band='green'. The Gemini 2.5 Flash call takes ~3-5s end-to-end; tests use 20-30s timeouts. For UI testing, mint JWT via JWT_SECRET and set localStorage('turon_admin_token', ...) before navigating to /admin to bypass 2FA. Test file: /app/backend/tests/test_iteration39_import_lead.py can be reused as a regression suite for the import-lead pipeline.",
+  "rca of the issue": "N/A — no issues found."
+}

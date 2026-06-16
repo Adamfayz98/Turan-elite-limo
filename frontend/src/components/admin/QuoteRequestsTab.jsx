@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2, Sparkles, ExternalLink } from "lucide-react";
+import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2, Sparkles, ExternalLink, ClipboardPaste, Tag } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -151,6 +151,10 @@ export default function QuoteRequestsTab() {
   // "Suggested affiliates" modal state (per-quote)
   const [suggestState, setSuggestState] = useState(null); // { request }
 
+  // "Import Lead" modal — paste raw Yelp / Google / phone-call text and the
+  // backend LLM extracts structured fields. See <ImportLeadModal/>.
+  const [importOpen, setImportOpen] = useState(false);
+
   return (
     <div className="space-y-6" data-testid="quote-requests-tab">
       <div className="flex items-start justify-between gap-4">
@@ -161,11 +165,23 @@ export default function QuoteRequestsTab() {
             <span className="text-[#D4AF37] font-semibold">Send Quote</span> to email + SMS them a one-tap &ldquo;Confirm &amp; Pay Deposit&rdquo; link.
           </p>
         </div>
-        {newCount > 0 && (
-          <Badge className="bg-[#D4AF37] text-black border-0 text-xs">
-            {newCount} new
-          </Badge>
-        )}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {newCount > 0 && (
+            <Badge className="bg-[#D4AF37] text-black border-0 text-xs">
+              {newCount} new
+            </Badge>
+          )}
+          <Button
+            onClick={() => setImportOpen(true)}
+            data-testid="import-lead-open"
+            variant="outline"
+            size="sm"
+            className="bg-transparent border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10"
+          >
+            <ClipboardPaste className="w-4 h-4 mr-1.5" />
+            Import lead
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -198,6 +214,15 @@ export default function QuoteRequestsTab() {
                       <span className="text-white font-medium">{q.full_name}</span>
                       <Badge className={`${badge.className} text-[10px] uppercase tracking-wider border`}>{badge.label}</Badge>
                       <span className="text-[10px] uppercase tracking-[0.2em] text-[#D4AF37] bg-[#D4AF37]/10 px-2 py-0.5 rounded">{q.vehicle_type}</span>
+                      {q.source && q.source !== "website" && (
+                        <span
+                          data-testid={`source-tag-${q.source}`}
+                          className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.2em] text-blue-300 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded"
+                          title={`Lead source: ${q.source}`}
+                        >
+                          <Tag className="w-2.5 h-2.5" /> {q.source}
+                        </span>
+                      )}
                       {(q.risk_score !== undefined && q.risk_score !== null) && (
                         <RiskBadge
                           score={q.risk_score ?? (q.blacklisted ? 100 : 0)}
@@ -332,6 +357,16 @@ export default function QuoteRequestsTab() {
       <SuggestAffiliatesDialog
         state={suggestState}
         onClose={() => setSuggestState(null)}
+      />
+
+      <ImportLeadDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onCreated={(qr) => {
+          // Prepend the freshly created lead so the operator sees it at the top
+          setItems((arr) => [qr, ...arr]);
+          setImportOpen(false);
+        }}
       />
     </div>
   );
@@ -692,5 +727,262 @@ function SuggestAffiliatesDialog({ state, onClose }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+
+// ------- Modal: paste-import an off-platform lead (Yelp / Google / phone) -------
+//
+// Two-step flow: (1) PARSE — paste raw text + source, LLM extracts fields and
+// returns a risk score; (2) COMMIT — admin reviews/edits the extracted fields
+// and clicks "Create Quote Request" which inserts the row into the same
+// quote_requests collection as website-submitted leads.
+
+const LEAD_SOURCES = [
+  { value: "yelp", label: "Yelp" },
+  { value: "google_business", label: "Google Business Profile" },
+  { value: "phone_call", label: "Phone Call" },
+  { value: "email", label: "Email" },
+  { value: "referral", label: "Referral" },
+  { value: "other", label: "Other" },
+];
+
+function ImportLeadDialog({ open, onClose, onCreated }) {
+  const [source, setSource] = useState("yelp");
+  const [rawText, setRawText] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [extracted, setExtracted] = useState(null);
+  const [risk, setRisk] = useState(null);
+
+  useEffect(() => {
+    if (!open) {
+      // Reset everything on close so the next open is a clean slate
+      setRawText("");
+      setExtracted(null);
+      setRisk(null);
+      setSource("yelp");
+    }
+  }, [open]);
+
+  const parse = async () => {
+    if (!rawText.trim()) {
+      toast.error("Paste the lead text first.");
+      return;
+    }
+    setParsing(true);
+    setExtracted(null);
+    setRisk(null);
+    try {
+      const { data } = await api.post("/admin/quote-requests/import-lead", {
+        source,
+        raw_text: rawText.trim(),
+      });
+      setExtracted(data.extracted || {});
+      setRisk(data.risk || null);
+      toast.success("Lead parsed. Review the fields below before importing.");
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Parsing failed");
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const commit = async () => {
+    if (!extracted) return;
+    if (
+      !(extracted.full_name || "").trim() &&
+      !(extracted.phone || "").trim() &&
+      !(extracted.email || "").trim()
+    ) {
+      toast.error("At least one of name, phone, or email is required.");
+      return;
+    }
+    setCommitting(true);
+    try {
+      const { data } = await api.post("/admin/quote-requests/import-lead/commit", {
+        source,
+        raw_text: rawText.trim(),
+        fields: extracted,
+      });
+      toast.success("Lead imported into Quote Requests.");
+      onCreated && onCreated(data.quote_request);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't import lead");
+    } finally {
+      setCommitting(false);
+    }
+  };
+
+  // Tiny helper to keep the field-update glue DRY
+  const update = (key, value) => setExtracted((prev) => ({ ...(prev || {}), [key]: value }));
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent
+        className="bg-[#0A0A0A] border border-[#1F1F1F] text-white max-w-3xl max-h-[90vh] overflow-y-auto"
+        data-testid="import-lead-dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="text-white font-serif text-xl">Import off-platform lead</DialogTitle>
+          <DialogDescription className="text-white/55 text-xs leading-relaxed">
+            Paste the raw lead text from Yelp, Google Business Profile, a voicemail transcript,
+            or an inbound email. AI extracts the structured fields and runs the safety risk score
+            automatically. Review the extracted fields before importing.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-white/45 mb-1">Lead source</div>
+            <Select value={source} onValueChange={setSource}>
+              <SelectTrigger
+                className="bg-[#0E0E0E] border-[#27272A] text-white h-10"
+                data-testid="import-lead-source"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[#0A0A0A] border-[#1F1F1F] text-white">
+                {LEAD_SOURCES.map((s) => (
+                  <SelectItem key={s.value} value={s.value} className="focus:bg-white/10">
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-white/45 mb-1">Raw lead text</div>
+            <Textarea
+              data-testid="import-lead-raw"
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              placeholder="Paste the full lead message here. Include name, phone, dates, addresses — anything the customer wrote."
+              rows={8}
+              className="bg-[#0E0E0E] border-[#27272A] text-white font-mono text-xs leading-relaxed"
+            />
+            <div className="text-[10px] text-white/40 mt-1">{rawText.length} / 8000 chars</div>
+          </div>
+
+          <Button
+            onClick={parse}
+            disabled={parsing || !rawText.trim()}
+            data-testid="import-lead-parse"
+            className="bg-[#D4AF37] text-black hover:bg-[#B3922E]"
+          >
+            {parsing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Parsing…
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 mr-1.5" /> Parse with AI
+              </>
+            )}
+          </Button>
+
+          {extracted && (
+            <div
+              className="rounded-xl border border-[#1F1F1F] bg-[#0E0E0E] p-4 space-y-4"
+              data-testid="import-lead-extracted"
+            >
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="text-xs uppercase tracking-wider text-[#D4AF37] font-semibold">
+                  Extracted fields — review &amp; edit
+                </div>
+                {risk && (
+                  <RiskBadge score={risk.score} band={risk.band} />
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Field label="Full name" value={extracted.full_name || ""} onChange={(v) => update("full_name", v)} testid="il-name" />
+                <Field label="Phone" value={extracted.phone || ""} onChange={(v) => update("phone", v)} testid="il-phone" />
+                <Field label="Email" value={extracted.email || ""} onChange={(v) => update("email", v)} testid="il-email" />
+                <Field label="Vehicle type" value={extracted.vehicle_type || ""} onChange={(v) => update("vehicle_type", v)} testid="il-vehicle" />
+                <Field label="Pickup date" value={extracted.pickup_date || ""} onChange={(v) => update("pickup_date", v)} placeholder="YYYY-MM-DD" testid="il-date" />
+                <Field label="Pickup time" value={extracted.pickup_time || ""} onChange={(v) => update("pickup_time", v)} placeholder="HH:MM" testid="il-time" />
+                <Field label="Pickup location" value={extracted.pickup_location || ""} onChange={(v) => update("pickup_location", v)} testid="il-pickup" />
+                <Field label="Dropoff location" value={extracted.dropoff_location || ""} onChange={(v) => update("dropoff_location", v)} testid="il-dropoff" />
+                <Field
+                  label="Passengers"
+                  value={extracted.passengers != null ? String(extracted.passengers) : ""}
+                  onChange={(v) => update("passengers", v ? Number(v.replace(/[^\d]/g, "")) || null : null)}
+                  testid="il-pax"
+                />
+                <Field label="Occasion" value={extracted.occasion || ""} onChange={(v) => update("occasion", v)} testid="il-occasion" />
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-white/45 mb-1">Notes</div>
+                <Textarea
+                  data-testid="il-notes"
+                  value={extracted.notes || ""}
+                  onChange={(e) => update("notes", e.target.value)}
+                  rows={3}
+                  className="bg-[#0A0A0A] border-[#27272A] text-white text-sm"
+                />
+              </div>
+
+              {risk && risk.flags && risk.flags.length > 0 && (
+                <div className="rounded-lg border border-[#1F1F1F] bg-[#0A0A0A] p-3 space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-white/45">Risk flags</div>
+                  {risk.flags.map((f, i) => (
+                    <div key={i} className="text-xs text-white/80 flex justify-between">
+                      <span>{f.label}</span>
+                      <span className="text-amber-300 tabular-nums">+{f.weight}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="mt-4 gap-2">
+          <Button
+            onClick={onClose}
+            variant="outline"
+            className="bg-transparent border-[#27272A] text-white/70 hover:bg-white/5"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={commit}
+            disabled={!extracted || committing}
+            data-testid="import-lead-commit"
+            className="bg-[#D4AF37] text-black hover:bg-[#B3922E]"
+          >
+            {committing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Importing…
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-4 h-4 mr-1.5" /> Create quote request
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Small labelled input. Local to the ImportLeadDialog so we don't pollute the
+// global component surface — kept inline because it's truly a one-off use case.
+function Field({ label, value, onChange, placeholder, testid }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-white/45 mb-1">{label}</div>
+      <Input
+        data-testid={testid}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm"
+      />
+    </div>
   );
 }

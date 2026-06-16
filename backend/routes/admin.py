@@ -344,6 +344,192 @@ async def admin_list_quote_requests(_: dict = Depends(require_admin)):
     return items
 
 
+# ---- Off-platform lead import (Yelp, Google Business Profile, phone call, etc.) ----
+#
+# Yelp doesn't expose a public Lead API, and operators paste-import leads
+# manually multiple times a day. This endpoint accepts the raw lead text
+# (whatever the admin copies from Yelp's inbox / a voicemail transcript /
+# an inbound email) and uses an LLM to extract structured fields. Output
+# matches the shape of `QuoteRequestCreate` so the lead lands on the
+# Quote Requests tab identically to a website-submitted lead — same risk
+# badge, same SMS alert, same downstream pipeline.
+_LEAD_EXTRACTION_SYSTEM_PROMPT = """You are a structured-data extractor for a chauffeur company's CRM.
+
+You will receive a raw, free-form lead message from a customer (Yelp inbox, Google
+Business Profile, voicemail transcript, inbound email, or hand-typed phone-call
+notes). Your job is to extract ONLY the booking details into JSON.
+
+Return ONLY a single JSON object with these exact keys (use null when unknown):
+
+{
+  "full_name": string | null,
+  "phone": string | null,
+  "email": string | null,
+  "vehicle_type": string | null,        // "Party Bus" | "Sprinter" | "SUV" | "Sedan" | "Mini-Coach" | "Other" | null
+  "pickup_date": string | null,         // ISO date "YYYY-MM-DD"
+  "pickup_time": string | null,         // 24-hour "HH:MM"
+  "pickup_location": string | null,
+  "dropoff_location": string | null,
+  "passengers": number | null,          // integer, total bodies (adults + kids)
+  "occasion": string | null,            // "Wedding" | "Wine Tour" | "Concert" | "Airport" | "Birthday" | "Family Event" | "Corporate" | "Prom" | "Funeral" | "Other"
+  "notes": string | null                // any other useful details: adult/kid breakdown, return time, dietary, requests
+}
+
+Rules:
+- Output JSON ONLY. No markdown fences, no commentary, no preamble.
+- Dates: convert to YYYY-MM-DD. If only month/day given without year, assume the next future occurrence.
+- Times: convert 12-hour to 24-hour ("1pm" -> "13:00", "4:30 PM" -> "16:30").
+- passengers: a single integer (total). Put adult/kid breakdown in notes.
+- vehicle_type: infer from context if not stated (e.g., "party bus" -> "Party Bus", "limo" -> "Sprinter", "SUV"; if unclear -> null).
+- Round-trip details (return time, return pickup) go in notes.
+- If a field cannot be confidently extracted, use null. Do NOT hallucinate.
+"""
+
+
+@router.post("/admin/quote-requests/import-lead")
+async def admin_import_lead(payload: dict, _: dict = Depends(require_admin)):
+    """Parse a free-form lead message → extracted fields + risk score.
+
+    Two-step flow: this endpoint ONLY extracts and scores. It does NOT create
+    the quote_request yet — the admin reviews/edits the extracted fields in
+    the UI and then POSTs to /admin/quote-requests/import-lead/commit.
+    """
+    raw_text = (payload or {}).get("raw_text", "").strip()
+    source = (payload or {}).get("source", "manual").strip().lower() or "manual"
+    if not raw_text:
+        raise HTTPException(status_code=400, detail="raw_text is required.")
+    if len(raw_text) > 8000:
+        raise HTTPException(status_code=400, detail="raw_text is too long (max 8000 chars).")
+
+    # Lazy import keeps the module load time fast for non-LLM admin routes
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+    emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not emergent_key:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not configured.")
+
+    chat = LlmChat(
+        api_key=emergent_key,
+        session_id=f"lead-import-{uuid.uuid4()}",
+        system_message=_LEAD_EXTRACTION_SYSTEM_PROMPT,
+    ).with_model("gemini", "gemini-2.5-flash")
+
+    try:
+        llm_response = await chat.send_message(UserMessage(text=raw_text))
+    except Exception as e:
+        logger.warning(f"Lead extraction LLM call failed: {e}")
+        raise HTTPException(status_code=502, detail=f"LLM extraction failed: {e}")
+
+    # Strip markdown fences in case the model ignores instructions
+    cleaned = (llm_response or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:].lstrip()
+
+    try:
+        extracted = json.loads(cleaned)
+    except Exception as e:
+        logger.warning(f"Lead extraction JSON parse failed; raw={cleaned!r}; err={e}")
+        raise HTTPException(
+            status_code=502,
+            detail="LLM returned non-JSON output. Try again or paste the lead manually.",
+        )
+
+    if not isinstance(extracted, dict):
+        raise HTTPException(status_code=502, detail="LLM did not return an object.")
+
+    # Run the existing risk scorer on the extracted fields so the admin
+    # can see green/yellow/red BEFORE committing to a quote_request row.
+    try:
+        risk = await safety.score_submission(
+            db=db,
+            full_name=(extracted.get("full_name") or "")[:80],
+            email=(extracted.get("email") or "")[:120],
+            phone=(extracted.get("phone") or "")[:30],
+            ip="",  # off-platform leads have no IP
+            user_agent="",
+            pickup_location=(extracted.get("pickup_location") or "")[:300],
+            dropoff_location=(extracted.get("dropoff_location") or "")[:300],
+            amount=0.0,
+        )
+    except Exception as e:
+        logger.warning(f"Lead risk scoring failed: {e}")
+        risk = {"score": 0, "band": "green", "flags": [], "blacklisted": False, "blacklist_hits": [], "ip_geo": {}}
+
+    return {
+        "source": source,
+        "extracted": extracted,
+        "risk": risk,
+    }
+
+
+@router.post("/admin/quote-requests/import-lead/commit")
+async def admin_import_lead_commit(payload: dict, _: dict = Depends(require_admin)):
+    """Commit the (possibly admin-edited) extracted lead as a real quote_request.
+
+    Front-end posts the cleaned-up fields here after the operator reviewed
+    the LLM output. This keeps the LLM step idempotent and lets the admin
+    fix any wrong extraction before the row is created.
+    """
+    source = (payload or {}).get("source", "manual").strip().lower() or "manual"
+    fields = (payload or {}).get("fields") or {}
+    raw_text = (payload or {}).get("raw_text", "").strip()
+
+    # Minimal field guard: name OR phone OR email must be present so we have
+    # *something* to reach the customer with. Otherwise the row is useless.
+    if not (
+        (fields.get("full_name") or "").strip()
+        or (fields.get("phone") or "").strip()
+        or (fields.get("email") or "").strip()
+    ):
+        raise HTTPException(status_code=400, detail="At least one of full_name, phone, or email is required.")
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "new",
+        "source": source,
+        "full_name": (fields.get("full_name") or "(unknown)")[:80],
+        "phone": (fields.get("phone") or "")[:30],
+        "email": (fields.get("email") or "")[:120],
+        "vehicle_type": (fields.get("vehicle_type") or "Other")[:40],
+        "pickup_date": (fields.get("pickup_date") or "")[:20],
+        "pickup_time": (fields.get("pickup_time") or "")[:10],
+        "pickup_location": (fields.get("pickup_location") or "")[:300],
+        "dropoff_location": (fields.get("dropoff_location") or "")[:300],
+        "passengers": fields.get("passengers"),
+        "occasion": (fields.get("occasion") or "")[:80],
+        "notes": (fields.get("notes") or "")[:1000],
+        "raw_lead_text": raw_text[:8000],
+        "imported_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Re-score on the COMMITTED fields (the admin may have edited them).
+    try:
+        risk = await safety.score_submission(
+            db=db,
+            full_name=doc["full_name"],
+            email=doc["email"],
+            phone=doc["phone"],
+            ip="",
+            user_agent="",
+            pickup_location=doc["pickup_location"],
+            dropoff_location=doc["dropoff_location"],
+            amount=0.0,
+        )
+        doc["risk_score"] = risk["score"]
+        doc["risk_band"] = risk["band"]
+        doc["risk_flags"] = risk["flags"]
+        doc["blacklisted"] = risk["blacklisted"]
+    except Exception as e:
+        logger.warning(f"commit risk scoring failed: {e}")
+
+    await db.quote_requests.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return {"ok": True, "id": doc["id"], "quote_request": doc}
+
+
 @router.get("/admin/email-list")
 async def admin_email_list(_: dict = Depends(require_admin)):
     """
