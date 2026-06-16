@@ -129,6 +129,7 @@ export default function AdminDashboard() {
   const [bookings, setBookings] = useState([]);
   const [bookingsSearch, setBookingsSearch] = useState("");
   const [contacts, setContacts] = useState([]);
+  const [quoteRequests, setQuoteRequests] = useState([]);
   const [stats, setStats] = useState(null);
   const adminEmail = localStorage.getItem("turon_admin_email") || "admin";
 
@@ -152,10 +153,11 @@ export default function AdminDashboard() {
     try {
       // Use allSettled so one failing endpoint doesn't blank out the entire
       // dashboard. Each section reports its own error independently.
-      const [bRes, cRes, sRes] = await Promise.allSettled([
+      const [bRes, cRes, sRes, qRes] = await Promise.allSettled([
         api.get("/admin/bookings"),
         api.get("/admin/contacts"),
         api.get("/admin/stats"),
+        api.get("/admin/quote-requests"),
       ]);
 
       // Auth check — if ALL three returned 401, the session expired
@@ -184,6 +186,11 @@ export default function AdminDashboard() {
         setStats(sRes.value.data);
       } else {
         failures.push(`stats (${sRes.reason?.response?.status || "network"})`);
+      }
+      // Quote requests are used only for the unread badge on the tab strip —
+      // a failure here is not catastrophic and the in-tab fetch will retry.
+      if (qRes.status === "fulfilled") {
+        setQuoteRequests(qRes.value.data || []);
       }
       if (failures.length) {
         toast.error(
@@ -422,7 +429,7 @@ export default function AdminDashboard() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="bg-[#0A0A0A] border border-[#1F1F1F]">
+          <TabsList className="bg-[#0A0A0A] border border-[#1F1F1F] flex flex-wrap h-auto gap-1 p-1 justify-start w-full">
             <TabsTrigger value="bookings" data-testid="tab-bookings" className="relative data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Bookings ({bookings.length})
               {(() => {
@@ -438,8 +445,20 @@ export default function AdminDashboard() {
                 ) : null;
               })()}
             </TabsTrigger>
-            <TabsTrigger value="contacts" data-testid="tab-contacts" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+            <TabsTrigger value="contacts" data-testid="tab-contacts" className="relative data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Inquiries ({contacts.length})
+              {(() => {
+                const newInq = contacts.filter((c) => (c.status || "new") === "new").length;
+                return newInq > 0 ? (
+                  <span
+                    data-testid="unread-inquiries-badge"
+                    className="ml-2 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-[#D4AF37] text-black text-[10px] font-bold tabular-nums leading-none"
+                    title={`${newInq} new inquir${newInq === 1 ? "y" : "ies"}`}
+                  >
+                    {newInq > 99 ? "99+" : newInq}
+                  </span>
+                ) : null;
+              })()}
             </TabsTrigger>
             <TabsTrigger value="pricing" data-testid="tab-pricing" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Pricing
@@ -480,8 +499,20 @@ export default function AdminDashboard() {
             <TabsTrigger value="push-broadcast" data-testid="tab-push-broadcast" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Push
             </TabsTrigger>
-            <TabsTrigger value="quotes" data-testid="tab-quotes" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+            <TabsTrigger value="quotes" data-testid="tab-quotes" className="relative data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Quote Requests
+              {(() => {
+                const newQ = quoteRequests.filter((q) => (q.status || "new") === "new").length;
+                return newQ > 0 ? (
+                  <span
+                    data-testid="unread-quotes-badge"
+                    className="ml-2 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-[#D4AF37] text-black text-[10px] font-bold tabular-nums leading-none"
+                    title={`${newQ} new quote request${newQ === 1 ? "" : "s"}`}
+                  >
+                    {newQ > 99 ? "99+" : newQ}
+                  </span>
+                ) : null;
+              })()}
             </TabsTrigger>
             <TabsTrigger value="safety" data-testid="tab-safety" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Safety

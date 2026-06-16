@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 38 — Validated 4 changes: (1) payment-recovery customer SMS, (2) AdminDashboard TabsList wrap, (3) unread badges on Inquiries+Quote Requests, (4) Mobile vehicle picker LinearGradient. Backend: 7/7 pytest cases pass in /app/backend/tests/test_iteration38_payment_recovery_sms.py (admin login + 2FA path + admin/quote-requests + admin/contacts schema + payment-recovery wiring + stamping idempotency + skip-rules). Frontend Playwright (admin via JWT-injected localStorage at 1280 & 1920): TabsList class includes 'flex flex-wrap h-auto gap-1 p-1', 19 tabs wrap into 2 rows at both viewports, NO horizontal scroll (tablist.scrollWidth <= clientWidth), unread-inquiries-badge shows '19', unread-quotes-badge shows '10', all 19 tab data-testids present, 5 sampled tabs (quotes/contacts/safety/zones/account) render without errors, risk-badge-green count=2 visible on Quote Requests tab. Mobile vehicle.tsx LinearGradient overlay (`cardImgFade` with colors=['transparent','rgba(15,15,15,0.55)',colors.surface], locations=[0,0.72,1]) is syntactically clean per tsc — no new TS errors introduced by this file. Backend log confirms 'Background scheduler started (... payment-recovery ...)' so the scheduler tick is wired.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "send_sms (sms_service.py)", "issue": "TWILIO_AUTH_TOKEN is empty in backend/.env (line 14). send_sms returns None at line 21-27 (no Twilio client built). So in the current preview env, the new 'customer recovery SMS' code path executes WITHOUT actually delivering an SMS — it just no-ops silently. The code is correct; the deployment env is mis-configured. In production where TWILIO_AUTH_TOKEN is set, the customer SMS will actually send. Recommend logging a clearer 'Twilio disabled: no AUTH_TOKEN' at startup so this is obvious during regression testing."},
+      {"endpoint": "_send_payment_recovery_emails", "issue": "Customer SMS uses the customer's raw phone field with no E.164 normalization. If phone is stored as '(415) 555-1212', Twilio will reject it. Most other booking flows depend on the same field so this isn't a regression, but worth a normalization helper."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration38_payment_recovery_sms.py",
+    "/app/test_reports/pytest/iter38_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Set TWILIO_AUTH_TOKEN in backend/.env on the preview environment so the new customer recovery SMS path can be end-to-end validated against Twilio's magic test number +15005550006 (currently no-op'd because AUTH_TOKEN is empty). Production env presumably has it set; this is preview-only.",
+    "OPTIONAL: Add E.164 normalization for customer phone before passing to send_sms() in _send_payment_recovery_emails (server.py:4543) to avoid Twilio rejections on phone numbers stored as '(xxx) xxx-xxxx'.",
+    "OPTIONAL (UX): With 19 unread inquiries and 10 unread quote requests showing yellow pills, the admin will quickly mass-mark-as-read. Confirm the read state flips on tab click (or document the read-state contract) so the badge clears predictably."
+  ],
+  "critical_code_review_comments": [
+    "server.py:4537-4552 — customer SMS is wrapped in its own try/except so a Twilio failure cannot block the stamping update at 4554 nor the admin SMS at 4517. Good blast-radius isolation.",
+    "server.py:4487 — `payment_recovery_sent_at: {$exists: False}` is the one-shot guard. Once stamped at 4554, the booking is permanently excluded from future runs. Verified by test_payment_recovery_skips_already_paid.",
+    "server.py:4540 — uses `b.get('full_name') or 'there'` for first-name fallback, then splits on whitespace. Safe against None/empty.",
+    "server.py:4539 — guards on both `cust_phone` AND `manage_url` before sending. Without a manage_token there is no recovery URL to tap, so skipping is correct.",
+    "AdminDashboard.jsx:432 — TabsList class `flex flex-wrap h-auto gap-1 p-1 justify-start w-full` correctly removes the horizontal scroll and lets shadcn tabs flow. Verified: 2 rows at 1280, 2 rows at 1920, no h-scroll.",
+    "AdminDashboard.jsx:156-161 — Promise.allSettled keeps the dashboard usable even if /admin/quote-requests 500s. The 401 check at 164-172 still requires ALL THREE original endpoints to 401, but the quoteRequests result is NOT considered in the all401 check (intentional — quote-requests is the newest endpoint and the safest to allow to silently fail).",
+    "AdminDashboard.jsx:451 — Inquiries badge counts contacts where `(c.status || 'new') === 'new'`. The OR-default protects against backend documents missing the status field, which we confirmed exists on production data. Good defensive default.",
+    "AdminDashboard.jsx:505 — Quote Requests badge uses identical logic. Counts are 19 inquiries / 10 quotes in preview DB — both pills visible and styled identically to the Bookings badge (D4AF37 gold).",
+    "mobile/app/(rider)/vehicle.tsx:138-143 — LinearGradient placed AFTER the cardImgDim overlay so it renders on top (z-order). pointerEvents='none' ensures it doesn't block the Pressable. The 3-color stop (transparent → semi-dark → surface) at locations [0, 0.72, 1] correctly masks the bottom 28% where the white studio shadow on the PNG sits, fading into the card body's colors.surface — clean integration with no white-band leak."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration38_payment_recovery_sms.py (NEW — 7 pytest cases, ALL PASS)"
+  ],
+  "success_rate": {
+    "backend": "100% (7/7 pytest cases passed)",
+    "frontend": "100% (TabsList wrap, both badges, all 19 tabs, risk-badge-green — all assertions passed at 1280 & 1920)"
+  },
+  "test_credentials": "Admin JWT minted directly with backend/.env JWT_SECRET (HS256, sub=support@turanelitelimo.com, role=admin, 2h exp) — bypasses 2FA email OTP. Same approach as iteration 36/37. Real admin login flow with 2FA was NOT exercised UI-side this iteration (would require pulling the OTP from email or backend logs).",
+  "seed_data_creation": "test_iteration38 inserts 1 stuck booking (source='TEST_iter38', phone=+15005550006 Twilio magic test, 30min-old, status+payment_status=pending, manage_token present) per recovery test, plus 2 control bookings (already-paid + already-stamped) for the skip-rules test. Module-scoped autouse cleanup fixture deletes all `source: TEST_iter38` rows at module teardown. Cleanup confirmed via: db.bookings.delete_many({source:'TEST_iter38'}).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Re-run: pytest /app/backend/tests/test_iteration38_payment_recovery_sms.py -v — runs in ~2.5s. The 'stamps_and_sends' test must keep both invocations in a SINGLE asyncio.run() call because motor's async client is bound to the first running event loop (motor + pytest = closed-loop errors otherwise). Frontend testids exercised: tab-bookings, tab-contacts, tab-pricing, tab-zones, tab-surge, tab-promos, tab-announcements, tab-drivers, tab-riders, tab-live-map, tab-affiliates, tab-quick-quote, tab-invoices, tab-promo-emails, tab-push-broadcast, tab-quotes, tab-safety, tab-settings, tab-account, unread-inquiries-badge, unread-quotes-badge, unread-bookings-badge, risk-badge-green. Preview DB currently has 19 'new'-status contacts, 10 'new'-status quote_requests, 2 green-band quote_requests — values may shift if main agent triggers any seed scripts.",
+  "rca of the issue": "N/A — all 4 changes ship green. The only environmental caveat is preview-only: TWILIO_AUTH_TOKEN is empty so the customer SMS code path no-ops silently. The code logic, wiring, scheduler registration, and stamping idempotency are all correct and verified. iOS native build deferred per request."
+}

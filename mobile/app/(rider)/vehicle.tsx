@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, Activit
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Users, ArrowRight, Phone, Home } from "lucide-react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import Button from "@/components/Button";
 import { colors, radius } from "@/theme";
 import { useBooking } from "@/store/booking";
@@ -132,8 +133,14 @@ export default function VehiclePicker() {
               onPress={() => setSelected(q.vehicle_type)}
               style={[s.card, isSelected && s.cardSelected, disabled && { opacity: 0.55 }]}
             >
-              <ImageBackground source={{ uri: meta.img }} style={s.cardImg} imageStyle={{ borderTopLeftRadius: 18, borderTopRightRadius: 18 }}>
+              <ImageBackground source={{ uri: meta.img }} style={s.cardImg} imageStyle={s.cardImgInner}>
                 <View style={s.cardImgDim} />
+                <LinearGradient
+                  pointerEvents="none"
+                  colors={["transparent", "rgba(15,15,15,0.55)", colors.surface]}
+                  locations={[0, 0.72, 1]}
+                  style={s.cardImgFade}
+                />
               </ImageBackground>
               <View style={s.cardBody}>
                 <View style={s.cardRow}>
@@ -195,8 +202,14 @@ const s = StyleSheet.create({
   errorTxt: { color: colors.error, fontSize: 12, textAlign: "center" },
   card: { borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", overflow: "hidden", marginBottom: 12 },
   cardSelected: { borderColor: colors.gold, backgroundColor: "rgba(212,175,55,0.05)" },
-  cardImg: { height: 100, justifyContent: "flex-end" },
+  cardImg: { height: 100, justifyContent: "flex-end", backgroundColor: colors.surface },
+  cardImgInner: { borderTopLeftRadius: 18, borderTopRightRadius: 18, resizeMode: "cover" },
   cardImgDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.15)" },
+  // Vertical fade from transparent at the top of the image to the card surface
+  // colour at the bottom. This masks the white studio-shadow that the fleet
+  // PNGs ship with so the car blends cleanly into the card body — no need to
+  // re-shoot or re-mask every vehicle asset.
+  cardImgFade: { ...StyleSheet.absoluteFillObject, borderTopLeftRadius: 18, borderTopRightRadius: 18 },
   cardBody: { padding: 14 },
   cardRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
   cardTitle: { color: "#fff", fontSize: 14, fontWeight: "500" },

@@ -4530,7 +4530,27 @@ async def _send_payment_recovery_emails():
                     )
             except Exception as e:
                 logger.warning(f"Admin stuck-checkout SMS failed: {e}")
-            # 3) Stamp the booking so we don't email them twice
+            # 3) Customer-facing SMS — high-leverage recovery touch. Email gets
+            # buried under flight/hotel confirmations on mobile; an SMS with a
+            # tap-to-pay link converts far better, especially for time-sensitive
+            # trips (Barbara's 1 AM SFO pickup). Same one-shot guard.
+            try:
+                cust_phone = b.get("phone") or ""
+                if cust_phone and manage_url:
+                    first = (b.get("full_name") or "there").split()[0]
+                    when = f"{b.get('pickup_date','')} {b.get('pickup_time','')}".strip()
+                    when_str = f" for {when}" if when else ""
+                    await sms_service.send_sms(
+                        cust_phone,
+                        f"Hi {first} — Turan Elite Limo. We saved your reservation"
+                        f"{when_str} but never got the payment confirmation. "
+                        f"Finish in 30 sec: {manage_url} "
+                        f"Need help? Reply here.",
+                    )
+                    logger.info(f"Payment-recovery SMS sent to customer for booking {b.get('id')}")
+            except Exception as e:
+                logger.warning(f"Customer recovery SMS failed for {b.get('id')}: {e}")
+            # 4) Stamp the booking so we don't email/SMS them twice
             await db.bookings.update_one(
                 {"id": b["id"]},
                 {"$set": {"payment_recovery_sent_at": now.isoformat()}},
