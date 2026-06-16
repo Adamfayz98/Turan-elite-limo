@@ -1,6 +1,6 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 16, 2026 PM
+> Last refreshed: Feb 16, 2026 PM (post-iter 38)
 
 ## Original Problem Statement
 Build a fully functioning website + native iOS/Android mobile app for TuranEliteLimo (premium chauffeur service, Bay Area). Stack: React + FastAPI + MongoDB + Expo React Native. Features: dynamic pricing, Stripe checkout, admin dashboard, driver live tracking. Recently expanded to: 2026 FIFA World Cup surge ops, custom invoices for affiliate brokered trips, social logins (Apple + Google).
@@ -9,6 +9,19 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Web:** `https://turanelitelimo.com` (deployed via Emergent)
 - **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
 - **Android:** Closed Testing on Play Console (Build #23).
+
+## ✅ Quick Risk Check tool for off-platform leads (Feb 16, 2026 PM)
+
+**Shipped:**
+- New `POST /api/admin/safety/risk-check` endpoint that exposes the existing `score_submission()` engine for ad-hoc lookups. Accepts any combination of `{phone, email, name, amount, ip, pickup_location, dropoff_location}` and returns the same `{score, band, flags, blacklisted, blacklist_hits}` shape used on real quote requests.
+- New "Quick risk check" sub-tab inside Admin → Safety. Form takes phone/email/name/amount → returns score + green/yellow/red badge + plain-English recommendation + flag breakdown.
+- Solves the problem of Yelp / Google Business Profile / walk-in call leads bypassing the safety system. Same scorer, same risk band — 1:1 comparable to website-submitted quotes.
+- Verified end-to-end via curl: Spencer Pahlke = 20/green, disposable email = 55/yellow, empty body = 400.
+
+**Files changed:**
+- `/app/backend/routes/admin.py` (new endpoint at line ~2170)
+- `/app/frontend/src/components/admin/SafetyTab.jsx` (new sub-tab + `QuickRiskCheck` component)
+
 
 ## ✅ Admin UX + Customer-Recovery SMS + Mobile Polish (Feb 16, 2026 PM — iter 38, 100% green)
 

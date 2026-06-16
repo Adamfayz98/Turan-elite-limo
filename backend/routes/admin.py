@@ -2167,6 +2167,42 @@ async def admin_ip_lookup(ip: str, _: dict = Depends(require_admin)):
     return {"ip": ip, "geo": geo}
 
 
+@router.post("/admin/safety/risk-check")
+async def admin_ad_hoc_risk_check(payload: dict, _: dict = Depends(require_admin)):
+    """Score an arbitrary phone/email/name pair against the safety system.
+
+    Used for off-platform leads (Yelp, Google Business Profile, walk-in calls)
+    that bypass the public booking form. Reuses the same `score_submission`
+    that runs on real quote requests so the results are 1:1 comparable to the
+    risk badges shown on `/admin/quote-requests`.
+
+    Payload (all optional, but at least one of phone/email/name is required):
+      { phone, email, name, amount, ip, pickup_location, dropoff_location }
+    """
+    phone = (payload or {}).get("phone", "").strip()
+    email = (payload or {}).get("email", "").strip()
+    name = (payload or {}).get("name", "").strip()
+    if not (phone or email or name):
+        raise HTTPException(status_code=400, detail="Provide at least one of phone, email, or name.")
+    try:
+        amount_raw = (payload or {}).get("amount") or 0
+        amount = float(amount_raw) if amount_raw not in ("", None) else 0.0
+    except (TypeError, ValueError):
+        amount = 0.0
+    result = await safety.score_submission(
+        db=db,
+        full_name=name,
+        email=email,
+        phone=phone,
+        ip=(payload or {}).get("ip", "").strip(),
+        user_agent="",
+        pickup_location=(payload or {}).get("pickup_location", "").strip(),
+        dropoff_location=(payload or {}).get("dropoff_location", "").strip(),
+        amount=amount,
+    )
+    return result
+
+
 @router.get("/admin/safety/pending-otps")
 async def admin_list_pending_otps(_: dict = Depends(require_admin)):
     """MOCK-mode helper: when Twilio Verify isn't configured, admin can see

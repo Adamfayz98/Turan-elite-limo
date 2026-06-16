@@ -44,9 +44,10 @@ export default function SafetyTab() {
         </div>
       </div>
 
-      <div className="flex gap-2 border-b border-[#1F1F1F]">
+      <div className="flex gap-2 border-b border-[#1F1F1F] flex-wrap">
         {[
           { id: "queue", label: "Review queue" },
+          { id: "quick-check", label: "Quick risk check" },
           { id: "blacklist", label: "Blacklist" },
           { id: "iplookup", label: "IP lookup" },
           { id: "otps", label: "Pending OTPs" },
@@ -68,6 +69,7 @@ export default function SafetyTab() {
       </div>
 
       {tab === "queue" && <ReviewQueue />}
+      {tab === "quick-check" && <QuickRiskCheck />}
       {tab === "blacklist" && <BlacklistManager />}
       {tab === "iplookup" && <IpLookup />}
       {tab === "otps" && <PendingOtps />}
@@ -406,6 +408,184 @@ function BlacklistManager() {
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Quick Risk Check (ad-hoc lookup for off-platform leads) ----
+function QuickRiskCheck() {
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const canSubmit = (phone.trim() || email.trim() || name.trim()) && !loading;
+
+  const go = async () => {
+    if (!canSubmit) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      const { data } = await api.post("/admin/safety/risk-check", {
+        phone: phone.trim(),
+        email: email.trim(),
+        name: name.trim(),
+        amount: amount ? Number(amount) : 0,
+      });
+      setResult(data);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Risk check failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reset = () => {
+    setPhone(""); setEmail(""); setName(""); setAmount(""); setResult(null);
+  };
+
+  // Plain-English recommendation derived from the band returned by the
+  // backend so the user gets an action item, not just a colour.
+  const recommendation = result && (
+    result.band === "red"
+      ? "DECLINE or require verified ID + full pre-pay before dispatch."
+      : result.band === "yellow"
+        ? "Proceed with caution: deposit-only-by-card, OTP phone verify, and no off-session charges until first trip completes."
+        : "Proceed normally: standard 35% deposit + saved card flow is fine."
+  );
+
+  return (
+    <div className="space-y-5" data-testid="quick-risk-check">
+      <div className="text-xs text-white/45 leading-relaxed max-w-2xl">
+        Score an off-platform lead (Yelp, Google Business Profile, walk-in call) against the same risk engine
+        that runs on website quote requests. Paste any combination of phone, email, name, and quote amount.
+        Result is identical to the green/yellow/red badges you see on incoming quotes.
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-white/45 mb-1">Phone</div>
+          <Input
+            data-testid="risk-check-phone"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && go()}
+            placeholder="(415) 518-4873"
+            className="bg-[#0E0E0E] border-[#27272A] text-white h-11"
+          />
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-white/45 mb-1">Email</div>
+          <Input
+            data-testid="risk-check-email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && go()}
+            placeholder="customer@example.com"
+            className="bg-[#0E0E0E] border-[#27272A] text-white h-11"
+          />
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-white/45 mb-1">Name</div>
+          <Input
+            data-testid="risk-check-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && go()}
+            placeholder="Spencer Pahlke"
+            className="bg-[#0E0E0E] border-[#27272A] text-white h-11"
+          />
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-white/45 mb-1">Quote amount (USD, optional)</div>
+          <Input
+            data-testid="risk-check-amount"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
+            onKeyDown={(e) => e.key === "Enter" && go()}
+            placeholder="1650"
+            inputMode="decimal"
+            className="bg-[#0E0E0E] border-[#27272A] text-white h-11"
+          />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <Button
+          onClick={go}
+          disabled={!canSubmit}
+          data-testid="risk-check-go"
+          className="bg-[#D4AF37] text-black hover:bg-[#B3922E] h-11"
+        >
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4 mr-1" />} Run risk check
+        </Button>
+        {result && (
+          <Button
+            onClick={reset}
+            variant="outline"
+            data-testid="risk-check-reset"
+            className="bg-transparent border-[#27272A] text-white/70 hover:bg-white/5 h-11"
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+
+      {result && (
+        <div
+          className="rounded-xl border border-[#1F1F1F] bg-[#0A0A0A] p-5 space-y-4 max-w-2xl"
+          data-testid="risk-check-result"
+        >
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-white/45">Result</div>
+              <div className="text-2xl font-bold text-white mt-1 tabular-nums">
+                Score {result.score}<span className="text-white/40 text-base"> / 100</span>
+              </div>
+            </div>
+            <RiskBadge score={result.score} band={result.band} />
+          </div>
+
+          <div className="rounded-lg border border-[#1F1F1F] bg-[#0E0E0E] p-3 text-sm text-white/90">
+            <span className="text-[10px] uppercase tracking-wider text-white/45 block mb-1">Recommendation</span>
+            {recommendation}
+          </div>
+
+          {result.blacklisted && (
+            <div className="rounded-lg border border-red-900/60 bg-red-950/40 p-3 text-sm text-red-200">
+              ⛔ Matches blacklist ({(result.blacklist_hits || []).length} entry).
+              {(result.blacklist_hits || []).slice(0, 3).map((h, i) => (
+                <div key={i} className="text-xs text-red-300/80 mt-1">
+                  • {h.kind}: {h.value} {h.reason ? `· ${h.reason}` : ""}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-white/45 mb-2">
+              Flags ({(result.flags || []).length})
+            </div>
+            {(result.flags || []).length === 0 ? (
+              <div className="text-white/55 text-sm italic">
+                No risk flags raised. Lead looks clean.
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {(result.flags || []).map((f, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between text-sm border border-[#1F1F1F] rounded px-3 py-2 bg-[#0E0E0E]"
+                  >
+                    <span className="text-white/85">{f.label}</span>
+                    <span className="text-amber-300 tabular-nums text-xs">+{f.weight}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
