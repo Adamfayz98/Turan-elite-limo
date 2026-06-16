@@ -1,6 +1,6 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 16, 2026
+> Last refreshed: Feb 16, 2026 PM
 
 ## Original Problem Statement
 Build a fully functioning website + native iOS/Android mobile app for TuranEliteLimo (premium chauffeur service, Bay Area). Stack: React + FastAPI + MongoDB + Expo React Native. Features: dynamic pricing, Stripe checkout, admin dashboard, driver live tracking. Recently expanded to: 2026 FIFA World Cup surge ops, custom invoices for affiliate brokered trips, social logins (Apple + Google).
@@ -10,17 +10,25 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
 - **Android:** Closed Testing on Play Console (Build #23).
 
-## ✅ Green "Clean" Risk Badge for safe quote requests (Feb 16, 2026)
+## ✅ Admin UX + Customer-Recovery SMS + Mobile Polish (Feb 16, 2026 PM — iter 38, 100% green)
 
 **Shipped:**
-- `RiskBadge` component (`SafetyTab.jsx`) now renders a green `CheckCircle2` icon + "Clean" label when `risk_band === "green"` (previously only rendered for yellow/red).
-- `QuoteRequestsTab.jsx` now displays the badge for ALL scored quote requests, so the user gets visual confirmation that the safety system analyzed each lead — green dot = clean, yellow = review, red = blacklisted.
-- No backend changes — `risk_band` was already being computed and stored at intake.
-- Verified DB has 2 existing "green" quote requests that will now render the badge.
+- **Admin TabsList wraps** — 19 admin tabs now flow to 2 rows on iPad/desktop instead of horizontal-scrolling off-screen (`flex flex-wrap h-auto gap-1 p-1 justify-start w-full`).
+- **Unread badges on Inquiries + Quote Requests** — gold pills matching the existing Bookings badge. Counts items with `status === "new"`. `data-testid=unread-inquiries-badge` + `data-testid=unread-quotes-badge`.
+- **Green "Clean" risk badge** — `RiskBadge` now renders for ALL scored quote requests (was previously yellow/red/blacklisted only). Green band uses `CheckCircle2` icon + "Clean" label so the user visually confirms the safety system analyzed each lead.
+- **Customer-facing payment-recovery SMS** — Extended existing `_send_payment_recovery_emails` background job (runs every 5 min) to also Twilio-SMS the customer their manage URL alongside the recovery email. Email gets buried under flight/hotel confirmations on mobile; SMS converts far better, especially for time-sensitive trips. One-shot stamp (`payment_recovery_sent_at`) prevents duplicates. Own try/except so Twilio failures don't block the admin SMS or DB stamp.
+- **Mobile vehicle picker — white studio shadow masked** — Added `expo-linear-gradient` overlay (`cardImgFade`) inside the ImageBackground that fades from transparent at top → semi-dark mid → `colors.surface` at bottom. Cleanly blends the bottom of each fleet PNG into the card body without re-mastering image assets.
 
 **Files changed:**
-- `/app/frontend/src/components/admin/SafetyTab.jsx` (RiskBadge component icon/label logic)
-- `/app/frontend/src/components/admin/QuoteRequestsTab.jsx` (render badge for all bands)
+- `/app/frontend/src/pages/AdminDashboard.jsx` (TabsList wrap, quoteRequests fetch, 2 new unread badges)
+- `/app/frontend/src/components/admin/SafetyTab.jsx` (RiskBadge green band)
+- `/app/frontend/src/components/admin/QuoteRequestsTab.jsx` (always render badge)
+- `/app/backend/server.py` (`_send_payment_recovery_emails` — added customer SMS block ~line 4533)
+- `/app/mobile/app/(rider)/vehicle.tsx` (LinearGradient overlay)
+- `/app/mobile/package.json` (`expo-linear-gradient@56.0.4`)
+- `/app/memory/GOOGLE_ADS_PLAYBOOK_FEB2026.md` (NEW — 10-step Google Ads campaign fix playbook)
+- `/app/backend/tests/test_iteration38_payment_recovery_sms.py` (NEW — 7 pytest cases, all pass)
+
 
 
 ## ✅ Landing Pages Visual & Editorial Refresh (Feb 15, 2026 PM)
