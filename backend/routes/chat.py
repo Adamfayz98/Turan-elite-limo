@@ -240,7 +240,12 @@ async def chat_message(req: ChatMessageRequest):
     history.append({"role": "assistant", "content": reply_text, "ts": now})
 
     # If the assistant promised escalation, flag the session so admin sees it.
-    needs_human = "(650) 410-0687" in reply_text or "team" in reply_text.lower() and "get" in reply_text.lower()
+    # Parentheses are explicit so the conjunction (which Python binds tighter
+    # than `or`) doesn't accidentally rope in the phone-number branch.
+    reply_lower = reply_text.lower()
+    needs_human = ("(650) 410-0687" in reply_text) or (
+        ("team" in reply_lower) and ("get" in reply_lower)
+    )
 
     await db.chat_sessions.update_one(
         {"session_id": req.session_id},

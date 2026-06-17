@@ -1,6 +1,6 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 16, 2026 evening — iter 39, 100% green
+> Last refreshed: Feb 16, 2026 late evening — iter 40, 100% green
 
 ## Original Problem Statement
 Build a fully functioning website + native iOS/Android mobile app for TuranEliteLimo (premium chauffeur service, Bay Area). Stack: React + FastAPI + MongoDB + Expo React Native. Features: dynamic pricing, Stripe checkout, admin dashboard, driver live tracking. Recently expanded to: 2026 FIFA World Cup surge ops, custom invoices for affiliate brokered trips, social logins (Apple + Google).
@@ -9,6 +9,25 @@ Build a fully functioning website + native iOS/Android mobile app for TuranElite
 - **Web:** `https://turanelitelimo.com` (deployed via Emergent)
 - **iOS:** Live on App Store. TestFlight `v1.1.0 build 41` submitted Jun 4 with Apple + Google Sign-In.
 - **Android:** Closed Testing on Play Console (Build #23).
+
+## ✅ Live Route Map + Public AI Chat Assistant "Sage" (Feb 16, 2026 — iter 40)
+
+**Shipped:**
+- **RouteMap component** on the booking form — once pickup + dropoff are filled, dynamically loads the Google Maps SDK, draws a gold polyline route on a custom dark Turan theme, displays distance (mi) + estimated duration. Supports waypoints (Add stop). Pre-fill state shows a helpful hint card.
+- **AI Chat Assistant "Sage"** — floating bubble bottom-right of every public page (`/`, all landing pages). Powered by Gemini 2.5 Flash via emergentintegrations + EMERGENT_LLM_KEY. ~$0.0003 per exchange, ~2-4 sec latency. Persona: warm chauffeur concierge with full TuranEliteLimo knowledge (fleet, ballpark pricing, BYOB/car-seat rules, World Cup 2026 surge, cancellation, escalation script).
+- **Session persistence** — sessions stored in MongoDB `chat_sessions` collection. localStorage keeps the session_id so page refresh / revisit resumes the same thread. `needs_human` flag auto-set when Sage falls back to the human escalation phrase.
+- **Conditional rendering** — widget hides on `/admin/*`, `/driver/*`, `/pay/*`, `/manage/*`, `/quote/*`, `/post-trip/*` (transactional/authenticated flows).
+- **100% green tested:** 11/11 backend pytest cases, all frontend flows verified by testing agent (single + multi-turn + absurd-deflect + invalid session 404 + length cap 422 + history restore + conditional hide).
+
+**Files added/changed:**
+- `/app/backend/routes/chat.py` (NEW — chat router, ~250 lines, Sage system prompt)
+- `/app/backend/server.py` (router include)
+- `/app/frontend/src/components/RouteMap.jsx` (NEW — map + DirectionsService)
+- `/app/frontend/src/components/FloatingChatWidget.jsx` (NEW — floating bubble + panel UI)
+- `/app/frontend/src/App.js` (ConditionalChatWidget wrapper)
+- `/app/frontend/src/components/BookingForm.jsx` (RouteMap mounted)
+- `/app/backend/tests/test_iteration40_chat.py` (NEW — 11 pytest cases)
+- `/app/memory/TESTING_GUIDE_FEB2026.md` (NEW — comprehensive 9-section test playbook)
 
 ## ✅ AI-Powered Off-Platform Lead Import + AI Reply Drafts (Feb 16, 2026 evening — iter 39+)
 
