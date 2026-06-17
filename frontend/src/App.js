@@ -28,6 +28,8 @@ import QuoteOfferConfirm from "@/pages/QuoteOfferConfirm";
 import ReferralRedirect from "@/pages/ReferralRedirect";
 import MyReferrals from "@/pages/MyReferrals";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
+import FloatingChatWidget from "@/components/FloatingChatWidget";
+import { useLocation } from "react-router-dom";
 
 function App() {
   useEffect(() => {
@@ -90,6 +92,7 @@ function App() {
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
+        <ConditionalChatWidget />
       </BrowserRouter>
       <Toaster
         theme="dark"
@@ -107,3 +110,22 @@ function App() {
 }
 
 export default App;
+
+/**
+ * Hide the public AI chat widget on admin / driver / payment / quote-confirm
+ * pages — those are authenticated or transactional flows where a marketing
+ * concierge bubble is noise. Everywhere else (home, landing pages, etc.) the
+ * widget appears at the bottom-right.
+ */
+function ConditionalChatWidget() {
+  const location = useLocation();
+  const hidden =
+    location.pathname.startsWith("/admin") ||
+    location.pathname.startsWith("/driver") ||
+    location.pathname.startsWith("/pay") ||
+    location.pathname.startsWith("/manage") ||
+    location.pathname.startsWith("/quote") ||
+    location.pathname.startsWith("/post-trip");
+  if (hidden) return null;
+  return <FloatingChatWidget />;
+}

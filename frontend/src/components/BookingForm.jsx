@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import FleetPicker from "@/components/FleetPicker";
 import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
+import RouteMap from "@/components/RouteMap";
 import StripeBadge from "@/components/StripeBadge";
 import CancellationPolicy from "@/components/CancellationPolicy";
 import CheckoutRedirectOverlay from "@/components/CheckoutRedirectOverlay";
@@ -533,6 +534,15 @@ export default function BookingForm() {
               >
                 <Plus className="w-4 h-4 mr-2" /> Add stop
               </Button>
+            </div>
+
+            {/* Live route preview — only renders meaningfully once pickup + dropoff are set */}
+            <div className="md:col-span-2">
+              <RouteMap
+                pickup={form.pickup_location}
+                dropoff={form.dropoff_location}
+                stops={stops.map((s) => s.value).filter(Boolean)}
+              />
             </div>
 
             <div>

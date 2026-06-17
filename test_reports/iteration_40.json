@@ -1,0 +1,35 @@
+{
+  "summary": "Iter 40 fully green. Backend: 11/11 pytest cases pass for /api/chat/start, /api/chat/message (single, multi-turn context, absurd-deflect, invalid session 404, length cap 422, empty 422), and /api/chat/{id} history. Frontend: chat widget bubble & panel render correctly on /, opener mentions Sage + Turan Elite Limo + question, send shows user+assistant bubbles, close + refresh session-restore both work, widget correctly hidden on /admin/login and /quote/<token>. RouteMap: hint card shown pre-fill, after SFO -> Four Seasons it renders gold polyline canvas with distance=15.0 mi / duration=~26 min (within spec 15 mi / 25-35 min); after adding 'Palace of Fine Arts' waypoint, route updates to 20.3 mi / ~53 min. No issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration40_chat.py",
+    "/app/test_reports/pytest/iter40_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/chat.py:243 — needs_human boolean has operator-precedence ambiguity: '\"(650)\" in reply or \"team\" in reply.lower() and \"get\" in reply.lower()'. Python evaluates `and` first, so the phone-number branch works but the conjunction can mis-fire. Recommend parenthesizing: `(\"(650) 410-0687\" in reply) or (\"team\" in reply.lower() and \"get\" in reply.lower())` and consider tighter heuristics (regex on a small phrase set) to reduce false flags.",
+    "routes/chat.py:163 — multi-turn context is stitched into one string prompt rather than passed as separate user/assistant turns to LlmChat. This works (we verified context recall) but loses role separation and may degrade quality at >10 turns. Acceptable for MVP given conversations are short.",
+    "FloatingChatWidget.jsx:88 — error swallows the underlying error (catch-all). Consider logging err for ops triage."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration40_chat.py"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11)",
+    "frontend": "100% (all flows verified)"
+  },
+  "test_credentials": "N/A — chat endpoints are public, booking form is public",
+  "seed_data_creation": "Test chat sessions inserted under user_agent='TEST_pytest/iter40' / 'TEST_ua' (rows persist; non-PII intake metadata only)",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Chat selectors confirmed: chat-widget-open, chat-widget-panel, chat-widget-close, chat-widget-input, chat-widget-send, chat-bubble-user, chat-bubble-assistant. RouteMap selectors: route-map-hint (pre-fill), route-map-canvas, route-distance, route-duration, route-error. BookingForm address inputs use testIds booking-pickup / booking-dropoff with predictions at booking-pickup-pred-N / booking-dropoff-pred-N. Stop inputs append via booking-add-stop with testid pattern starting with booking-stop-. Sage opener latency ~1s; message latency ~2-4s (LLM). Conditional chat hide works for /admin/* and /quote/*.",
+  "rca of the issue": "No bugs identified in iter 40 scope."
+}

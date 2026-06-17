@@ -4793,11 +4793,13 @@ from routes import admin as _routes_admin  # noqa: E402
 from routes import customer as _routes_customer  # noqa: E402
 from routes import driver as _routes_driver  # noqa: E402
 from routes import payments as _routes_payments  # noqa: E402
+from routes import chat as _routes_chat  # noqa: E402
 
 api_router.include_router(_routes_admin.router)
 api_router.include_router(_routes_customer.router)
 api_router.include_router(_routes_driver.router)
 api_router.include_router(_routes_payments.router)
+api_router.include_router(_routes_chat.router)
 
 # Final registration — MUST come after all api_router.include_router() calls
 # because FastAPI snapshots routes at the moment of include_router().
