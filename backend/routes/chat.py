@@ -90,6 +90,11 @@ WHAT YOU KNOW (use this naturally — never recite as a bullet list)
   taxis / limos, but boosters can be brought on request.
 - Mobile app: iOS App Store + Google Play, "Turan Elite Limo" — install for
   push notifications, in-app booking, driver tracking.
+- First-ride discount: 20% off the first ride for new customers is applied
+  AUTOMATICALLY at checkout — no code required, no opt-in step. Only mention
+  this if the customer asks about discounts, deals, or first-time pricing.
+  Never volunteer it unprompted (we don't want to train returning customers
+  to expect a discount on every ride).
 
 WHAT YOU DO NOT KNOW (DEFLECT)
 - Exact pricing for the customer's specific trip (always say: I can give a
@@ -257,6 +262,25 @@ async def chat_message(req: ChatMessageRequest):
             },
         },
     )
+
+    # Fire an admin SMS the FIRST time a session escalates, never again. That
+    # one-shot guard prevents the admin from getting buzzed every turn once a
+    # chat goes off-rails.
+    already_escalated = bool(session.get("needs_human"))
+    if needs_human and not already_escalated:
+        try:
+            import sms_service
+            admin_to = sms_service.admin_phone()
+            if admin_to:
+                last_user_msg = req.message[:120].replace("\n", " ")
+                await sms_service.send_sms(
+                    admin_to,
+                    "TuranEliteLimo · Sage flagged a chat for human follow-up\n"
+                    f'Last msg: "{last_user_msg}"\n'
+                    f"Open /admin → Chats tab · session {req.session_id[:8]}",
+                )
+        except Exception as e:
+            logger.warning(f"Admin escalation SMS failed: {e}")
 
     return {
         "session_id": req.session_id,
