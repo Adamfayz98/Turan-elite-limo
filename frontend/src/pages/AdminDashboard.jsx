@@ -77,6 +77,7 @@ import PromoEmailsTab from "@/components/admin/PromoEmailsTab";
 import PushBroadcastTab from "@/components/admin/PushBroadcastTab";
 import QuoteRequestsTab from "@/components/admin/QuoteRequestsTab";
 import SafetyTab from "@/components/admin/SafetyTab";
+import ChatsTab from "@/components/admin/ChatsTab";
 import { api, formatApiErrorDetail } from "@/lib/api";
 
 const STATUS_COLOR = {
@@ -516,6 +517,9 @@ export default function AdminDashboard() {
             </TabsTrigger>
             <TabsTrigger value="safety" data-testid="tab-safety" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Safety
+            </TabsTrigger>
+            <TabsTrigger value="chats" data-testid="tab-chats" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
+              Sage Chats
             </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black">
               Settings
@@ -1047,6 +1051,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="safety" className="mt-6">
             <SafetyTab />
+          </TabsContent>
+
+          <TabsContent value="chats" className="mt-6">
+            <ChatsTab />
           </TabsContent>
 
           <TabsContent value="settings" className="mt-6">

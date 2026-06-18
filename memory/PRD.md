@@ -1,6 +1,25 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 16, 2026 late evening — iter 40, 100% green
+> Last refreshed: Feb 17, 2026 — iter 41 (Admin Chats tab with live takeover)
+
+## ✅ Admin Chats tab + Live Customer Takeover (Feb 17, 2026 — iter 41)
+
+**Shipped:**
+- New **GET /api/admin/chat/sessions** — lists 100 most recent sessions, `needs_human` first, then by recency. Each row carries `last_preview`, `last_role`, `msg_count`, `updated_at`, `needs_human`.
+- New **POST /api/admin/chat/sessions/{id}/reply** — admin appends a message to a session's history with `role="admin"` + `sender_name="Imran from Turan Elite"`. Also clears `needs_human` so the red dot disappears.
+- New **POST /api/admin/chat/sessions/{id}/clear-needs-human** — manual "Mark handled" button on each thread.
+- **Customer FloatingChatWidget** now polls `/api/chat/{session_id}` every 5 seconds while open → admin replies appear in the customer's panel within ~5 sec.
+- **Admin replies render distinctly** in both the admin transcript view AND the customer widget — green bubble with sender_name header, distinct from Sage's dark gray and the customer's gold.
+- **Admin Chats tab** — new tab in the dashboard between Safety and Settings. List view with red-dot triage + thread view with full transcript + reply textarea (Cmd/Ctrl+Enter to send) + Mark Handled button.
+
+**Files added/changed:**
+- `/app/backend/routes/chat.py` (added 3 admin endpoints + inline _require_admin)
+- `/app/frontend/src/components/admin/ChatsTab.jsx` (NEW — list + thread + reply)
+- `/app/frontend/src/components/FloatingChatWidget.jsx` (added 5-sec poll + admin bubble style)
+- `/app/frontend/src/pages/AdminDashboard.jsx` (mounted ChatsTab between Safety + Settings)
+
+**Curl-verified end-to-end:** admin lists 8 sessions, takeover reply lands with correct role + sender_name, customer's /chat/{id} returns the admin message at the end of history. Unauthenticated admin endpoints return 401.
+
 
 ## Original Problem Statement
 Build a fully functioning website + native iOS/Android mobile app for TuranEliteLimo (premium chauffeur service, Bay Area). Stack: React + FastAPI + MongoDB + Expo React Native. Features: dynamic pricing, Stripe checkout, admin dashboard, driver live tracking. Recently expanded to: 2026 FIFA World Cup surge ops, custom invoices for affiliate brokered trips, social logins (Apple + Google).

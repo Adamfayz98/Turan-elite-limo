@@ -25,7 +25,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
@@ -300,3 +300,89 @@ async def chat_history(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     return session
+
+
+# ---- Admin endpoints for monitoring + taking over chats ----
+import jwt  # noqa: E402
+from fastapi import Header  # noqa: E402
+
+
+async def _require_admin(authorization: str = Header(None)):
+    """Inline admin auth — same JWT secret/role contract as routes.admin.require_admin
+    but kept here to avoid circular imports."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token.")
+    token = authorization.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(token, os.environ["JWT_SECRET"], algorithms=["HS256"])
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+    if payload.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only.")
+    return payload
+
+
+@router.get("/admin/chat/sessions")
+async def admin_list_chat_sessions(_: dict = Depends(_require_admin)):
+    """List the 100 most recent chat sessions, needs_human first."""
+    db = _get_db()
+    rows = []
+    async for s in db.chat_sessions.find(
+        {},
+        {"_id": 0, "session_id": 1, "created_at": 1, "updated_at": 1, "needs_human": 1, "history": 1, "ip": 1},
+    ).sort("updated_at", -1).limit(100):
+        last = s.get("history", [])[-1] if s.get("history") else None
+        rows.append({
+            "session_id": s["session_id"],
+            "created_at": s.get("created_at"),
+            "updated_at": s.get("updated_at"),
+            "needs_human": s.get("needs_human", False),
+            "ip": s.get("ip", ""),
+            "msg_count": len(s.get("history", [])),
+            "last_role": (last or {}).get("role"),
+            "last_preview": ((last or {}).get("content") or "")[:140],
+        })
+    # needs_human first, then most-recent first within each group
+    rows.sort(key=lambda r: (not r["needs_human"], -(len(r["updated_at"] or ""))))
+    return rows
+
+
+class AdminReply(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+    sender_name: str = "Imran from Turan Elite"
+
+
+@router.post("/admin/chat/sessions/{session_id}/reply")
+async def admin_reply_to_chat(
+    session_id: str, payload: AdminReply, _: dict = Depends(_require_admin)
+):
+    """Inject an admin message into the chat. Customer widget polls every
+    5 sec so the message appears in their panel within ~5 sec."""
+    db = _get_db()
+    session = await db.chat_sessions.find_one({"session_id": session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found.")
+    now = datetime.now(timezone.utc).isoformat()
+    msg = {
+        "role": "admin",
+        "content": payload.content[:2000],
+        "ts": now,
+        "sender_name": payload.sender_name[:60],
+    }
+    history = (session.get("history") or []) + [msg]
+    await db.chat_sessions.update_one(
+        {"session_id": session_id},
+        {"$set": {"history": history, "updated_at": now, "needs_human": False}},
+    )
+    return {"ok": True, "msg": msg}
+
+
+@router.post("/admin/chat/sessions/{session_id}/clear-needs-human")
+async def admin_clear_flag(session_id: str, _: dict = Depends(_require_admin)):
+    """Mark a session as handled (clears the red dot)."""
+    db = _get_db()
+    await db.chat_sessions.update_one(
+        {"session_id": session_id},
+        {"$set": {"needs_human": False, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True}

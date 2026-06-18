@@ -39,6 +39,32 @@ export default function FloatingChatWidget() {
     }
   }, [messages, sending]);
 
+  // Poll the server for new messages (e.g., admin takeover replies) while the
+  // panel is open. 5-sec cadence is the right tradeoff: snappy enough that a
+  // hand-typed admin reply feels near-real-time, sparse enough to avoid load.
+  useEffect(() => {
+    if (!open || !sessionId) return undefined;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const { data } = await api.get(`/chat/${sessionId}`);
+        if (cancelled) return;
+        if (Array.isArray(data?.history)) {
+          setMessages((cur) =>
+            data.history.length !== cur.length ? data.history : cur,
+          );
+        }
+      } catch {
+        /* network blip — try again next tick */
+      }
+    };
+    const id = setInterval(tick, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [open, sessionId]);
+
   // Focus the input when the panel opens
   useEffect(() => {
     if (open && inputRef.current) {
@@ -189,7 +215,7 @@ export default function FloatingChatWidget() {
               <div className="text-red-400 text-xs text-center py-2">{errorMsg}</div>
             )}
             {messages.map((m, i) => (
-              <ChatBubble key={i} role={m.role} content={m.content} />
+              <ChatBubble key={i} role={m.role} content={m.content} sender_name={m.sender_name} />
             ))}
             {sending && (
               <ChatBubble role="assistant" content="" typing />
@@ -246,8 +272,9 @@ export default function FloatingChatWidget() {
   );
 }
 
-function ChatBubble({ role, content, typing = false }) {
+function ChatBubble({ role, content, sender_name, typing = false }) {
   const isUser = role === "user";
+  const isAdmin = role === "admin";
   return (
     <div
       className={`flex ${isUser ? "justify-end" : "justify-start"}`}
@@ -257,9 +284,16 @@ function ChatBubble({ role, content, typing = false }) {
         className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
           isUser
             ? "bg-[#D4AF37] text-black rounded-br-sm"
-            : "bg-[#1A1A1A] text-white border border-[#27272A] rounded-bl-sm"
+            : isAdmin
+              ? "bg-[#1E3A2E] text-white border border-green-700/50 rounded-bl-sm"
+              : "bg-[#1A1A1A] text-white border border-[#27272A] rounded-bl-sm"
         }`}
       >
+        {isAdmin && sender_name && (
+          <div className="text-[10px] uppercase tracking-wider text-green-300 mb-1 font-semibold">
+            {sender_name}
+          </div>
+        )}
         {typing ? <TypingDots /> : content}
       </div>
     </div>
