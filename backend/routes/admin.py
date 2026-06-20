@@ -2483,3 +2483,24 @@ async def public_quote_offer_verify_otp(token: str, payload: dict):
     if not ok:
         raise HTTPException(status_code=400, detail="Invalid or expired code.")
     return {"ok": True}
+
+
+# ---------- Weekly Performance Digest ----------
+
+@router.get("/admin/weekly-digest/preview")
+async def admin_weekly_digest_preview(_: dict = Depends(require_admin)):
+    """Return the JSON for the latest 7-day digest WITHOUT sending the email.
+    Used by the admin dashboard to render an in-page summary."""
+    from weekly_digest import build_weekly_digest_data
+    data = await build_weekly_digest_data(db)
+    return {"ok": True, "data": data}
+
+
+@router.post("/admin/weekly-digest/send")
+async def admin_weekly_digest_send(_: dict = Depends(require_admin)):
+    """Manually trigger the weekly digest email (build + send to SUPPORT_EMAIL).
+    Same flow the Monday-morning scheduler uses, exposed so Adel can preview
+    on-demand without waiting until Monday."""
+    from weekly_digest import send_weekly_digest_now
+    result = await send_weekly_digest_now(db)
+    return {"ok": True, **result}

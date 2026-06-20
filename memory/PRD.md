@@ -1,6 +1,25 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 17, 2026 — iter 41 (Admin Chats tab with live takeover)
+> Last refreshed: Jun 20, 2026 — iter 42 (URL-aware airport landings + Weekly Performance Digest)
+
+## ✅ URL-aware airport landings + Weekly Performance Digest (Jun 20, 2026)
+
+**Shipped:**
+- `/sjc-airport-transfer`, `/sfo-airport-transfer`, `/oak-airport-transfer` and `/airport` now render **airport-specific copy** (page title, meta description, hero H1, pillars, routes, FAQs) by detecting the URL pathname. Solves the `[san jose airport limo]` Quality Score problem flagged in CAI's June ad-groups report by ensuring the landing page actually mentions San Jose / SJC above the fold.
+- `/world-cup-2026` meta + H1 strengthened with "Levi's Stadium" + "World Cup 2026" keywords for the active tournament window (June 11 – July 19).
+- New **Weekly Performance Digest** — automatic email every Monday 9 AM Pacific summarising last 7 days: bookings created, paid bookings + revenue, quote-request funnel, top vehicles, top routes, quote sources, risk-band distribution, and a **Google Ads attribution gap callout** that surfaces the delta between Stripe-confirmed bookings and Google Ads' conversion count.
+- Admin Settings tab gets a **"Weekly Performance Digest"** card: preview last 7 days inline (4-card KPI grid) or send the digest email on-demand.
+
+**Files added/changed:**
+- `/app/frontend/src/pages/AirportLanding.jsx` (URL-aware rewrite, 4 airport configs)
+- `/app/frontend/src/pages/WorldCup2026.jsx` (meta + H1 keyword strengthening)
+- `/app/backend/weekly_digest.py` (NEW — aggregation + email render + send)
+- `/app/backend/server.py` (APScheduler cron, Monday 16:00 UTC)
+- `/app/backend/routes/admin.py` (GET preview + POST send endpoints)
+- `/app/frontend/src/components/admin/SettingsTab.jsx` (WeeklyDigestCard)
+
+**Verified:** Python aggregation against live DB returns valid data (15 quotes, risk distribution). All 3 SEO routes return HTTP 200 with airport-specific titles & H1s. Admin endpoints return 401 unauth (registered correctly). Scheduler logs confirm the weekly job was added.
+
 
 ## ✅ Admin Chats tab + Live Customer Takeover (Feb 17, 2026 — iter 41)
 

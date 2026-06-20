@@ -4242,8 +4242,23 @@ async def startup_seed():
             replace_existing=True,
             next_run_time=datetime.now(timezone.utc) + timedelta(minutes=10),
         )
+        # Weekly Performance Digest — every Monday at 16:00 UTC (~9 AM Pacific
+        # in PDT / ~8 AM PST). Adel reads it with coffee Monday morning.
+        from apscheduler.triggers.cron import CronTrigger
+        from weekly_digest import send_weekly_digest_now as _send_weekly_digest
+        async def _run_weekly_digest_job():
+            try:
+                await _send_weekly_digest(db)
+            except Exception as e:
+                logger.warning(f"Weekly digest job failed: {e}")
+        _scheduler.add_job(
+            _run_weekly_digest_job,
+            CronTrigger(day_of_week="mon", hour=16, minute=0, timezone="UTC"),
+            id="weekly_performance_digest",
+            replace_existing=True,
+        )
         _scheduler.start()
-        logger.info("Background scheduler started (review requests, abandoned-checkout sweep, payment-recovery, pretrip reminder, winback).")
+        logger.info("Background scheduler started (review requests, abandoned-checkout sweep, payment-recovery, pretrip reminder, winback, weekly digest).")
     except Exception as e:
         logger.warning(f"Scheduler failed to start: {e}")
 

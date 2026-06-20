@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Save, Percent, DollarSign, Shield } from "lucide-react";
+import { Loader2, Save, Percent, DollarSign, Shield, Mail } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -373,6 +373,102 @@ export default function SettingsTab() {
           Save settings
         </Button>
       </div>
+
+      <WeeklyDigestCard />
+    </div>
+  );
+}
+
+function WeeklyDigestCard() {
+  const [sending, setSending] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
+  const loadPreview = async () => {
+    setLoadingPreview(true);
+    try {
+      const { data } = await api.get("/admin/weekly-digest/preview");
+      setPreview(data.data);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to load preview");
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const sendNow = async () => {
+    setSending(true);
+    try {
+      const { data } = await api.post("/admin/weekly-digest/send", {});
+      toast.success(`Digest sent to ${data.sent_to || "admin"}`);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to send digest");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="mt-10 border-t border-white/5 pt-8" data-testid="weekly-digest-card">
+      <div className="flex items-start gap-3 mb-4">
+        <Mail className="w-5 h-5 text-[#D4AF37] mt-0.5" />
+        <div>
+          <h3 className="text-white text-base font-medium">Weekly performance digest</h3>
+          <p className="text-white/50 text-sm mt-1 max-w-xl leading-relaxed">
+            An automated Monday-morning email summary of last week&apos;s bookings, revenue, quote-request funnel, and a Google Ads attribution gap check. Scheduled for every Monday 9 AM Pacific. You can also preview or send it on demand below.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <Button
+          onClick={loadPreview}
+          disabled={loadingPreview}
+          variant="outline"
+          data-testid="weekly-digest-preview-btn"
+          className="rounded-full border-white/15 hover:bg-white/5"
+        >
+          {loadingPreview ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+          Preview last 7 days
+        </Button>
+        <Button
+          onClick={sendNow}
+          disabled={sending}
+          data-testid="weekly-digest-send-btn"
+          className="bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full"
+        >
+          {sending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Mail className="w-4 h-4 mr-2" />}
+          Send digest email now
+        </Button>
+      </div>
+
+      {preview && (
+        <div
+          className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm"
+          data-testid="weekly-digest-preview-grid"
+        >
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+            <p className="text-white/40 text-[10px] tracking-widest uppercase mb-1">Bookings created</p>
+            <p className="text-white text-2xl font-light">{preview.bookings_created}</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+            <p className="text-white/40 text-[10px] tracking-widest uppercase mb-1">Paid / confirmed</p>
+            <p className="text-[#D4AF37] text-2xl font-light">{preview.bookings_paid}</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+            <p className="text-white/40 text-[10px] tracking-widest uppercase mb-1">Revenue (paid)</p>
+            <p className="text-[#D4AF37] text-2xl font-light">${Math.round(preview.total_revenue).toLocaleString()}</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+            <p className="text-white/40 text-[10px] tracking-widest uppercase mb-1">Quote-to-win rate</p>
+            <p className="text-white text-2xl font-light">{preview.quote_to_win_rate}%</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 col-span-2 md:col-span-4">
+            <p className="text-white/40 text-[10px] tracking-widest uppercase mb-2">Period</p>
+            <p className="text-white/80 text-sm">{preview.period_start} → {preview.period_end}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

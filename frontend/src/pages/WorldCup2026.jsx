@@ -127,10 +127,10 @@ const FAQS = [
 
 export default function WorldCup2026() {
   useEffect(() => {
-    document.title = "Bay Area Stadium 2026 Transportation · Levi's Stadium Chauffeur — TuranEliteLimo";
+    document.title = "Levi's Stadium Limo · Bay Area World Cup 2026 Transportation — TuranEliteLimo";
     // Set the meta description to win the Google Ads quality score lottery
     const md = document.querySelector('meta[name="description"]');
-    const text = "Pre-book luxury chauffeur transportation for Bay Area Stadium 2026 matches at Levi's Stadium. SFO/OAK/SJC airport pickups, hotel transfers, VIP exit zone. Flat rates · no surge · live tracking · 24/7 multilingual dispatch.";
+    const text = "Pre-book a private chauffeur for Levi's Stadium match days during the Bay Area's World Cup 2026 tournament window. SFO/OAK/SJC airport pickups, hotel transfers, VIP exit zone. Flat rates · no surge · live tracking · 24/7 multilingual dispatch.";
     if (md) md.setAttribute("content", text);
     else {
       const m = document.createElement("meta");
@@ -152,14 +152,14 @@ export default function WorldCup2026() {
             <span className="text-lg tracking-wide">TuranEliteLimo</span>
           </a>
 
-          <p className="text-[#D4AF37] text-xs tracking-[0.35em] mb-5 uppercase">Bay Area · June 13 — July 19, 2026</p>
+          <p className="text-[#D4AF37] text-xs tracking-[0.35em] mb-5 uppercase">Bay Area World Cup 2026 · Levi&apos;s Stadium · June 13 — July 19, 2026</p>
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-light tracking-tight leading-[1.05] max-w-4xl">
             Skip the surge. Skip the line.
             <br />
-            <span className="italic text-[#D4AF37]">Match-day chauffeurs</span> to Levi's Stadium.
+            <span className="italic text-[#D4AF37]">Levi&apos;s Stadium match-day chauffeurs</span> for World Cup 2026.
           </h1>
           <p className="text-white/65 text-base sm:text-lg mt-7 max-w-2xl leading-relaxed">
-            Pre-book a private chauffeur for the 2026 Bay Area tournament at Levi's Stadium. Airport pickup from
+            Pre-book a private chauffeur for the 2026 World Cup matches at Levi&apos;s Stadium in Santa Clara. Airport pickup from
             SFO, OAK, or SJC. Hotel transfers. Pre-assigned VIP exit zone. Flat rate locked at booking — no match-day
             multipliers, ever.
           </p>
@@ -235,7 +235,7 @@ export default function WorldCup2026() {
             ))}
           </div>
           <p className="text-white/45 text-sm mt-8 max-w-2xl">
-            Don't see your route? We service all of Northern California — from Sacramento and Monterey to Sonoma and
+            Don&apos;t see your route? We service all of Northern California — from Sacramento and Monterey to Sonoma and
             Half Moon Bay. <a href={BOOK_URL} className="text-[#D4AF37] hover:underline" data-testid="world-cup-custom-route">Request a custom quote</a>.
           </p>
         </div>
