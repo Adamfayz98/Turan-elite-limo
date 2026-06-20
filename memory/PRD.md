@@ -1,8 +1,39 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Jun 20, 2026 — iter 42 (URL-aware airport landings + Weekly Performance Digest)
+> Last refreshed: Jun 20, 2026 — iter 42 (UTM tracking + Mobile v1.1.1 prep + Android badge live)
 
-## ✅ URL-aware airport landings + Weekly Performance Digest (Jun 20, 2026)
+## ✅ UTM tracking + Mobile v1.1.1 prep + Android badge live (Jun 20, 2026)
+
+**Shipped:**
+- **First-touch UTM tracking** — `/app/frontend/src/lib/utm.js` captures `utm_source`, `utm_medium`, `utm_campaign`, `gclid`, `fbclid`, `msclkid`, referrer, and a derived `source_bucket` (google_ads / yelp / facebook / direct / etc.) on the visitor's first attribution-bearing visit. Persisted to `localStorage` for 90 days. Attached to every booking + quote-request POST. First-touch wins (industry standard); later UTM params don't overwrite.
+- **Backend models** — `BookingCreate` and `QuoteRequestCreate` now accept `utm: Optional[dict]`. Stored verbatim on the MongoDB documents.
+- **Weekly Digest** enhanced with **"Paid bookings by source (UTM)"** block + per-source revenue. Closes the attribution loop Adel has been chasing.
+- **Mobile app.json bumped to v1.1.1**: iOS `buildNumber` 1→2, Android `versionCode` 2→3. `eas.json` Android submit track switched from `alpha` → `production` (ready for Play Store production push).
+- **Android badge enabled on `/download`** — removed "COMING SOON" gating, both badges now active links with side-by-side QR codes for iPhone + Android. Mobile redirect on Android devices now opens Play Store directly.
+- **Mobile v1.1.1 runbook** at `/app/memory/MOBILE_v1.1.1_RUNBOOK.md` — copy-paste guide for `eas update` (OTA, free) + `eas build/submit` for Play Store production.
+
+**Files added/changed:**
+- `/app/frontend/src/lib/utm.js` (NEW)
+- `/app/frontend/src/App.js` (calls `captureUtm()` on mount)
+- `/app/frontend/src/components/BookingForm.jsx` (sends `utm` in payload)
+- `/app/frontend/src/components/QuoteRequestDialog.jsx` (sends `utm` in payload)
+- `/app/backend/server.py` (added `utm: Optional[dict]` to BookingCreate + QuoteRequestCreate)
+- `/app/backend/weekly_digest.py` (added UTM source aggregation + email block)
+- `/app/frontend/src/pages/AppDownload.jsx` (Android badge live, dual QR)
+- `/app/mobile/app.json` (v1.1.1, buildNumber 2, versionCode 3)
+- `/app/mobile/eas.json` (Android submit track → production)
+- `/app/memory/MOBILE_v1.1.1_RUNBOOK.md` (NEW)
+
+**Verified — testing_agent_v3_fork iteration 41 results: 100% pass rate (backend + frontend)**:
+- All 4 airport landing routes return airport-specific testid + page title + H1
+- World Cup metadata strengthened (Levi's Stadium + World Cup 2026 keywords)
+- UTM frontend persistence: localStorage set on first visit, first-touch preserved on subsequent UTM-bearing visits
+- UTM backend persistence: verified on quote_requests AND bookings collections
+- Weekly digest endpoints: 401 unauth gating + 11 documented data keys present
+- /download page: both badges active, both QR codes visible, mobile redirect points to correct store
+
+
+## ✅ URL-aware airport landings + Weekly Performance Digest (Jun 20, 2026 — earlier in session)
 
 **Shipped:**
 - `/sjc-airport-transfer`, `/sfo-airport-transfer`, `/oak-airport-transfer` and `/airport` now render **airport-specific copy** (page title, meta description, hero H1, pillars, routes, FAQs) by detecting the URL pathname. Solves the `[san jose airport limo]` Quality Score problem flagged in CAI's June ad-groups report by ensuring the landing page actually mentions San Jose / SJC above the fold.
