@@ -1,8 +1,32 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Jun 20, 2026 — iter 42 (UTM tracking + Mobile v1.1.1 prep + Android badge live)
+> Last refreshed: Jun 20, 2026 — iter 43 (Attribution tab + Mobile v1.1.1 SHIPPED to Play Store Internal)
 
-## ✅ UTM tracking + Mobile v1.1.1 prep + Android badge live (Jun 20, 2026)
+## ✅ Attribution tab + Mobile v1.1.1 actually shipped (Jun 20, 2026 — iter 43)
+
+**Shipped:**
+- **Admin → Attribution tab** — new dashboard tab showing paid bookings + revenue grouped by first-touch UTM source bucket (google_ads, yelp, facebook, direct, untracked...). 7/30/90-day period selector. Attribution-rate KPI surfaces % of paid bookings with a UTM source (Google Ads gap detector). Powered by `GET /api/admin/attribution/sources?days=N`. Lives between "Sage Chats" and "Settings" tabs.
+- **OTA Update published** — runtime 1.1.1, group `dddc4568-8159-4837-a7ad-ba4eccbcde20`, iOS + Android. Pre-loaded; fires when v1.1.1 native ships.
+- **Android v1.1.1 LIVE in Google Play Internal Testing** — Build `215f96f6-6522-4e9e-b84e-cf99ac25e6b6` submitted via submission `d54e3341-4429-4743-8e8a-e28fcc09c4ae`, version code 27. **YOU need to promote Internal → Production via Play Console UI** (5 min); production track was missing config (release notes, country availability, content rating).
+- **iOS v1.1.1 build errored** (recurring pod-install issue, build `77e4e634-70d8-498b-861d-78ff402f111a`). Log file is binary-encrypted; couldn't extract specific error. iOS users stay on v1.1.0 until next session debug.
+
+**Files added/changed:**
+- `/app/frontend/src/components/admin/AttributionTab.jsx` (NEW)
+- `/app/frontend/src/pages/AdminDashboard.jsx` (mounted AttributionTab)
+- `/app/backend/routes/admin.py` (added `/admin/attribution/sources` endpoint)
+- `/app/mobile/eas.json` (Android submit track → `internal` after `production` rejected)
+- `/app/memory/MOBILE_v1.1.1_RUNBOOK.md` (rewritten with actual ship status)
+
+**Hermes ARM64 workaround in this sandbox:** Wrapped `node_modules/react-native/sdks/hermesc/linux64-bin/hermesc` with a qemu-x86_64-static shim so future `eas update` calls work from this environment. Persisted in `/app/mobile`.
+
+**Verified:** Lint clean. Backend endpoint returns 401 unauth (registered). Direct Python aggregation against live DB returns expected shape (12 bookings, all "untracked" because they pre-date UTM deploy — new bookings will populate the buckets). Android OTA + Build + Submit confirmed by EAS dashboard.
+
+**Next session debug list:**
+- iOS pod-install root cause (likely `@react-native-google-signin/google-signin` or `expo-apple-authentication`)
+- Configure Play Console production track once user populates release notes / pricing / availability
+
+
+## ✅ UTM tracking + Mobile v1.1.1 prep + Android badge live (Jun 20, 2026 — earlier in session)
 
 **Shipped:**
 - **First-touch UTM tracking** — `/app/frontend/src/lib/utm.js` captures `utm_source`, `utm_medium`, `utm_campaign`, `gclid`, `fbclid`, `msclkid`, referrer, and a derived `source_bucket` (google_ads / yelp / facebook / direct / etc.) on the visitor's first attribution-bearing visit. Persisted to `localStorage` for 90 days. Attached to every booking + quote-request POST. First-touch wins (industry standard); later UTM params don't overwrite.

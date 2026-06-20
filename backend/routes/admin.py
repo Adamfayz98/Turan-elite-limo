@@ -2504,3 +2504,88 @@ async def admin_weekly_digest_send(_: dict = Depends(require_admin)):
     from weekly_digest import send_weekly_digest_now
     result = await send_weekly_digest_now(db)
     return {"ok": True, **result}
+
+
+# ---------- Attribution / Bookings by Ad Source ----------
+
+@router.get("/admin/attribution/sources")
+async def admin_attribution_sources(days: int = 30, _: dict = Depends(require_admin)):
+    """Return bookings + revenue grouped by first-touch UTM source bucket over
+    the last `days` days. Powers the Admin → Attribution tab.
+
+    For each source we expose: bookings_created, bookings_paid, revenue,
+    avg_booking_value, top_campaigns (top 3 utm_campaign values for that
+    source). Lets Adel see CPA per ad channel without leaving the dashboard.
+    """
+    days = max(1, min(int(days or 30), 365))
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    bookings = await db.bookings.find(
+        {"created_at": {"$gte": cutoff}},
+        {"_id": 0},
+    ).to_list(length=10000)
+
+    PAID = {"paid", "confirmed", "in_progress", "completed"}
+
+    def _rev(b: dict) -> float:
+        for k in ("total_amount", "amount_paid", "total_price", "price", "quoted_price"):
+            v = b.get(k)
+            if isinstance(v, (int, float)) and v > 0:
+                return float(v)
+        return 0.0
+
+    # Aggregate by source_bucket
+    by_source: dict[str, dict] = {}
+    for b in bookings:
+        utm = b.get("utm") or {}
+        bucket = (utm.get("source_bucket") or "untracked").lower()
+        slot = by_source.setdefault(bucket, {
+            "source": bucket,
+            "bookings_created": 0,
+            "bookings_paid": 0,
+            "revenue": 0.0,
+            "campaigns": {},
+            "sample_landing_paths": set(),
+        })
+        slot["bookings_created"] += 1
+        if (b.get("status") or "").lower() in PAID:
+            slot["bookings_paid"] += 1
+            slot["revenue"] += _rev(b)
+        campaign = (utm.get("utm_campaign") or "(none)").lower()
+        slot["campaigns"][campaign] = slot["campaigns"].get(campaign, 0) + 1
+        if utm.get("landing_path"):
+            slot["sample_landing_paths"].add(utm["landing_path"][:80])
+
+    # Shape for JSON output
+    out_sources = []
+    for src, agg in by_source.items():
+        top_campaigns = sorted(agg["campaigns"].items(), key=lambda x: x[1], reverse=True)[:3]
+        avg = (agg["revenue"] / agg["bookings_paid"]) if agg["bookings_paid"] else 0.0
+        out_sources.append({
+            "source": src,
+            "bookings_created": agg["bookings_created"],
+            "bookings_paid": agg["bookings_paid"],
+            "revenue": round(agg["revenue"], 2),
+            "avg_booking_value": round(avg, 2),
+            "top_campaigns": [{"campaign": c, "count": n} for c, n in top_campaigns],
+            "sample_landing_paths": sorted(list(agg["sample_landing_paths"]))[:5],
+        })
+    out_sources.sort(key=lambda s: (-s["revenue"], -s["bookings_paid"]))
+
+    total_revenue = sum(s["revenue"] for s in out_sources)
+    total_paid = sum(s["bookings_paid"] for s in out_sources)
+    total_created = sum(s["bookings_created"] for s in out_sources)
+    tracked_paid = sum(s["bookings_paid"] for s in out_sources if s["source"] != "untracked")
+    attribution_rate = round(100.0 * tracked_paid / total_paid, 1) if total_paid else 0.0
+
+    return {
+        "ok": True,
+        "period_days": days,
+        "totals": {
+            "bookings_created": total_created,
+            "bookings_paid": total_paid,
+            "revenue": round(total_revenue, 2),
+            "attribution_rate": attribution_rate,  # % of paid bookings with a UTM source
+        },
+        "sources": out_sources,
+    }
