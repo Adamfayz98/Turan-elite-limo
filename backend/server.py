@@ -471,6 +471,16 @@ async def create_booking(payload: BookingCreate, request: Request):
             detail="Please accept the wait time policy to continue.",
         )
 
+    # ----- Block-by-source guard (Admin → Attribution → block toggle) -----
+    src_bucket = ((payload.utm or {}).get("source_bucket") or "").lower() if payload.utm else ""
+    if src_bucket:
+        blocked_doc = await db.settings.find_one({"key": "blocked_utm_sources"}) or {}
+        if src_bucket in (blocked_doc.get("value") or []):
+            raise HTTPException(
+                status_code=403,
+                detail="We're not currently accepting new bookings through this channel. Please call us directly to make a reservation.",
+            )
+
     doc = payload.model_dump()
     doc['id'] = str(uuid.uuid4())
     doc['status'] = 'pending'
@@ -1987,6 +1997,21 @@ async def submit_quote_request(payload: QuoteRequestCreate, request: Request):
     """Customer-facing endpoint. Creates a quote_request row + alerts admin via
     email and SMS gateway. Returns the request id so the UI can show success."""
     doc = payload.model_dump()
+
+    # ----- Block-by-source guard (Admin → Attribution → block toggle) -----
+    # If this submission's first-touch UTM source is on the admin blocklist,
+    # reject politely. Blocked sources are managed in settings collection
+    # under key `blocked_utm_sources`.
+    utm = doc.get("utm") or {}
+    src_bucket = (utm.get("source_bucket") or "").lower()
+    if src_bucket:
+        blocked_doc = await db.settings.find_one({"key": "blocked_utm_sources"}) or {}
+        if src_bucket in (blocked_doc.get("value") or []):
+            raise HTTPException(
+                status_code=403,
+                detail="We're not currently accepting new bookings through this channel. Please call us directly to make a reservation.",
+            )
+
     doc["id"] = str(uuid.uuid4())
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["status"] = "new"

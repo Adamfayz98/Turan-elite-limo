@@ -1,8 +1,34 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Jun 20, 2026 — iter 43 (Attribution tab + Mobile v1.1.1 SHIPPED to Play Store Internal)
+> Last refreshed: Jun 20, 2026 — iter 44 (iOS pod-install SOLVED + Block-by-source + Web shadow fix)
 
-## ✅ Attribution tab + Mobile v1.1.1 actually shipped (Jun 20, 2026 — iter 43)
+## ✅ iOS pod-install root cause FIXED + Block-by-source + Web shadow (Jun 20, 2026 — iter 44)
+
+**Shipped:**
+- **iOS pod-install error ROOT-CAUSED AND FIXED** — pulled encrypted EAS build logs via GraphQL + brotli decompression. Cause was `@react-native-google-signin/google-signin` transitively pulling `AppCheckCore` (Swift), which needed `GoogleUtilities` + `RecaptchaInterop` to expose modular headers when built as static libs. Added `expo-build-properties` plugin to `app.json` with `extraPods` declaring `modular_headers: true` for those 3 pods. iOS build `af1a7aa8-5ddc-40b7-a19e-15ee2a48812a` **finished successfully** (was previously stuck in errored state for multiple sessions). App Store submit step failed separately (likely cert refresh from `--clear-cache`) — documented in `/app/memory/IOS_BUILD_FIX_v1.1.1.md` with copy-paste TestFlight upload path.
+- **Block-by-source admin tool** — admin can block new bookings from any UTM source bucket (e.g. Yelp, Facebook) with one click. Backend endpoints `GET /admin/attribution/blocked-sources` + `POST /admin/attribution/block-source`. Public booking + quote-request endpoints reject blocked-source submissions with HTTP 403 + polite "please call us directly" message. End-to-end test verified: yelp source → 403, google_ads source → 200.
+- **Web fleet shadow fix** — vehicle images on `/airport`, `/sfo-airport-transfer`, `/sjc-airport-transfer`, `/oak-airport-transfer`, `/world-cup-2026`, and the homepage Fleet+Gallery+Venues sections no longer show a white halo. Added `bg-black` container + bottom dark-gradient overlay (matches mobile fix). Verified via screenshot — fleet cards now sit flush on dark bg.
+
+**Files added/changed:**
+- `/app/mobile/app.json` (expo-build-properties plugin + extraPods + iOS buildNumber → 3)
+- `/app/mobile/package.json` (yarn added expo-build-properties)
+- `/app/backend/routes/admin.py` (3 new endpoints: attribution preview/blocked-sources/block-source)
+- `/app/backend/server.py` (block-by-source guard in /quote-requests + /bookings)
+- `/app/frontend/src/components/admin/AttributionTab.jsx` (Block/Unblock button + blocklist banner)
+- `/app/frontend/src/components/LandingPage.jsx` (shadow gradient on fleet/gallery/venues images)
+- `/app/frontend/src/pages/WorldCup2026.jsx` (shadow gradient on fleet/gallery)
+- `/app/memory/IOS_BUILD_FIX_v1.1.1.md` (NEW — full debug story + TestFlight upload runbook)
+
+**EAS log decryption recipe (for future debugging):** EAS build/submit logs at `storage.googleapis.com/eas-workflows-production/...` are **brotli-compressed JSON-lines**. NOT gzip, despite filename. Decompress with `brotli.decompress(open(path,'rb').read())` then parse each line as JSON.
+
+**Verified:**
+- Block-by-source end-to-end (curl test: blocked source → 403, non-blocked → 200) ✅
+- Web shadow fix via screenshot of SJC landing page ✅
+- iOS build `af1a7aa8-...` status = `finished` on EAS dashboard ✅
+- All lint clean ✅
+
+
+## ✅ Attribution tab + Mobile v1.1.1 actually shipped (Jun 20, 2026 — iter 43, earlier)
 
 **Shipped:**
 - **Admin → Attribution tab** — new dashboard tab showing paid bookings + revenue grouped by first-touch UTM source bucket (google_ads, yelp, facebook, direct, untracked...). 7/30/90-day period selector. Attribution-rate KPI surfaces % of paid bookings with a UTM source (Google Ads gap detector). Powered by `GET /api/admin/attribution/sources?days=N`. Lives between "Sage Chats" and "Settings" tabs.

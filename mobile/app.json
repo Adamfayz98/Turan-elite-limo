@@ -20,7 +20,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.turanelitelimo.app",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "usesAppleSignIn": true,
       "config": {
         "googleMapsApiKey": "AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A"
@@ -87,6 +87,18 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "extraPods": [
+              { "name": "GoogleUtilities", "modular_headers": true },
+              { "name": "RecaptchaInterop", "modular_headers": true },
+              { "name": "AppCheckCore", "modular_headers": true }
+            ]
+          }
+        }
+      ],
       [
         "expo-location",
         {

@@ -205,9 +205,11 @@ export default function LandingPage({
         <div className="grid sm:grid-cols-2 gap-x-8 gap-y-12 mt-12">
           {fleet.map((f) => (
             <div key={f.name} data-testid={`${testId}-fleet-${f.name.toLowerCase().replace(/\s+/g, "-")}`} className="group">
-              <div className="aspect-[4/3] rounded-2xl overflow-hidden border border-white/10 bg-white/[0.02] mb-5">
+              <div className="aspect-[4/3] rounded-2xl overflow-hidden border border-white/10 bg-black mb-5 relative">
                 <img src={f.img} alt={`${f.name} chauffeur service`} loading="lazy"
                   className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                {/* Bottom gradient masks the white-sky halo on stock vehicle photos so they sit flush on the dark page bg */}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-t from-black via-black/60 to-transparent" />
               </div>
               <div className="border-l-2 border-[#D4AF37]/40 pl-5">
                 <h3 className="text-white text-xl">{f.name}</h3>
@@ -241,13 +243,14 @@ export default function LandingPage({
                   data-testid={`${testId}-venue-${v.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                   className="group rounded-2xl overflow-hidden border border-white/10 bg-white/[0.02] hover:border-[#D4AF37]/40 transition"
                 >
-                  <div className="aspect-[4/3] overflow-hidden relative">
+                  <div className="aspect-[4/3] overflow-hidden relative bg-black">
                     <img
                       src={v.image}
                       alt={v.name}
                       loading="lazy"
                       className="w-full h-full object-cover group-hover:scale-105 transition duration-700"
                     />
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-t from-black via-black/60 to-transparent" />
                     {v.badge && (
                       <span className="absolute top-3 left-3 text-[10px] tracking-[0.18em] uppercase bg-[#D4AF37]/95 text-black px-2.5 py-1 rounded-full font-medium">
                         {v.badge}
@@ -308,9 +311,10 @@ export default function LandingPage({
             <p className="text-[#D4AF37] text-xs tracking-[0.35em] uppercase mb-6 text-center">The TuranEliteLimo Experience</p>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3" data-testid={`${testId}-gallery`}>
               {gallery.map((src, i) => (
-                <div key={src} className="aspect-square rounded-xl overflow-hidden border border-white/10">
+                <div key={src} className="aspect-square rounded-xl overflow-hidden border border-white/10 bg-black relative">
                   <img src={src} alt={`TuranEliteLimo photo ${i + 1}`} loading="lazy"
                     className="w-full h-full object-cover hover:scale-105 transition duration-500" />
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/60 to-transparent" />
                 </div>
               ))}
             </div>

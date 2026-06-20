@@ -2585,7 +2585,46 @@ async def admin_attribution_sources(days: int = 30, _: dict = Depends(require_ad
             "bookings_created": total_created,
             "bookings_paid": total_paid,
             "revenue": round(total_revenue, 2),
-            "attribution_rate": attribution_rate,  # % of paid bookings with a UTM source
+            "attribution_rate": attribution_rate,
         },
         "sources": out_sources,
     }
+
+
+@router.get("/admin/attribution/blocked-sources")
+async def admin_attribution_get_blocked_sources(_: dict = Depends(require_admin)):
+    """Return the current list of blocked UTM source buckets. Stored in the
+    settings collection under key `blocked_utm_sources`."""
+    doc = await db.settings.find_one({"key": "blocked_utm_sources"}) or {}
+    return {"ok": True, "blocked": doc.get("value", [])}
+
+
+@router.post("/admin/attribution/block-source")
+async def admin_attribution_block_source(payload: dict, _: dict = Depends(require_admin)):
+    """Add or remove a UTM source bucket from the blocklist. Body:
+       {"source": "yelp", "blocked": true}  → add to blocklist
+       {"source": "yelp", "blocked": false} → remove
+    Blocked sources cause the public booking + quote-request endpoints to
+    reject the submission with a polite error, so you can pause traffic from
+    a specific ad channel without touching the upstream platform."""
+    src = (payload or {}).get("source")
+    blocked = bool((payload or {}).get("blocked"))
+    if not src or not isinstance(src, str):
+        raise HTTPException(status_code=400, detail="`source` is required")
+    src = src.strip().lower()
+    if src in {"untracked", "direct"}:
+        # Refuse to block these — they'd block all legitimate non-ad traffic.
+        raise HTTPException(status_code=400, detail="Cannot block 'untracked' or 'direct' — that would kill all organic and direct bookings.")
+
+    existing = await db.settings.find_one({"key": "blocked_utm_sources"}) or {}
+    current = set(existing.get("value", []))
+    if blocked:
+        current.add(src)
+    else:
+        current.discard(src)
+    await db.settings.update_one(
+        {"key": "blocked_utm_sources"},
+        {"$set": {"key": "blocked_utm_sources", "value": sorted(list(current)), "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True, "blocked": sorted(list(current))}

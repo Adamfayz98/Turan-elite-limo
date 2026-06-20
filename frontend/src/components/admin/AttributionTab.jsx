@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, TrendingUp, AlertCircle, RefreshCw } from "lucide-react";
+import { Loader2, TrendingUp, AlertCircle, RefreshCw, Ban, CheckCircle2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -63,6 +63,30 @@ export default function AttributionTab() {
   const [days, setDays] = useState("30");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [blocked, setBlocked] = useState([]);
+  const [togglingSource, setTogglingSource] = useState(null);
+
+  const loadBlocked = async () => {
+    try {
+      const { data: resp } = await api.get("/admin/attribution/blocked-sources");
+      setBlocked(resp.blocked || []);
+    } catch (err) {
+      // non-fatal
+    }
+  };
+
+  const toggleBlock = async (source, shouldBlock) => {
+    setTogglingSource(source);
+    try {
+      const { data: resp } = await api.post("/admin/attribution/block-source", { source, blocked: shouldBlock });
+      setBlocked(resp.blocked || []);
+      toast.success(shouldBlock ? `Blocked new bookings from ${source}` : `Unblocked ${source}`);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to update blocklist");
+    } finally {
+      setTogglingSource(null);
+    }
+  };
 
   const load = async (d = days) => {
     setLoading(true);
@@ -78,6 +102,7 @@ export default function AttributionTab() {
 
   useEffect(() => {
     load(days);
+    loadBlocked();
   }, [days]);
 
   if (loading && !data) {
@@ -168,6 +193,22 @@ export default function AttributionTab() {
         </div>
       )}
 
+      {/* Blocklist banner (only when something is blocked) */}
+      {blocked.length > 0 && (
+        <div
+          className="flex gap-3 rounded-xl border border-red-500/30 bg-red-500/[0.05] p-4"
+          data-testid="attribution-blocklist-banner"
+        >
+          <Ban className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-white/80 leading-relaxed">
+            <strong className="text-red-300">Active blocklist:</strong>{" "}
+            New bookings are being rejected from{" "}
+            <strong className="text-white">{blocked.map((b) => `"${b}"`).join(", ")}</strong>. Customers see a polite
+            &quot;please call us directly&quot; message instead of the checkout form. Unblock from the table below.
+          </div>
+        </div>
+      )}
+
       {/* Source table */}
       <div className="rounded-xl border border-[#1F1F1F] overflow-hidden bg-[#0A0A0A]">
         <table className="w-full text-sm" data-testid="attribution-source-table">
@@ -179,12 +220,13 @@ export default function AttributionTab() {
               <th className="px-5 py-3 text-right">Revenue</th>
               <th className="px-5 py-3 text-right">Avg. value</th>
               <th className="px-5 py-3">Top campaign</th>
+              <th className="px-5 py-3 text-right">Block</th>
             </tr>
           </thead>
           <tbody>
             {(data.sources || []).length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-white/40">
+                <td colSpan={7} className="px-5 py-10 text-center text-white/40">
                   No bookings in the selected period yet.
                 </td>
               </tr>
@@ -192,11 +234,17 @@ export default function AttributionTab() {
             {(data.sources || []).map((s) => {
               const style = styleFor(s.source);
               const topCamp = s.top_campaigns?.[0];
+              const isBlocked = blocked.includes(s.source);
+              const isProtected = s.source === "untracked" || s.source === "direct";
+              const isToggling = togglingSource === s.source;
               return (
                 <tr
                   key={s.source}
                   data-testid={`attribution-row-${s.source}`}
-                  className="border-b border-[#1A1A1A] last:border-0 hover:bg-white/[0.02] transition"
+                  className={cn(
+                    "border-b border-[#1A1A1A] last:border-0 transition",
+                    isBlocked ? "bg-red-500/[0.04]" : "hover:bg-white/[0.02]",
+                  )}
                 >
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
@@ -205,6 +253,11 @@ export default function AttributionTab() {
                         style={{ background: style.color }}
                       />
                       <span className="text-white">{style.label}</span>
+                      {isBlocked && (
+                        <span className="text-[10px] tracking-widest uppercase px-2 py-0.5 rounded-full border border-red-500/40 text-red-300 bg-red-500/10">
+                          Blocked
+                        </span>
+                      )}
                     </div>
                     <p className="text-[10px] text-white/35 mt-0.5 font-mono">{s.source}</p>
                   </td>
@@ -220,6 +273,42 @@ export default function AttributionTab() {
                       </>
                     ) : (
                       <span className="text-white/30">—</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    {isProtected ? (
+                      <span
+                        className="text-[10px] text-white/30"
+                        title="'untracked' and 'direct' cannot be blocked — it would kill all organic and direct bookings."
+                      >
+                        protected
+                      </span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => toggleBlock(s.source, !isBlocked)}
+                        disabled={isToggling}
+                        data-testid={`attribution-block-${s.source}`}
+                        className={cn(
+                          "rounded-full text-xs h-7 px-3 border",
+                          isBlocked
+                            ? "border-green-500/40 text-green-300 hover:bg-green-500/10"
+                            : "border-red-500/30 text-red-300 hover:bg-red-500/10",
+                        )}
+                      >
+                        {isToggling ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : isBlocked ? (
+                          <>
+                            <CheckCircle2 className="w-3 h-3 mr-1" /> Unblock
+                          </>
+                        ) : (
+                          <>
+                            <Ban className="w-3 h-3 mr-1" /> Block
+                          </>
+                        )}
+                      </Button>
                     )}
                   </td>
                 </tr>
