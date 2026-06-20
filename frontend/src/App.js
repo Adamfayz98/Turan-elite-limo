@@ -30,9 +30,16 @@ import MyReferrals from "@/pages/MyReferrals";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
 import FloatingChatWidget from "@/components/FloatingChatWidget";
 import { useLocation } from "react-router-dom";
+import { captureUtm } from "@/lib/utm";
 
 function App() {
   useEffect(() => {
+    // Capture UTM / gclid params on the FIRST visit (first-touch attribution,
+    // persisted in localStorage for 90 days). Forms read this on submit so we
+    // can surface ad source in the admin + weekly digest even if the customer
+    // books weeks later from a bookmark.
+    captureUtm();
+
     // Only set the default site title on the home route. Other routes
     // (landing pages, admin, etc.) own their own document.title.
     if (window.location.pathname === "/") {

@@ -2,7 +2,7 @@
   "expo": {
     "name": "TuranEliteLimo",
     "slug": "turanelitelimo",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "turanelitelimo",
@@ -20,7 +20,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.turanelitelimo.app",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "usesAppleSignIn": true,
       "config": {
         "googleMapsApiKey": "AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A"
@@ -43,7 +43,7 @@
         "backgroundColor": "#050505"
       },
       "package": "com.turanelitelimo.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyCDlQDr5_EYzX_qQpFgFqUZe6yQa7p9T7A"

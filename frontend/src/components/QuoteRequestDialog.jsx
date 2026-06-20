@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Loader2, Send, Phone as PhoneIcon } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
+import { getStoredUtm } from "@/lib/utm";
 import { trackQuoteRequest, trackPhoneCall } from "@/lib/googleAdsEvents";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +54,7 @@ export default function QuoteRequestDialog({
         ...form,
         vehicle_type: vehicleType,
         passengers: form.passengers ? Number(form.passengers) : null,
+        utm: getStoredUtm(),
       });
       // Fire the Google Ads "Lead" conversion (separate from purchase).
       try {

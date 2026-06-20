@@ -57,6 +57,19 @@ async def build_weekly_digest_data(db) -> dict[str, Any]:
 
     total_revenue = sum(_booking_revenue(b) for b in paid_bookings)
 
+    # UTM source attribution — group paid bookings by their first-touch
+    # source_bucket (google_ads, yelp, facebook, direct, etc.). When this
+    # column is meaningfully populated (i.e. once new bookings flow in with
+    # UTM tracking enabled), Adel can see attribution at a glance and stop
+    # relying on the Google Ads dashboard's potentially-broken conversion tag.
+    utm_source_counter: Counter = Counter()
+    utm_revenue_by_source: dict[str, float] = {}
+    for b in paid_bookings:
+        bucket = ((b.get("utm") or {}).get("source_bucket") or "untracked").lower()
+        utm_source_counter[bucket] += 1
+        utm_revenue_by_source[bucket] = round(utm_revenue_by_source.get(bucket, 0.0) + _booking_revenue(b), 2)
+    top_sources = utm_source_counter.most_common(8)
+
     # Vehicle class popularity (top 5)
     vehicle_counter: Counter = Counter()
     for b in paid_bookings:
@@ -113,6 +126,8 @@ async def build_weekly_digest_data(db) -> dict[str, Any]:
         "total_revenue": round(total_revenue, 2),
         "top_vehicles": top_vehicles,
         "top_routes": top_routes,
+        "top_sources": top_sources,
+        "revenue_by_source": utm_revenue_by_source,
         "quotes_received": quotes_received,
         "quotes_quoted": quotes_quoted,
         "quotes_won": quotes_won,
@@ -207,6 +222,15 @@ def render_weekly_digest_html(d: dict[str, Any]) -> str:
               </p>
             </td></tr>
           </table>
+        </td></tr>
+
+        <!-- Booking attribution by source (UTM) -->
+        <tr><td style="padding:24px 32px 0 32px;">
+          <p style="margin:0 0 12px 0;color:#D4AF37;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Paid bookings by source (UTM)</p>
+          {_list_block(d.get('top_sources', []))}
+          <p style="margin:10px 0 0 0;color:#666;font-size:11px;line-height:1.5;">
+            Source bucket comes from <code style="color:#D4AF37;">utm_source</code> / <code style="color:#D4AF37;">gclid</code> captured on the visitor's first touch and persisted for 90 days. &quot;untracked&quot; = booked before UTM tracking shipped or visitor cleared cookies.
+          </p>
         </td></tr>
 
         <!-- Vehicles -->

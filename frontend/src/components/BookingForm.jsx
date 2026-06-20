@@ -25,6 +25,7 @@ import StripeBadge from "@/components/StripeBadge";
 import CancellationPolicy from "@/components/CancellationPolicy";
 import CheckoutRedirectOverlay from "@/components/CheckoutRedirectOverlay";
 import { api, formatApiErrorDetail } from "@/lib/api";
+import { getStoredUtm } from "@/lib/utm";
 import { cn } from "@/lib/utils";
 
 const inputCls =
@@ -395,6 +396,7 @@ export default function BookingForm() {
         promo_code: promoApplied ? promoApplied.code : null,
         wait_time_consent: waitConsent,
         marketing_opt_in: marketingOptIn,
+        utm: getStoredUtm(),
       };
       const { data: booking } = await api.post("/bookings", payload);
 

@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 41 — verified all 4 newly-shipped features: URL-aware airport landings (/airport, /sjc/, /sfo/, /oak-airport-transfer), World Cup metadata, UTM tracking (frontend localStorage + backend persistence), and Android badge on /download. 4/4 backend pytest cases pass; 5/5 frontend Playwright assertions pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter41_features.py",
+    "/app/test_reports/pytest/iter41_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 4,829 lines — over the 700-line guideline. Bookings, quotes, admin, scheduler, safety scoring all share one module. Consider splitting into routers/ packages for maintainability (existing routes/admin.py is a good start).",
+    "weekly_digest preview/send endpoints are auth-gated (require_admin) but the rate of expensive aggregation queries should be cached or rate-limited so a compromised admin token can't DOS the DB by repeatedly hitting /preview."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter41_features.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin auth was NOT exercised in this iteration — only the 401 gate of weekly-digest endpoints was verified, plus direct python invocation of build_weekly_digest_data() against the live db (returned all 11 required keys: bookings_created, bookings_paid, total_revenue, top_sources, top_vehicles, top_routes, quotes_received, quotes_won, quote_to_win_rate, quote_sources, risk_distribution + a few extras: generated_at, period_start, period_end, quotes_quoted, revenue_by_source).",
+  "seed_data_creation": "Test created + cleaned up 1 quote_request and 1 booking with utm.gclid='abc123-test'/'booking-test-456' — both removed in test teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file at /app/backend/tests/test_iter41_features.py covers weekly-digest auth gating + UTM persistence on quote_requests and bookings. Reuse for regression. Note: BookingCreate requires service_type in ['Airport Transfer','A to B Transfer','Hourly Chauffeur'] and vehicle_type from a fixed list ('Executive Sedan', etc.) — early drafts of the test used lowercase 'airport'/'sedan' and 422'd. Full admin auth flow (with 2FA) was NOT walked end-to-end this iteration; if next iteration needs to validate the authenticated weekly-digest response shape, the data shape was already proven via direct python call (all 11 required keys present).",
+  "verifications": {
+    "airport_landings": "All 4 routes return correct testid + page title + H1 + SJC-specific pillar 'Live SJC Flight Tracking' present.",
+    "world_cup_metadata": "Title='Levi\\'s Stadium Limo · Bay Area World Cup 2026 Transportation — TuranEliteLimo'; H1 contains 'Levi\\'s Stadium' and 'World Cup 2026'.",
+    "utm_frontend": "?utm_source=google&utm_campaign=test&gclid=xyz789 → localStorage.tel_utm_v1 set with source_bucket='google_ads' + captured_at. Subsequent navigation with facebook utm did NOT overwrite (first-touch preserved).",
+    "utm_backend": "POST /api/quote-requests and POST /api/bookings both persist utm dict to MongoDB verbatim (verified via direct mongo query in test).",
+    "weekly_digest_auth": "GET/POST /api/admin/weekly-digest/{preview,send} both return 401 unauthenticated. Data shape (via direct python invocation): all 11 documented keys present.",
+    "download_android": "/download renders both badges as active links. Android badge href=https://play.google.com/store/apps/details?id=com.turanelitelimo.app, no 'coming soon' text, no grayscale class, both iPhone+Android QR codes visible."
+  }
+}

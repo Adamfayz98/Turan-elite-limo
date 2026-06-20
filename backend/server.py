@@ -192,6 +192,10 @@ class BookingCreate(BaseModel):
     marketing_opt_in: bool = False  # CAN-SPAM/TCPA: explicit consent to receive
                                     # promotional emails. Stored on customer +
                                     # booking for audit trail.
+    utm: Optional[dict] = None      # First-touch attribution payload from the
+                                    # frontend localStorage (utm_source,
+                                    # utm_campaign, gclid, source_bucket, etc.).
+                                    # Powers the Weekly Digest attribution view.
 
 
 class Booking(BaseModel):
@@ -1974,6 +1978,8 @@ class QuoteRequestCreate(BaseModel):
     passengers: Optional[int] = Field(None, ge=1, le=60)
     occasion: Optional[str] = Field(None, max_length=80)
     notes: Optional[str] = Field(None, max_length=1000)
+    utm: Optional[dict] = None  # First-touch attribution from the frontend
+                                # localStorage. Stored as-is on the quote_request.
 
 
 @api_router.post("/quote-requests")

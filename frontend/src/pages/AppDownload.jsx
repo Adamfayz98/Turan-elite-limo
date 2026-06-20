@@ -34,7 +34,7 @@ export default function AppDownload() {
 
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div>
-              <p className="text-[#D4AF37] text-xs tracking-[0.3em] mb-4 uppercase">Now on iPhone</p>
+              <p className="text-[#D4AF37] text-xs tracking-[0.3em] mb-4 uppercase">Now on iPhone & Android</p>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-light tracking-tight leading-[1.05]">
                 Premium Bay Area
                 <br />
@@ -42,7 +42,7 @@ export default function AppDownload() {
               </h1>
               <p className="text-white/60 text-base mt-6 max-w-lg leading-relaxed">
                 Book a sedan, SUV, Sprinter, or limo in under sixty seconds. Live up-front pricing, real-time tracking,
-                Apple Pay at checkout. SFO · OAK · SJC. 24/7 dispatch.
+                Apple Pay & Google Pay at checkout. SFO · OAK · SJC. 24/7 dispatch.
               </p>
 
               {/* Badges */}
@@ -56,14 +56,15 @@ export default function AppDownload() {
                 >
                   <img src={APPLE_BADGE} alt="Download on the App Store" className="h-14" />
                 </a>
-                <div className="opacity-50 select-none" title="Coming soon">
-                  <img
-                    src={PLAY_BADGE}
-                    alt="Coming soon to Google Play"
-                    className="h-14 filter grayscale"
-                  />
-                  <p className="text-white/40 text-[10px] tracking-widest mt-1 text-center">COMING SOON</p>
-                </div>
+                <a
+                  data-testid="app-download-playstore-link"
+                  href={PLAY_STORE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:opacity-80 transition"
+                >
+                  <img src={PLAY_BADGE} alt="Get it on Google Play" className="h-14" />
+                </a>
               </div>
 
               {/* Promo */}
@@ -73,16 +74,21 @@ export default function AppDownload() {
               </div>
             </div>
 
-            {/* QR codes — desktop priority */}
-            <div className="hidden lg:flex justify-end">
-              <div className="bg-white/5 border border-white/10 rounded-3xl p-8 backdrop-blur-sm">
-                <p className="text-white/50 text-xs tracking-[0.3em] uppercase mb-5 text-center">Scan to download</p>
-                <div className="bg-black p-3 rounded-xl mb-4">
-                  <img src={QR(APP_STORE_URL)} alt="App Store QR" className="w-56 h-56" />
+            {/* QR codes — desktop priority. Show iOS + Android side by side. */}
+            <div className="hidden lg:flex justify-end gap-4">
+              <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-sm">
+                <p className="text-white/50 text-xs tracking-[0.3em] uppercase mb-4 text-center">iPhone</p>
+                <div className="bg-black p-3 rounded-xl mb-3">
+                  <img src={QR(APP_STORE_URL)} alt="App Store QR" className="w-40 h-40" />
                 </div>
-                <p className="text-center text-white/60 text-xs">
-                  Point your iPhone camera at the QR code
-                </p>
+                <p className="text-center text-white/60 text-[11px]">Camera → Scan</p>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-sm">
+                <p className="text-white/50 text-xs tracking-[0.3em] uppercase mb-4 text-center">Android</p>
+                <div className="bg-black p-3 rounded-xl mb-3">
+                  <img src={QR(PLAY_STORE_URL)} alt="Google Play QR" className="w-40 h-40" />
+                </div>
+                <p className="text-center text-white/60 text-[11px]">Camera → Scan</p>
               </div>
             </div>
           </div>
@@ -97,7 +103,7 @@ export default function AppDownload() {
             href={isIOS ? APP_STORE_URL : PLAY_STORE_URL}
             className="font-medium text-sm"
           >
-            {isIOS ? "Tap to open in the App Store →" : "Coming soon to Android — Book on the web instead →"}
+            {isIOS ? "Tap to open in the App Store →" : "Tap to open in Google Play →"}
           </a>
         </div>
       )}

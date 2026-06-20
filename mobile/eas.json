@@ -62,7 +62,7 @@
         "ascAppId": "6771610380"
       },
       "android": {
-        "track": "alpha",
+        "track": "production",
         "serviceAccountKeyPath": "./play-service-account.json"
       }
     }
