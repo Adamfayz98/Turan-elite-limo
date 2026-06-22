@@ -107,6 +107,9 @@ export default function BookingForm() {
   };
   const [quote, setQuote] = useState(null);
   const [quoting, setQuoting] = useState(false);
+  // Friendly out-of-service-area banner copy. Set when the backend rejects
+  // the pickup as outside our Bay Area service radius.
+  const [outOfArea, setOutOfArea] = useState(null);
   const quoteTimer = useRef(null);
   const [form, setForm] = useState(initialForm);
   const [waitConsent, setWaitConsent] = useState(false);
@@ -198,7 +201,17 @@ export default function BookingForm() {
           additional_stops: cleanStops,
         });
         setQuote(data);
+        setOutOfArea(null);
       } catch (e) {
+        // Service area gate: backend rejects pickups outside the Bay Area.
+        // Show the friendly message inline above the quote panel instead of
+        // letting the customer continue and waste payment time.
+        const detail = e?.response?.data?.detail;
+        if (detail && typeof detail === "object" && detail.code === "out_of_service_area") {
+          setOutOfArea(detail.message);
+        } else {
+          setOutOfArea(null);
+        }
         console.warn("[BookingForm] live quote failed:", e);
         setQuote(null);
       } finally {
@@ -533,6 +546,19 @@ export default function BookingForm() {
                 placeholder="Four Seasons San Francisco"
               />
             </div>
+
+            {/* Out-of-service-area banner. Shown when backend /quote returns
+                the `out_of_service_area` rejection — i.e. customer's pickup is
+                outside the Bay Area radius. Friendly redirect to the phone
+                line so we don't kill the lead, just route it correctly. */}
+            {outOfArea && (
+              <div
+                data-testid="booking-out-of-area-banner"
+                className="md:col-span-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-200/90 leading-relaxed"
+              >
+                {outOfArea}
+              </div>
+            )}
 
             <div className="md:col-span-2 -mt-1">
               <Button

@@ -388,9 +388,14 @@ async def places_autocomplete(input: str = "", session: Optional[str] = None):
     params = {
         "input": q,
         "key": GOOGLE_MAPS_API_KEY,
-        # Bias to SF Bay Area centre with 80km radius (covers Napa to San Jose)
+        # Hard-restrict autocomplete to the SF Bay Area so customers in LA/SD/etc
+        # can't accidentally book a trip we can't fulfill. strictbounds=true tells
+        # Google: only return predictions whose bounding box intersects the
+        # location+radius window. Center = SF, radius = 130 km (covers Napa to
+        # Monterey to Sacramento).
         "location": "37.7749,-122.4194",
-        "radius": "80000",
+        "radius": "130000",
+        "strictbounds": "true",
         "components": "country:us",
     }
     if session:
@@ -469,6 +474,24 @@ async def create_booking(payload: BookingCreate, request: Request):
         raise HTTPException(
             status_code=400,
             detail="Please accept the wait time policy to continue.",
+        )
+
+    # ----- Service area guard (defensive) -----
+    # The frontend autocomplete already restricts inputs to NorCal, but a
+    # determined user can paste an out-of-area address. Reject the booking
+    # before we touch payment / chauffeur assignment.
+    pk_coord = await _geocode(payload.pickup_location)
+    if pk_coord and not _pickup_in_service_area(pk_coord):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "out_of_service_area",
+                "message": (
+                    "We operate from the SF Bay Area and can't pick up at "
+                    "this location. Please call (650) 410-0687 for service "
+                    "outside the Bay Area."
+                ),
+            },
         )
 
     # ----- Block-by-source guard (Admin → Attribution → block toggle) -----
@@ -624,6 +647,31 @@ def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
     dl = math.radians(lon2 - lon1)
     a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return 2 * R * math.asin(math.sqrt(a))
+
+
+# Service area: we operate from the SF Bay Area. Pickups outside ~130 mi from
+# downtown SF (Sacramento / Monterey / Napa are all inside this) cannot be
+# fulfilled — chauffeurs can't deadhead 300+ miles to grab a passenger.
+# Dropoffs outside the area are FINE (Bay → Tahoe, Bay → LA, etc. are real
+# long-distance jobs we sub to affiliates).
+SERVICE_AREA_CENTER = (37.7749, -122.4194)  # downtown SF
+SERVICE_AREA_RADIUS_MI = 130.0
+
+
+def _pickup_in_service_area(pickup_coord: Optional[dict]) -> bool:
+    """True if pickup is inside our Bay Area service radius. None / no coord
+    falls back to True so we never block on a geocoder hiccup — the booking
+    will still go through but admin can review."""
+    if not pickup_coord:
+        return True
+    try:
+        d = _haversine_miles(
+            pickup_coord["lat"], pickup_coord["lon"],
+            SERVICE_AREA_CENTER[0], SERVICE_AREA_CENTER[1],
+        )
+        return d <= SERVICE_AREA_RADIUS_MI
+    except Exception:
+        return True
 
 
 async def _geocode_google(address: str) -> Optional[dict]:
@@ -1134,6 +1182,23 @@ async def quote_ride(payload: QuoteRequest):
 
     pickup = await _geocode(payload.pickup_location)
     dropoff = await _geocode(payload.dropoff_location)
+    # Service area gate: if we can geocode the pickup AND it's clearly outside
+    # our Bay Area radius, refuse to quote. Chauffeurs can't deadhead 300+
+    # miles to grab a passenger. Dropoff CAN be anywhere — we'll farm long-haul
+    # legs to affiliates. If geocoding fails we fall through (best-effort).
+    if pickup and not _pickup_in_service_area(pickup):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "out_of_service_area",
+                "message": (
+                    "Sorry — we operate from the San Francisco Bay Area and "
+                    "can't pick up at this location. For service outside the "
+                    "Bay Area, please call us at (650) 410-0687 and we'll "
+                    "connect you with a partner operator in your region."
+                ),
+            },
+        )
     if not pickup or not dropoff:
         return await _apply_auto_promo_to_quote_response(_apply_service_fee_to_quote_response(QuoteResponse(
             quotes=_build_quotes(None, pricing_map, addon_flat=addon_flat_total, addon_tags=addon_tags),
