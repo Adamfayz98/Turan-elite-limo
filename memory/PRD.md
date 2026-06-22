@@ -2,6 +2,41 @@
 
 > Last refreshed: Jun 20, 2026 — iter 44 (iOS pod-install SOLVED + Block-by-source + Web shadow fix)
 
+## ✅ TestFlight LinearGradient crash FIXED + new fleet images (Feb 6, 2026 — iter 43)
+
+**P0 emergency:** iOS TestFlight v1.1.1 was crashing on the "Choose your vehicle" screen with `Unimplemented component: <ViewManagerAdapter_ExpoLinearGradient_…>` — text overlay on every vehicle card. Root cause: package version mismatch — `expo: ^54.0.0` (native SDK 54) vs `expo-linear-gradient: ^56.0.4` (JS expecting SDK 56 native module name). When the OTA pushed the SDK 56 JS, the v1.1.1 binary couldn't resolve the native component.
+
+**Shipped:**
+- **vehicle.tsx LinearGradient REMOVED** — replaced the single `<LinearGradient>` usage in `/app/mobile/app/(rider)/vehicle.tsx` with a layered `<View>` stack (3 semi-transparent bands simulating a vertical fade). Visually identical, no native module needed. OTA-safe.
+- **6 new studio-shot fleet images bundled into mobile** — `/app/mobile/assets/fleet/{executive-sedan,first-class,luxury-suv,stretch-limo,sprinter,party-bus}.jpg` — referenced via `require(@/assets/fleet/...)` so they ship with the OTA JS bundle. Compressed PNG → JPG @ 85% quality, 1200px wide → ~80 KB each (498 KB total bundle increase).
+- **Same 6 images shipped to web** at `/app/frontend/public/fleet/*.jpg` (1600px @ 85%, ~130 KB each). Replaces older stock photos that had visible white halos on the dark page bg.
+- **CSS shadow fix v2** — added BOTH top and bottom gradient masks to fleet image cards in `LandingPage.jsx`, `Fleet.jsx`, `FleetPicker.jsx`, `WorldCup2026.jsx`. Previous fix was bottom-only; new images have a subtle overhead studio halo that needed top-masking too. Verified via screenshot — cards sit flush on dark page.
+- **Vehicle MAPPING updated** — Stretch Limousine description bumped from "Lincoln · Chrysler 300" to "Hummer Stretch · Chrysler 300" to match the new image (Hummer H2 stretch limo).
+
+**Files changed:**
+- `/app/mobile/app/(rider)/vehicle.tsx` (removed expo-linear-gradient import, View-stack gradient, bundled images via require)
+- `/app/mobile/assets/fleet/*.jpg` (NEW — 6 files)
+- `/app/frontend/public/fleet/*.jpg` (REPLACED — 6 files)
+- `/app/frontend/src/components/LandingPage.jsx` (top + bottom gradient mask)
+- `/app/frontend/src/components/Fleet.jsx` (top + bottom gradient mask)
+- `/app/frontend/src/components/FleetPicker.jsx` (top + bottom gradient mask)
+- `/app/frontend/src/pages/WorldCup2026.jsx` (top + bottom gradient mask)
+
+**Mobile gaps identified during audit (NOT fixed this session — needs separate work):**
+- ⚠️ **Mobile has NO Quote Request modal** — call-only vehicles (Party Bus, Stretch Limo, Sprinter) only show "Call for Quote" → tel: dialer. Web has full pre-qual form with trip_type + service_duration. Mobile users can't submit structured quote requests; they must phone-in.
+- ⚠️ **Pre-qualification fields not in mobile booking flow** — the new trip_type/service_duration gating from iter 42 is web-only. If you want lead-quality parity, mobile booking form needs the same dropdowns.
+
+**Still pending — needs YOU to push the OTA:**
+```bash
+cd /app/mobile
+eas update --branch production --message "fix: vehicle picker LinearGradient crash + new fleet images"
+```
+Once you run that, every iOS TestFlight + Android tester on v1.1.1 will pull the fix on next app launch. No new native build needed.
+
+**Verified:** Lint clean. TypeScript clean for vehicle.tsx. Screenshot of fleet section on web → cards look flush + premium, no white shadow. Mobile changes are JS-only so they ship via OTA.
+
+
+
 ## ✅ Quote Request Pre-Qualification Gate (Feb 6, 2026 — iter 42)
 
 **Why:** User was getting vague one-line leads ("how much for limo?") that required 30 min of back-and-forth before affiliates could quote. This was burning affiliate goodwill and admin time.

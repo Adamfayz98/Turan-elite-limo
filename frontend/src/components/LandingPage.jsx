@@ -208,8 +208,10 @@ export default function LandingPage({
               <div className="aspect-[4/3] rounded-2xl overflow-hidden border border-white/10 bg-black mb-5 relative">
                 <img src={f.img} alt={`${f.name} chauffeur service`} loading="lazy"
                   className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
-                {/* Bottom gradient masks the white-sky halo on stock vehicle photos so they sit flush on the dark page bg */}
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-t from-black via-black/60 to-transparent" />
+                {/* Top + bottom gradient masks the studio halo / floor reflections on the new fleet shots,
+                    so cards sit flush on the dark page bg without any visible seam. */}
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/80 via-black/30 to-transparent" />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black via-black/60 to-transparent" />
               </div>
               <div className="border-l-2 border-[#D4AF37]/40 pl-5">
                 <h3 className="text-white text-xl">{f.name}</h3>

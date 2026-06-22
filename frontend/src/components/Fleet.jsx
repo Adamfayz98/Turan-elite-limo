@@ -42,7 +42,10 @@ export default function Fleet() {
                 alt={v.name}
                 className="absolute inset-0 w-full h-full object-cover opacity-85 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent" />
+              {/* Top + bottom gradient: kills the studio halo on the new fleet shots
+                  so the card sits flush on the dark page background. */}
+              <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/70 via-black/25 to-transparent pointer-events-none" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
               <div className="relative h-full flex flex-col justify-end p-6 md:p-7">
                 <div className="flex items-center gap-2 text-[#D4AF37]/90 text-xs">
                   <Sparkles className="w-3.5 h-3.5" />

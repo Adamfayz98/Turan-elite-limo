@@ -59,7 +59,9 @@ export default function FleetPicker({ quote, selected, onSelect, supportPhone = 
               loading="lazy"
               className="absolute inset-0 w-full h-full object-cover opacity-85 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700 pointer-events-none"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-transparent pointer-events-none" />
+            {/* Top + bottom gradients kill studio-halo + floor-reflection seams on the new fleet shots. */}
+            <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/70 via-black/20 to-transparent pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/55 to-transparent pointer-events-none" />
 
             {isSelected && !callOnly && (
               <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-full bg-[#D4AF37] text-black text-[10px] font-semibold uppercase tracking-[0.2em] flex items-center gap-1">

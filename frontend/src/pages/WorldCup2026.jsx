@@ -257,7 +257,8 @@ export default function WorldCup2026() {
                   loading="lazy"
                   className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
                 />
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-t from-black via-black/60 to-transparent" />
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/80 via-black/30 to-transparent" />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black via-black/60 to-transparent" />
               </div>
               <div className="border-l-2 border-[#D4AF37]/40 pl-5">
                 <h3 className="text-white text-xl">{f.name}</h3>

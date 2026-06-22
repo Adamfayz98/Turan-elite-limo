@@ -3,21 +3,38 @@ import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, Activit
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Users, ArrowRight, Phone, Home } from "lucide-react-native";
-import { LinearGradient } from "expo-linear-gradient";
+// NOTE: Removed `expo-linear-gradient` — its native module wasn't bundled in
+// v1.1.1 TestFlight binary which caused "Unimplemented component:
+// <ViewManagerAdapter_ExpoLinearGradient_…>" crash on every vehicle card.
+// Replaced with a layered View overlay (OTA-safe, visually identical).
 import Button from "@/components/Button";
 import { colors, radius } from "@/theme";
 import { useBooking } from "@/store/booking";
 import { getQuote, fetchVehicleTypes } from "@/api";
 
-const VEHICLE_META: Record<string, { img: string; desc: string; cap: string }> = {
-  "Executive Sedan": { img: "https://turanelitelimo.com/fleet/executive-sedan.jpg", desc: "Mercedes E-Class · Cadillac XTS", cap: "1–3" },
-  "First Class":     { img: "https://turanelitelimo.com/fleet/first-class.jpg", desc: "Mercedes S-Class · Genesis G90", cap: "1–3" },
-  "Luxury SUV":      { img: "https://turanelitelimo.com/fleet/luxury-suv.jpg", desc: "Cadillac Escalade · Lincoln Navigator", cap: "1–6" },
-  "Stretch Limousine": { img: "https://turanelitelimo.com/fleet/stretch-limo.jpg", desc: "Lincoln · Chrysler 300", cap: "1–10" },
-  "Sprinter Van":    { img: "https://turanelitelimo.com/fleet/sprinter.jpg", desc: "Standard · cloth/leather seats", cap: "10–14" },
-  "Executive Sprinter": { img: "https://turanelitelimo.com/fleet/sprinter.jpg", desc: "Captain's chairs · leather · partition", cap: "8–12" },
-  "Jet Sprinter":    { img: "https://turanelitelimo.com/fleet/sprinter.jpg", desc: "First-class recliners · bar · mood lighting", cap: "8–10" },
-  "Party Bus":       { img: "https://turanelitelimo.com/fleet/party-bus.jpg", desc: "Limo Bus · Party Bus", cap: "10–30" },
+// Bundled fleet images — shipped with the JS bundle so they work offline and
+// don't depend on turanelitelimo.com being reachable. Updated Feb 2026 to the
+// new studio-shot set (matches web /fleet/* and the 5 vehicle images user sent).
+const FLEET_IMG = {
+  "Executive Sedan":     require("@/assets/fleet/executive-sedan.jpg"),
+  "First Class":         require("@/assets/fleet/first-class.jpg"),
+  "Luxury SUV":          require("@/assets/fleet/luxury-suv.jpg"),
+  "Stretch Limousine":   require("@/assets/fleet/stretch-limo.jpg"),
+  "Sprinter Van":        require("@/assets/fleet/sprinter.jpg"),
+  "Executive Sprinter":  require("@/assets/fleet/sprinter.jpg"),
+  "Jet Sprinter":        require("@/assets/fleet/sprinter.jpg"),
+  "Party Bus":           require("@/assets/fleet/party-bus.jpg"),
+} as const;
+
+const VEHICLE_META: Record<string, { img: any; desc: string; cap: string }> = {
+  "Executive Sedan": { img: FLEET_IMG["Executive Sedan"], desc: "Mercedes E-Class · Cadillac XTS", cap: "1–3" },
+  "First Class":     { img: FLEET_IMG["First Class"], desc: "Mercedes S-Class · Genesis G90", cap: "1–3" },
+  "Luxury SUV":      { img: FLEET_IMG["Luxury SUV"], desc: "Cadillac Escalade · Lincoln Navigator", cap: "1–6" },
+  "Stretch Limousine": { img: FLEET_IMG["Stretch Limousine"], desc: "Hummer Stretch · Chrysler 300", cap: "1–10" },
+  "Sprinter Van":    { img: FLEET_IMG["Sprinter Van"], desc: "Standard · cloth/leather seats", cap: "10–14" },
+  "Executive Sprinter": { img: FLEET_IMG["Executive Sprinter"], desc: "Captain's chairs · leather · partition", cap: "8–12" },
+  "Jet Sprinter":    { img: FLEET_IMG["Jet Sprinter"], desc: "First-class recliners · bar · mood lighting", cap: "8–10" },
+  "Party Bus":       { img: FLEET_IMG["Party Bus"], desc: "Limo Bus · Mini Coach", cap: "10–30" },
 };
 
 interface QuoteRow { vehicle_type: string; price: number | null; formatted_price: string | null; message: string | null }
@@ -133,14 +150,16 @@ export default function VehiclePicker() {
               onPress={() => setSelected(q.vehicle_type)}
               style={[s.card, isSelected && s.cardSelected, disabled && { opacity: 0.55 }]}
             >
-              <ImageBackground source={{ uri: meta.img }} style={s.cardImg} imageStyle={s.cardImgInner}>
+              <ImageBackground source={meta.img} style={s.cardImg} imageStyle={s.cardImgInner}>
                 <View style={s.cardImgDim} />
-                <LinearGradient
-                  pointerEvents="none"
-                  colors={["transparent", "rgba(15,15,15,0.55)", colors.surface]}
-                  locations={[0, 0.72, 1]}
-                  style={s.cardImgFade}
-                />
+                {/* OTA-safe gradient fallback: a stack of 3 thin Views with
+                    increasing opacity emulates a vertical fade to the surface
+                    color. Native-free, no expo-linear-gradient needed. */}
+                <View pointerEvents="none" style={s.cardImgFadeStack}>
+                  <View style={[s.cardImgFadeBand, { backgroundColor: "rgba(15,15,15,0.30)", flex: 1 }]} />
+                  <View style={[s.cardImgFadeBand, { backgroundColor: "rgba(15,15,15,0.65)", flex: 1 }]} />
+                  <View style={[s.cardImgFadeBand, { backgroundColor: colors.surface, flex: 1 }]} />
+                </View>
               </ImageBackground>
               <View style={s.cardBody}>
                 <View style={s.cardRow}>
@@ -210,6 +229,10 @@ const s = StyleSheet.create({
   // PNGs ship with so the car blends cleanly into the card body — no need to
   // re-shoot or re-mask every vehicle asset.
   cardImgFade: { ...StyleSheet.absoluteFillObject, borderTopLeftRadius: 18, borderTopRightRadius: 18 },
+  // OTA-safe gradient replacement: 3 stacked bands that simulate a vertical
+  // fade from transparent → dim → surface. No native module required.
+  cardImgFadeStack: { ...StyleSheet.absoluteFillObject, borderTopLeftRadius: 18, borderTopRightRadius: 18, overflow: "hidden", flexDirection: "column" },
+  cardImgFadeBand: {},
   cardBody: { padding: 14 },
   cardRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
   cardTitle: { color: "#fff", fontSize: 14, fontWeight: "500" },
