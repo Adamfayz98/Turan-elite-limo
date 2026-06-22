@@ -2,6 +2,28 @@
 
 > Last refreshed: Jun 20, 2026 — iter 44 (iOS pod-install SOLVED + Block-by-source + Web shadow fix)
 
+## ✅ Quote Request Pre-Qualification Gate (Feb 6, 2026 — iter 42)
+
+**Why:** User was getting vague one-line leads ("how much for limo?") that required 30 min of back-and-forth before affiliates could quote. This was burning affiliate goodwill and admin time.
+
+**Shipped:**
+- **Required-field gating on `QuoteRequestDialog`** — Submit button stays disabled (shows "Fill required fields to send") until ALL of: name, phone, **trip type** (new dropdown), **service duration** (new dropdown), date, time, passengers, pickup, dropoff are filled. Once valid, button activates and reads "Send request".
+- **Per-field info tooltips** — small ⓘ icon next to each label. Hover (desktop) or tap (mobile) opens a Radix tooltip with a one-line "why we ask" explainer. Keeps the form scannable.
+- **Trip Type dropdown** — Wedding / Prom / Airport / Night Out / Corporate / Birthday / Wine Tour / Concert / Funeral / Other.
+- **Service Duration dropdown** — One-way / 1-2 / 3-4 / 5-6 / 7-8 / Full day / Not sure. (The #1 missing data point on inbound leads.)
+- **Backend model** — `QuoteRequestCreate` accepts new optional `trip_type` + `service_duration` fields. Optional at API for backward-compat with legacy mobile clients (frontend enforces "required"). Frontend also mirrors `trip_type → occasion` for legacy admin/email template compat.
+- **Admin SMS + Email + Quote Requests tab** — now surfaces the new fields. Admin card shows gold `trip_type` chip + cyan `⏱ service_duration` chip. Affiliate outreach SMS template includes both.
+- **NO budget field** (per user — fear of scaring off legit leads).
+
+**Files changed:**
+- `/app/frontend/src/components/QuoteRequestDialog.jsx` (rewritten with `isValid` gate + `InfoHint` tooltip component)
+- `/app/backend/server.py` (QuoteRequestCreate model + admin SMS + admin email render)
+- `/app/frontend/src/components/admin/QuoteRequestsTab.jsx` (new badges + affiliate outreach SMS)
+
+**Verified by testing agent (iteration_42.json):** 5/5 backend pytest passed, frontend e2e happy path passed — modal opens, submit disabled with correct text, tooltips render via Radix, all 9 required fields gate properly, full submission lands in DB with new fields, success state shows.
+
+
+
 ## ✅ iOS pod-install root cause FIXED + Block-by-source + Web shadow (Jun 20, 2026 — iter 44)
 
 **Shipped:**
