@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Send, Phone as PhoneIcon } from "lucide-react";
+import { Loader2, Send, Phone as PhoneIcon, Info } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { getStoredUtm } from "@/lib/utm";
@@ -10,6 +10,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -17,10 +30,67 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
+// Pre-qualification dropdown options. Mandatory before Send button unlocks.
+// Why these specific buckets:
+//  - Trip type drives vehicle/route logic + helps admin route to the right affiliate fast.
+//  - Service duration is the #1 missing data point on inbound vague leads — every
+//    affiliate needs hours-of-service to give a real number.
+const TRIP_TYPES = [
+  "Wedding",
+  "Prom / Homecoming",
+  "Airport Transfer",
+  "Night Out / Bar Crawl",
+  "Corporate / Business",
+  "Birthday Party",
+  "Wine Tour",
+  "Concert / Sports Event",
+  "Funeral / Memorial",
+  "Other",
+];
+
+const SERVICE_DURATIONS = [
+  "One-way transfer",
+  "1–2 hours",
+  "3–4 hours",
+  "5–6 hours",
+  "7–8 hours",
+  "Full day (8+ hrs)",
+  "Not sure yet",
+];
+
+// Tiny inline info bubble. Hover on desktop / tap on mobile.
+function InfoHint({ text, id }) {
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            data-testid={id}
+            className="text-white/35 hover:text-[#D4AF37] focus:text-[#D4AF37] focus:outline-none transition-colors ml-1.5 align-middle"
+            aria-label="More info"
+          >
+            <Info className="w-3 h-3" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          className="max-w-[220px] bg-[#1A1A1A] border border-[#D4AF37]/30 text-white/85 text-[11px] leading-relaxed"
+        >
+          {text}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 /**
  * Quote-request modal for call-only vehicles (Party Bus, Sprinter Van, Stretch Limo).
- * Captures basic trip details + contact info and POSTs to /api/quote-requests.
+ * Captures pre-qualified trip details + contact info and POSTs to /api/quote-requests.
  * Admin gets SMS + email + a row in the dashboard.
+ *
+ * Required fields are gated — submit stays disabled until ALL are filled. This stops
+ * vague one-liner leads from landing in the inbox and saves the back-and-forth.
  */
 export default function QuoteRequestDialog({
   open,
@@ -32,31 +102,52 @@ export default function QuoteRequestDialog({
     full_name: "",
     phone: "",
     email: "",
+    trip_type: "",
+    service_duration: "",
     pickup_date: "",
     pickup_time: "",
     pickup_location: "",
     dropoff_location: "",
     passengers: "",
-    occasion: "",
     notes: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
 
   const update = (k) => (e) => setForm((s) => ({ ...s, [k]: e.target.value }));
+  const updateSelect = (k) => (v) => setForm((s) => ({ ...s, [k]: v }));
+
+  // Required-field gate. Submit button stays disabled until every "*" field has
+  // a value. Phone needs at least a few digits — light sanity check, not a regex.
+  const isValid = useMemo(() => {
+    const phoneDigits = (form.phone || "").replace(/\D/g, "");
+    return (
+      form.full_name.trim().length >= 2 &&
+      phoneDigits.length >= 7 &&
+      !!form.trip_type &&
+      !!form.service_duration &&
+      !!form.pickup_date &&
+      !!form.pickup_time &&
+      form.pickup_location.trim().length >= 2 &&
+      form.dropoff_location.trim().length >= 2 &&
+      !!form.passengers &&
+      Number(form.passengers) > 0
+    );
+  }, [form]);
 
   const submit = async () => {
-    if (!form.full_name.trim()) return toast.error("Please add your name");
-    if (!form.phone.trim()) return toast.error("Please add a phone number we can text");
+    if (!isValid) return;
     setSubmitting(true);
     try {
       const { data } = await api.post("/quote-requests", {
         ...form,
         vehicle_type: vehicleType,
         passengers: form.passengers ? Number(form.passengers) : null,
+        // Keep `occasion` populated for backward-compat with old admin/email
+        // templates that read it. Trip type is the new canonical field.
+        occasion: form.trip_type,
         utm: getStoredUtm(),
       });
-      // Fire the Google Ads "Lead" conversion (separate from purchase).
       try {
         trackQuoteRequest({ requestId: data?.id, vehicleType });
       } catch {/* never block UX on tracking */}
@@ -71,14 +162,16 @@ export default function QuoteRequestDialog({
   const reset = () => {
     setDone(false);
     setForm({
-      full_name: "", phone: "", email: "", pickup_date: "", pickup_time: "",
-      pickup_location: "", dropoff_location: "", passengers: "", occasion: "", notes: "",
+      full_name: "", phone: "", email: "", trip_type: "", service_duration: "",
+      pickup_date: "", pickup_time: "", pickup_location: "", dropoff_location: "",
+      passengers: "", notes: "",
     });
   };
 
   const tel = (supportPhone || "").replace(/[^\d+]/g, "");
   const inputCls = "bg-[#0E0E0E] border-[#27272A] text-white focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] mt-1 h-11";
-  const labelCls = "text-[10px] uppercase tracking-[0.2em] text-white/55";
+  const selectTriggerCls = "bg-[#0E0E0E] border-[#27272A] text-white focus:ring-[#D4AF37] focus:border-[#D4AF37] mt-1 h-11 data-[placeholder]:text-white/40";
+  const labelCls = "text-[10px] uppercase tracking-[0.2em] text-white/55 flex items-center";
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
@@ -93,7 +186,7 @@ export default function QuoteRequestDialog({
           <DialogDescription className="text-xs text-white/55 mt-1">
             {done
               ? "Your request is in. Our team will text or call you with a custom quote — usually within 15 minutes during business hours."
-              : `${vehicleType} pricing depends on group size, hours, and route. Tell us what you need and we'll send a custom quote.`}
+              : "A few quick details so we can send you an accurate quote on the first reply — no back-and-forth."}
           </DialogDescription>
         </DialogHeader>
 
@@ -125,67 +218,140 @@ export default function QuoteRequestDialog({
           </div>
         ) : (
           <div className="space-y-3 mt-2">
+            {/* Contact row */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className={labelCls}>Name *</Label>
+                <Label className={labelCls}>
+                  Name *
+                  <InfoHint id="qr-info-name" text="So our chauffeur knows who they're picking up." />
+                </Label>
                 <Input data-testid="qr-name" value={form.full_name} onChange={update("full_name")} placeholder="Jane Doe" className={inputCls} />
               </div>
               <div>
-                <Label className={labelCls}>Phone *</Label>
+                <Label className={labelCls}>
+                  Phone *
+                  <InfoHint id="qr-info-phone" text="We text your custom quote here — usually within 15 minutes." />
+                </Label>
                 <Input data-testid="qr-phone" value={form.phone} onChange={update("phone")} placeholder="(650) 555-0123" className={inputCls} />
               </div>
             </div>
+
             <div>
-              <Label className={labelCls}>Email (optional)</Label>
+              <Label className={labelCls}>
+                Email (optional)
+                <InfoHint id="qr-info-email" text="Optional backup if we can't reach you by text." />
+              </Label>
               <Input data-testid="qr-email" type="email" value={form.email} onChange={update("email")} placeholder="you@email.com" className={inputCls} />
             </div>
+
+            {/* Pre-qual: Trip type + Duration */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className={labelCls}>Pickup date</Label>
+                <Label className={labelCls}>
+                  Trip type *
+                  <InfoHint id="qr-info-trip" text="Helps us match you with the right vehicle, route, and chauffeur for your occasion." />
+                </Label>
+                <Select value={form.trip_type} onValueChange={updateSelect("trip_type")}>
+                  <SelectTrigger data-testid="qr-trip-type" className={selectTriggerCls}>
+                    <SelectValue placeholder="Select trip type" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#0E0E0E] border-[#27272A] text-white">
+                    {TRIP_TYPES.map((t) => (
+                      <SelectItem key={t} value={t} data-testid={`qr-trip-${t.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className={labelCls}>
+                  Service duration *
+                  <InfoHint id="qr-info-duration" text="Pricing depends on hours-of-service vs. a flat one-way transfer. Helps us quote accurately on the first reply." />
+                </Label>
+                <Select value={form.service_duration} onValueChange={updateSelect("service_duration")}>
+                  <SelectTrigger data-testid="qr-duration" className={selectTriggerCls}>
+                    <SelectValue placeholder="How long do you need it?" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#0E0E0E] border-[#27272A] text-white">
+                    {SERVICE_DURATIONS.map((d) => (
+                      <SelectItem key={d} value={d} data-testid={`qr-duration-${d.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+                        {d}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Date + Time + Passengers */}
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label className={labelCls}>
+                  Date *
+                  <InfoHint id="qr-info-date" text="To check vehicle availability and lock in seasonal pricing." />
+                </Label>
                 <Input data-testid="qr-date" type="date" value={form.pickup_date} onChange={update("pickup_date")} className={inputCls} />
               </div>
               <div>
-                <Label className={labelCls}>Pickup time</Label>
+                <Label className={labelCls}>
+                  Time *
+                  <InfoHint id="qr-info-time" text="Helps us plan the chauffeur's schedule and any pre-trip prep." />
+                </Label>
                 <Input data-testid="qr-time" type="time" value={form.pickup_time} onChange={update("pickup_time")} className={inputCls} />
               </div>
-            </div>
-            <div>
-              <Label className={labelCls}>Pickup location</Label>
-              <Input data-testid="qr-pickup" value={form.pickup_location} onChange={update("pickup_location")} placeholder="Or general area" className={inputCls} />
-            </div>
-            <div>
-              <Label className={labelCls}>Drop-off / destination</Label>
-              <Input data-testid="qr-dropoff" value={form.dropoff_location} onChange={update("dropoff_location")} placeholder="Or general area" className={inputCls} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className={labelCls}>Passengers</Label>
+                <Label className={labelCls}>
+                  Passengers *
+                  <InfoHint id="qr-info-pax" text="So we recommend a vehicle that fits everyone comfortably with their luggage." />
+                </Label>
                 <Input data-testid="qr-pax" type="number" min="1" max="60" value={form.passengers} onChange={update("passengers")} placeholder="14" className={inputCls} />
               </div>
-              <div>
-                <Label className={labelCls}>Occasion</Label>
-                <Input data-testid="qr-occasion" value={form.occasion} onChange={update("occasion")} placeholder="Wedding, birthday..." className={inputCls} />
-              </div>
+            </div>
+
+            {/* Pickup + Dropoff */}
+            <div>
+              <Label className={labelCls}>
+                Pickup location *
+                <InfoHint id="qr-info-pickup" text="Street, hotel, airport, or general area — exact address can come later." />
+              </Label>
+              <Input data-testid="qr-pickup" value={form.pickup_location} onChange={update("pickup_location")} placeholder="123 Main St, San Jose CA" className={inputCls} />
             </div>
             <div>
-              <Label className={labelCls}>Notes</Label>
+              <Label className={labelCls}>
+                Drop-off / destination *
+                <InfoHint id="qr-info-dropoff" text="Where you're going. If it's a multi-stop tour, add the stops in Notes below." />
+              </Label>
+              <Input data-testid="qr-dropoff" value={form.dropoff_location} onChange={update("dropoff_location")} placeholder="SFO Terminal 1, or destination" className={inputCls} />
+            </div>
+
+            {/* Optional notes */}
+            <div>
+              <Label className={labelCls}>
+                Notes (optional)
+                <InfoHint id="qr-info-notes" text="Decorations, multi-stop itinerary, accessibility needs, child seats, anything special." />
+              </Label>
               <Textarea
                 data-testid="qr-notes"
                 value={form.notes}
                 onChange={update("notes")}
                 rows={3}
-                placeholder="Special requests, route preferences, decorations..."
+                placeholder="Multi-stop itinerary, decorations, special requests..."
                 className="bg-[#0E0E0E] border-[#27272A] text-white focus-visible:ring-[#D4AF37] focus-visible:border-[#D4AF37] mt-1 resize-none"
               />
             </div>
+
             <Button
               onClick={submit}
-              disabled={submitting}
+              disabled={submitting || !isValid}
               data-testid="qr-submit"
-              className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-11 font-medium"
+              title={!isValid ? "Please fill in all required (*) fields to send your request" : undefined}
+              className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-11 font-medium disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed"
             >
-              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
-              Send request
+              {submitting
+                ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                : <Send className="w-4 h-4 mr-2" />}
+              {isValid ? "Send request" : "Fill required fields to send"}
             </Button>
             <p className="text-[10px] text-center text-white/40 pt-1">
               We reply within ~15 min during business hours. No payment now.

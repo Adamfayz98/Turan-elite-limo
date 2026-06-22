@@ -1987,6 +1987,13 @@ class QuoteRequestCreate(BaseModel):
     dropoff_location: Optional[str] = Field(None, max_length=300)
     passengers: Optional[int] = Field(None, ge=1, le=60)
     occasion: Optional[str] = Field(None, max_length=80)
+    # ----- Pre-qualification fields (added to stop vague one-liner leads) -----
+    # `trip_type` is the canonical successor to free-text `occasion`. Frontend
+    # still mirrors it into `occasion` for backward-compat with old templates.
+    # Optional on the API to keep legacy clients / mobile builds working — the
+    # frontend enforces "required" at the UI level.
+    trip_type: Optional[str] = Field(None, max_length=80)
+    service_duration: Optional[str] = Field(None, max_length=40)
     notes: Optional[str] = Field(None, max_length=1000)
     utm: Optional[dict] = None  # First-touch attribution from the frontend
                                 # localStorage. Stored as-is on the quote_request.
@@ -2056,7 +2063,8 @@ async def submit_quote_request(payload: QuoteRequestCreate, request: Request):
             f"{doc.get('pickup_date','') or 'no date'} {doc.get('pickup_time','') or ''}\n"
             f"Pick: {line_pickup}\n"
             f"Drop: {line_drop}\n"
-            f"Pax: {doc.get('passengers','?')} · {doc.get('occasion','')}{risk_tag}"
+            f"Pax: {doc.get('passengers','?')} · {doc.get('trip_type') or doc.get('occasion','')}\n"
+            f"Duration: {doc.get('service_duration','?')}{risk_tag}"
         )
         await send_admin_sms(sms_text)
     except Exception as e:
@@ -2088,11 +2096,12 @@ def _render_quote_request_admin_email(doc: dict, admin_url: str) -> str:
         row("Phone", doc.get("phone")),
         row("Email", doc.get("email")),
         row("Vehicle", doc.get("vehicle_type")),
+        row("Trip type", doc.get("trip_type") or doc.get("occasion")),
+        row("Duration", doc.get("service_duration")),
         row("Date / Time", f"{doc.get('pickup_date','')} {doc.get('pickup_time','')}".strip()),
         row("Pickup", doc.get("pickup_location")),
         row("Dropoff", doc.get("dropoff_location")),
         row("Passengers", doc.get("passengers")),
-        row("Occasion", doc.get("occasion")),
         row("Notes", doc.get("notes")),
     ])
     return f"""<!doctype html>

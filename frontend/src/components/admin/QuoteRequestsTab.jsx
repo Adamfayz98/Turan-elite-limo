@@ -234,8 +234,11 @@ export default function QuoteRequestsTab() {
                           ⚠ Blacklist
                         </Badge>
                       )}
-                      {q.occasion && (
-                        <span className="text-[10px] uppercase tracking-wider text-white/40 bg-white/5 px-2 py-0.5 rounded">{q.occasion}</span>
+                      {(q.trip_type || q.occasion) && (
+                        <span className="text-[10px] uppercase tracking-wider text-[#D4AF37] bg-[#D4AF37]/10 border border-[#D4AF37]/20 px-2 py-0.5 rounded">{q.trip_type || q.occasion}</span>
+                      )}
+                      {q.service_duration && (
+                        <span className="text-[10px] uppercase tracking-wider text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded">⏱ {q.service_duration}</span>
                       )}
                       {q.quoted_price && (
                         <span className="text-[10px] uppercase tracking-wider text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded">
@@ -614,7 +617,7 @@ function SuggestAffiliatesDialog({ state, onClose }) {
   if (!state) return null;
 
   const copyAffiliateOutreachText = async (a) => {
-    const text = `Hi ${a.contact_name || a.name},\n\nSourcing a ${q.vehicle_type} job:\n\n${q.pickup_date || ""} ${q.pickup_time || ""}\nPickup: ${q.pickup_location || "—"}\nDrop: ${q.dropoff_location || "—"}\n${q.passengers ? `Passengers: ${q.passengers}\n` : ""}${q.occasion ? `Occasion: ${q.occasion}\n` : ""}\nWhat's your best rate + minimum? Reply with quote.\n\nThanks — Adam · TuranElite Limo · (650) 410-0687`;
+    const text = `Hi ${a.contact_name || a.name},\n\nSourcing a ${q.vehicle_type} job:\n\n${q.pickup_date || ""} ${q.pickup_time || ""}\nPickup: ${q.pickup_location || "—"}\nDrop: ${q.dropoff_location || "—"}\n${q.passengers ? `Passengers: ${q.passengers}\n` : ""}${(q.trip_type || q.occasion) ? `Trip type: ${q.trip_type || q.occasion}\n` : ""}${q.service_duration ? `Duration: ${q.service_duration}\n` : ""}\nWhat's your best rate + minimum? Reply with quote.\n\nThanks — Adam · TuranElite Limo · (650) 410-0687`;
     try {
       await navigator.clipboard.writeText(text);
       toast.success(`Outreach text copied — paste into SMS/email to ${a.name}`);
