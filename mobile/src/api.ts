@@ -98,6 +98,37 @@ export async function getQuote(payload: {
   return data;
 }
 
+/* ============== Quote Request (pre-qualified leads) ============== */
+/**
+ * Submits a pre-qualified quote request for call-only vehicles (Party Bus,
+ * Stretch Limo, Sprinter). Mirrors the web QuoteRequestDialog payload — keeps
+ * trip_type + service_duration so admin gets ready-to-quote leads instead of
+ * vague one-liners. See POST /api/quote-requests in backend/server.py.
+ */
+export async function submitQuoteRequest(payload: {
+  full_name: string;
+  phone: string;
+  email?: string;
+  vehicle_type: string;
+  trip_type: string;
+  service_duration: string;
+  pickup_date: string;
+  pickup_time: string;
+  pickup_location: string;
+  dropoff_location: string;
+  passengers: number;
+  notes?: string;
+}) {
+  const { data } = await api.post("/api/quote-requests", {
+    ...payload,
+    // Mirror trip_type into legacy occasion field for back-compat
+    occasion: payload.trip_type,
+    notes: payload.notes || null,
+    email: payload.email || null,
+  });
+  return data as { id: string; ok: boolean };
+}
+
 /* ============== Auth endpoints ============== */
 export async function signupRider(payload: { name: string; email: string; phone?: string; password: string; referred_by_code?: string }) {
   const { data } = await api.post("/api/customer/signup", payload);

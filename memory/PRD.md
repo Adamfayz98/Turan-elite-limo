@@ -33,6 +33,19 @@ eas update --branch production --message "fix: vehicle picker LinearGradient cra
 ```
 Once you run that, every iOS TestFlight + Android tester on v1.1.1 will pull the fix on next app launch. No new native build needed.
 
+**[UPDATE Feb 6]** OTA pushed by E1 — Update group `63b587c4-545c-49b9-889e-6eb56e824ca0`, runtime 1.1.1, iOS + Android. Includes: LinearGradient crash fix + new fleet images + new mobile QuoteRequestSheet (full pre-qual modal mirroring web). Live for all testers on next app launch.
+
+**Mobile Quote Request modal (iter 43 follow-up — shipped in same OTA):**
+- New file `/app/mobile/src/components/QuoteRequestSheet.tsx` — full-screen modal mirroring web QuoteRequestDialog.
+- Required-field gate (isValid) identical to web: name, phone, trip_type, service_duration, date, time, passengers, pickup, dropoff. Submit button reads "Fill required fields to send" until valid → "Send request" when valid.
+- Native PickerSheet (bottom-sheet style) for Trip Type + Service Duration dropdowns.
+- @react-native-community/datetimepicker for date + time.
+- POSTs to `/api/quote-requests` with same payload shape as web (mirrors `trip_type → occasion` for back-compat).
+- New API helper in `/app/mobile/src/api.ts`: `submitQuoteRequest()`.
+- Wired into `vehicle.tsx`: for call-only vehicles (Party Bus / Stretch / Sprinter / etc.), now shows a dual button row: **Request Quote** (gold, opens modal) + **Call** (outline, opens dialer). Previously was call-only.
+
+
+
 **Verified:** Lint clean. TypeScript clean for vehicle.tsx. Screenshot of fleet section on web → cards look flush + premium, no white shadow. Mobile changes are JS-only so they ship via OTA.
 
 

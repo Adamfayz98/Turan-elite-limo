@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, ActivityIndicator, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { ChevronLeft, Users, ArrowRight, Phone, Home } from "lucide-react-native";
+import { ChevronLeft, Users, ArrowRight, Phone, Home, Send } from "lucide-react-native";
 // NOTE: Removed `expo-linear-gradient` — its native module wasn't bundled in
 // v1.1.1 TestFlight binary which caused "Unimplemented component:
 // <ViewManagerAdapter_ExpoLinearGradient_…>" crash on every vehicle card.
 // Replaced with a layered View overlay (OTA-safe, visually identical).
 import Button from "@/components/Button";
+import QuoteRequestSheet from "@/components/QuoteRequestSheet";
 import { colors, radius } from "@/theme";
 import { useBooking } from "@/store/booking";
 import { getQuote, fetchVehicleTypes } from "@/api";
@@ -101,6 +102,11 @@ export default function VehiclePicker() {
   const selectedQ = quotes.find(q => q.vehicle_type === selected);
   const callDispatch = () => Linking.openURL("tel:+16504100687");
 
+  // Quote-request modal: opened from the per-card "Request Quote" button on
+  // call-only vehicles (Party Bus, Stretch Limo, Sprinter). Mirrors the web
+  // QuoteRequestDialog so we get the same pre-qualified leads from mobile.
+  const [quoteFor, setQuoteFor] = useState<string | null>(null);
+
   return (
     <SafeAreaView style={s.safe}>
       <View style={s.header}>
@@ -175,14 +181,31 @@ export default function VehiclePicker() {
                   {isSelected && !disabled && !isCallOnly && <Text style={s.selectedTag}>SELECTED</Text>}
                 </View>
                 {isCallOnly && (
-                  <Pressable
-                    testID={`call-quote-${q.vehicle_type.replace(/\s+/g, "-").toLowerCase()}`}
-                    onPress={callDispatch}
-                    style={s.callBtn}
-                  >
-                    <Phone size={13} color="#000" />
-                    <Text style={s.callBtnTxt}>Call for Quote</Text>
-                  </Pressable>
+                  <View style={s.dualBtnRow}>
+                    <Pressable
+                      testID={`request-quote-${q.vehicle_type.replace(/\s+/g, "-").toLowerCase()}`}
+                      onPress={(e) => {
+                        // Prevent the parent Pressable (card selection) from firing
+                        e.stopPropagation?.();
+                        setQuoteFor(q.vehicle_type);
+                      }}
+                      style={[s.callBtn, { flex: 1 }]}
+                    >
+                      <Send size={12} color="#000" />
+                      <Text style={s.callBtnTxt}>Request Quote</Text>
+                    </Pressable>
+                    <Pressable
+                      testID={`call-quote-${q.vehicle_type.replace(/\s+/g, "-").toLowerCase()}`}
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        callDispatch();
+                      }}
+                      style={[s.callBtnOutline]}
+                    >
+                      <Phone size={12} color="#fff" />
+                      <Text style={s.callBtnOutlineTxt}>Call</Text>
+                    </Pressable>
+                  </View>
                 )}
               </View>
             </Pressable>
@@ -202,6 +225,15 @@ export default function VehiclePicker() {
             : "Select a vehicle"}
         </Button>
       </View>
+
+      {/* Pre-qualified quote-request modal for call-only vehicles. Posts to
+          POST /api/quote-requests with trip_type + service_duration so the
+          admin gets a ready-to-quote lead instead of a phone tag chain. */}
+      <QuoteRequestSheet
+        visible={!!quoteFor}
+        vehicleType={quoteFor || ""}
+        onClose={() => setQuoteFor(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -245,5 +277,21 @@ const s = StyleSheet.create({
   selectedTag: { color: colors.gold, fontSize: 9, letterSpacing: 1.5, fontWeight: "700", borderColor: "rgba(212,175,55,0.4)", borderWidth: 1, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
   callBtn: { marginTop: 10, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.gold },
   callBtnTxt: { color: "#000", fontSize: 12, fontWeight: "600" },
+  // Dual Quote+Call row styles. The outline Call button is a tertiary action
+  // for users who'd rather talk to a human than fill the form.
+  dualBtnRow: { marginTop: 10, flexDirection: "row", gap: 8 },
+  callBtnOutline: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: "transparent",
+  },
+  callBtnOutlineTxt: { color: "#fff", fontSize: 12, fontWeight: "500" },
   ctaBar: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 28, backgroundColor: "rgba(5,5,5,0.92)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" },
 });
