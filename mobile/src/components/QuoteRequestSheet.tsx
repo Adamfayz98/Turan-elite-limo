@@ -22,7 +22,7 @@ import {
   Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { X, Send, Phone, ChevronDown } from "lucide-react-native";
+import { X, Send, Phone, ChevronDown, Plus } from "lucide-react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import Button from "@/components/Button";
 import { colors, radius } from "@/theme";
@@ -131,6 +131,14 @@ export default function QuoteRequestSheet({ visible, vehicleType, onClose, suppo
   });
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  // Optional intermediate stops between pickup and dropoff. Same UX as web —
+  // tap "+ Add a stop" to grow the list, tap the ✕ on any row to remove it.
+  // Max 5 stops to keep the modal scrollable on small screens.
+  const [stops, setStops] = useState<string[]>([]);
+  const addStop = () => setStops((s) => (s.length >= 5 ? s : [...s, ""]));
+  const removeStop = (i: number) => setStops((s) => s.filter((_, idx) => idx !== i));
+  const updateStopAt = (i: number, v: string) =>
+    setStops((s) => s.map((x, idx) => (idx === i ? v : x)));
   // Date/time picker visibility (Android = sequential; iOS = inline). We keep
   // it simple: a single date picker + a single time picker, both Android-style
   // dialogs, since we don't want to bundle another full-screen DateTimeModal
@@ -164,6 +172,7 @@ export default function QuoteRequestSheet({ visible, vehicleType, onClose, suppo
       pickup_date: "", pickup_time: "", pickup_location: "", dropoff_location: "",
       passengers: "", notes: "",
     });
+    setStops([]);
   };
 
   const closeAll = () => {
@@ -188,6 +197,8 @@ export default function QuoteRequestSheet({ visible, vehicleType, onClose, suppo
         dropoff_location: form.dropoff_location.trim(),
         passengers: Number(form.passengers),
         notes: form.notes.trim() || undefined,
+        // Filter empty stops before sending.
+        stops: stops.map((s) => s.trim()).filter(Boolean),
       });
       setDone(true);
     } catch (e: any) {
@@ -334,6 +345,41 @@ export default function QuoteRequestSheet({ visible, vehicleType, onClose, suppo
               placeholderTextColor="rgba(255,255,255,0.30)"
               style={s.input}
             />
+
+            {/* Optional stops between pickup and dropoff. Tap "+ Add a stop" to
+                grow the list, tap ✕ to remove. Mirrors web. */}
+            {stops.map((stop, i) => (
+              <View key={i} style={{ marginTop: 0 }}>
+                <Text style={s.label}>Stop {i + 1}</Text>
+                <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                  <TextInput
+                    testID={`qr-stop-${i}`}
+                    value={stop}
+                    onChangeText={(v) => updateStopAt(i, v)}
+                    placeholder={`Stop ${i + 1} address`}
+                    placeholderTextColor="rgba(255,255,255,0.30)"
+                    style={[s.input, { flex: 1 }]}
+                  />
+                  <Pressable
+                    testID={`qr-stop-remove-${i}`}
+                    onPress={() => removeStop(i)}
+                    style={s.stopRemoveBtn}
+                  >
+                    <X size={16} color="rgba(255,255,255,0.55)" />
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+            {stops.length < 5 && (
+              <Pressable
+                testID="qr-add-stop"
+                onPress={addStop}
+                style={s.addStopBtn}
+              >
+                <Plus size={12} color={colors.gold} />
+                <Text style={s.addStopBtnTxt}>Add a stop</Text>
+              </Pressable>
+            )}
 
             <Text style={s.label}>Drop-off / destination *</Text>
             <TextInput
@@ -506,6 +552,32 @@ const s = StyleSheet.create({
     backgroundColor: "transparent",
   },
   btnOutlineTxt: { color: "#fff", fontSize: 13, fontWeight: "500" },
+  // Stop add/remove styles
+  stopRemoveBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addStopBtn: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+  },
+  addStopBtnTxt: {
+    color: colors.gold,
+    fontSize: 11,
+    letterSpacing: 1.8,
+    textTransform: "uppercase",
+    fontWeight: "600",
+  },
   foot: {
     textAlign: "center",
     color: "rgba(255,255,255,0.40)",

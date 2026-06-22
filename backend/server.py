@@ -1994,6 +1994,12 @@ class QuoteRequestCreate(BaseModel):
     # frontend enforces "required" at the UI level.
     trip_type: Optional[str] = Field(None, max_length=80)
     service_duration: Optional[str] = Field(None, max_length=40)
+    # Optional intermediate stops between pickup and dropoff. Captured as
+    # structured strings (one per stop) so admin + affiliates can see the full
+    # route at a glance instead of digging through Notes. Common for weddings
+    # (hotel → church → reception), proms, bar crawls, multi-venue tours.
+    # Max 5 stops keeps the form sane.
+    stops: Optional[List[str]] = Field(None, max_length=5)
     notes: Optional[str] = Field(None, max_length=1000)
     utm: Optional[dict] = None  # First-touch attribution from the frontend
                                 # localStorage. Stored as-is on the quote_request.
@@ -2062,7 +2068,8 @@ async def submit_quote_request(payload: QuoteRequestCreate, request: Request):
             f"{doc['full_name']} · {doc['phone']}\n"
             f"{doc.get('pickup_date','') or 'no date'} {doc.get('pickup_time','') or ''}\n"
             f"Pick: {line_pickup}\n"
-            f"Drop: {line_drop}\n"
+            + (f"Stops: {' → '.join(doc['stops'])[:90]}\n" if doc.get('stops') else "")
+            + f"Drop: {line_drop}\n"
             f"Pax: {doc.get('passengers','?')} · {doc.get('trip_type') or doc.get('occasion','')}\n"
             f"Duration: {doc.get('service_duration','?')}{risk_tag}"
         )
@@ -2100,6 +2107,7 @@ def _render_quote_request_admin_email(doc: dict, admin_url: str) -> str:
         row("Duration", doc.get("service_duration")),
         row("Date / Time", f"{doc.get('pickup_date','')} {doc.get('pickup_time','')}".strip()),
         row("Pickup", doc.get("pickup_location")),
+        row("Stops", " → ".join(doc.get("stops") or []) if doc.get("stops") else None),
         row("Dropoff", doc.get("dropoff_location")),
         row("Passengers", doc.get("passengers")),
         row("Notes", doc.get("notes")),

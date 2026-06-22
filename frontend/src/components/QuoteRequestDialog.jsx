@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Send, Phone as PhoneIcon, Info } from "lucide-react";
+import { Loader2, Send, Phone as PhoneIcon, Info, Plus, X as XIcon } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { getStoredUtm } from "@/lib/utm";
@@ -111,8 +111,17 @@ export default function QuoteRequestDialog({
     passengers: "",
     notes: "",
   });
+  // Intermediate stops list (optional). Common for weddings: hotel → church →
+  // reception; proms: home → dinner → venue → after-party. Kept separate from
+  // pickup/dropoff so admin sees the full route at a glance.
+  const [stops, setStops] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+
+  const addStop = () => setStops((s) => (s.length >= 5 ? s : [...s, ""]));
+  const removeStop = (i) => setStops((s) => s.filter((_, idx) => idx !== i));
+  const updateStop = (i) => (e) =>
+    setStops((s) => s.map((v, idx) => (idx === i ? e.target.value : v)));
 
   const update = (k) => (e) => setForm((s) => ({ ...s, [k]: e.target.value }));
   const updateSelect = (k) => (v) => setForm((s) => ({ ...s, [k]: v }));
@@ -146,6 +155,8 @@ export default function QuoteRequestDialog({
         // Keep `occasion` populated for backward-compat with old admin/email
         // templates that read it. Trip type is the new canonical field.
         occasion: form.trip_type,
+        // Filter empty stop inputs out before sending.
+        stops: stops.map((s) => s.trim()).filter(Boolean),
         utm: getStoredUtm(),
       });
       try {
@@ -166,6 +177,7 @@ export default function QuoteRequestDialog({
       pickup_date: "", pickup_time: "", pickup_location: "", dropoff_location: "",
       passengers: "", notes: "",
     });
+    setStops([]);
   };
 
   const tel = (supportPhone || "").replace(/[^\d+]/g, "");
@@ -317,6 +329,53 @@ export default function QuoteRequestDialog({
               </Label>
               <Input data-testid="qr-pickup" value={form.pickup_location} onChange={update("pickup_location")} placeholder="123 Main St, San Jose CA" className={inputCls} />
             </div>
+
+            {/* Stops (optional, between pickup and dropoff). Each stop is a
+                separate input with a remove button — much easier for admin to
+                read than a comma-separated string buried in Notes. */}
+            {stops.length > 0 && (
+              <div className="space-y-2">
+                {stops.map((stop, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <Label className={labelCls}>
+                        Stop {i + 1}
+                        {i === 0 && (
+                          <InfoHint id="qr-info-stops" text="Add any stops between pickup and final destination — church, hotel, restaurant, after-party venue, etc." />
+                        )}
+                      </Label>
+                      <Input
+                        data-testid={`qr-stop-${i}`}
+                        value={stop}
+                        onChange={updateStop(i)}
+                        placeholder={`Stop ${i + 1} address`}
+                        className={inputCls}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      data-testid={`qr-stop-remove-${i}`}
+                      onClick={() => removeStop(i)}
+                      aria-label={`Remove stop ${i + 1}`}
+                      className="mt-5 h-11 w-11 rounded-full border border-white/10 text-white/50 hover:text-white hover:border-white/30 flex items-center justify-center transition"
+                    >
+                      <XIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {stops.length < 5 && (
+              <button
+                type="button"
+                data-testid="qr-add-stop"
+                onClick={addStop}
+                className="self-start inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-[#D4AF37]/80 hover:text-[#D4AF37] transition"
+              >
+                <Plus className="w-3 h-3" /> Add a stop
+              </button>
+            )}
+
             <div>
               <Label className={labelCls}>
                 Drop-off / destination *

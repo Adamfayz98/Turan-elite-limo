@@ -2,6 +2,29 @@
 
 > Last refreshed: Jun 20, 2026 — iter 44 (iOS pod-install SOLVED + Block-by-source + Web shadow fix)
 
+## ✅ Multi-stop support on Quote Request (Feb 6, 2026 — iter 44)
+
+**Why:** Weddings (hotel → church → reception), proms (home → dinner → venue → after-party), wine tours, and bar crawls all have intermediate stops. Customers were shoving them into the free-text Notes field which made it hard for admin + affiliates to read the actual route at a glance.
+
+**Shipped (web + mobile in same OTA):**
+- **Backend** — `QuoteRequestCreate.stops: Optional[List[str]]` (max 5 items). Admin SMS now shows `Stops: A → B → C` line. Admin email adds a `Stops` row in the lead table.
+- **Web** — `QuoteRequestDialog.jsx` adds dynamic stops list between Pickup and Drop-off. Each stop is its own labeled input with a remove (✕) button. "+ Add a stop" CTA below (hidden once 5 stops are added). State filtered for empty strings on submit.
+- **Mobile** — `QuoteRequestSheet.tsx` mirrors web exactly: same insert position, same UX (add/remove/max 5).
+- **Admin** — `QuoteRequestsTab.jsx` displays `🚏 Stops: A → B → C` between Pickup and Dropoff rows. Affiliate-outreach SMS template includes the stops line so affiliates see the whole route in one text.
+
+**Files changed:**
+- `/app/backend/server.py` (QuoteRequestCreate model + admin SMS + admin email)
+- `/app/frontend/src/components/QuoteRequestDialog.jsx` (stops state, render, payload filter)
+- `/app/mobile/src/components/QuoteRequestSheet.tsx` (mirror of web)
+- `/app/mobile/src/api.ts` (submitQuoteRequest signature adds `stops?: string[]`)
+- `/app/frontend/src/components/admin/QuoteRequestsTab.jsx` (stops display + outreach SMS)
+
+**Verified:** Backend curl test confirmed stops persist as a proper array in Mongo and round-trip clean. Lint clean. TypeScript clean.
+
+**OTA published:** group `b2b3f364-253e-4fda-9e4e-54a6668388cc`, runtime 1.1.1, iOS + Android. Testers pick up on next app launch.
+
+
+
 ## ✅ TestFlight LinearGradient crash FIXED + new fleet images (Feb 6, 2026 — iter 43)
 
 **P0 emergency:** iOS TestFlight v1.1.1 was crashing on the "Choose your vehicle" screen with `Unimplemented component: <ViewManagerAdapter_ExpoLinearGradient_…>` — text overlay on every vehicle card. Root cause: package version mismatch — `expo: ^54.0.0` (native SDK 54) vs `expo-linear-gradient: ^56.0.4` (JS expecting SDK 56 native module name). When the OTA pushed the SDK 56 JS, the v1.1.1 binary couldn't resolve the native component.

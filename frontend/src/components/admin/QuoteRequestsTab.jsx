@@ -278,6 +278,9 @@ export default function QuoteRequestsTab() {
                       )}
                       {q.passengers && <div>👥 {q.passengers} pax</div>}
                       {q.pickup_location && <div className="md:col-span-2 truncate">📍 Pick: {q.pickup_location}</div>}
+                      {q.stops && q.stops.length > 0 && (
+                        <div className="md:col-span-2 truncate">🚏 Stops: {q.stops.join(" → ")}</div>
+                      )}
                       {q.dropoff_location && <div className="md:col-span-2 truncate">🎯 Drop: {q.dropoff_location}</div>}
                     </div>
                     {q.notes && (
@@ -617,7 +620,7 @@ function SuggestAffiliatesDialog({ state, onClose }) {
   if (!state) return null;
 
   const copyAffiliateOutreachText = async (a) => {
-    const text = `Hi ${a.contact_name || a.name},\n\nSourcing a ${q.vehicle_type} job:\n\n${q.pickup_date || ""} ${q.pickup_time || ""}\nPickup: ${q.pickup_location || "—"}\nDrop: ${q.dropoff_location || "—"}\n${q.passengers ? `Passengers: ${q.passengers}\n` : ""}${(q.trip_type || q.occasion) ? `Trip type: ${q.trip_type || q.occasion}\n` : ""}${q.service_duration ? `Duration: ${q.service_duration}\n` : ""}\nWhat's your best rate + minimum? Reply with quote.\n\nThanks — Adam · TuranElite Limo · (650) 410-0687`;
+    const text = `Hi ${a.contact_name || a.name},\n\nSourcing a ${q.vehicle_type} job:\n\n${q.pickup_date || ""} ${q.pickup_time || ""}\nPickup: ${q.pickup_location || "—"}\n${q.stops && q.stops.length > 0 ? `Stops: ${q.stops.join(" → ")}\n` : ""}Drop: ${q.dropoff_location || "—"}\n${q.passengers ? `Passengers: ${q.passengers}\n` : ""}${(q.trip_type || q.occasion) ? `Trip type: ${q.trip_type || q.occasion}\n` : ""}${q.service_duration ? `Duration: ${q.service_duration}\n` : ""}\nWhat's your best rate + minimum? Reply with quote.\n\nThanks — Adam · TuranElite Limo · (650) 410-0687`;
     try {
       await navigator.clipboard.writeText(text);
       toast.success(`Outreach text copied — paste into SMS/email to ${a.name}`);

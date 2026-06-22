@@ -118,6 +118,7 @@ export async function submitQuoteRequest(payload: {
   dropoff_location: string;
   passengers: number;
   notes?: string;
+  stops?: string[];
 }) {
   const { data } = await api.post("/api/quote-requests", {
     ...payload,
@@ -125,6 +126,7 @@ export async function submitQuoteRequest(payload: {
     occasion: payload.trip_type,
     notes: payload.notes || null,
     email: payload.email || null,
+    stops: payload.stops && payload.stops.length > 0 ? payload.stops : null,
   });
   return data as { id: string; ok: boolean };
 }
