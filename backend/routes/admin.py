@@ -791,6 +791,28 @@ async def admin_update_quote_request(rid: str, payload: dict, request: Request, 
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="affiliate_cost must be a number")
 
+    # ----- Editable trip / client fields (added so admin can correct
+    # last-minute changes the customer texts in — e.g. updated pickup time,
+    # address, headcount — without forcing them to resubmit the quote form).
+    # All optional; only the fields included in payload are touched. -----
+    _STR_FIELDS = ("full_name", "phone", "email", "pickup_date", "pickup_time",
+                   "pickup_location", "dropoff_location", "trip_type",
+                   "service_duration")
+    for f in _STR_FIELDS:
+        if f in payload:
+            v = payload.get(f)
+            update[f] = (str(v).strip()[:300] if v else None)
+    if "passengers" in payload:
+        v = payload.get("passengers")
+        try:
+            update["passengers"] = int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="passengers must be an integer")
+    if "stops" in payload:
+        st = payload.get("stops") or []
+        if isinstance(st, list):
+            update["stops"] = [str(s).strip()[:300] for s in st if str(s).strip()][:5]
+
     # First time we're quoting → mint a confirm token
     if update.get("quoted_price") and not q.get("confirm_token"):
         import secrets as _secrets

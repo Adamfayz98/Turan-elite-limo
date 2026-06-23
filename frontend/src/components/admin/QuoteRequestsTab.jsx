@@ -389,6 +389,21 @@ function SendQuoteDialog({ state, onClose, onSent }) {
   const [affiliateCost, setAffiliateCost] = useState("");
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Editable trip details (added Feb 2026). Customers often text last-minute
+  // changes — pickup time bump, new headcount, different drop. We let admin
+  // patch these alongside the quote without forcing a resubmit.
+  const [tripFields, setTripFields] = useState({
+    full_name: "",
+    phone: "",
+    email: "",
+    pickup_date: "",
+    pickup_time: "",
+    pickup_location: "",
+    dropoff_location: "",
+    passengers: "",
+  });
+  const updateTrip = (k) => (e) =>
+    setTripFields((s) => ({ ...s, [k]: e.target.value }));
 
   useEffect(() => {
     if (q && phase === "edit") {
@@ -398,6 +413,16 @@ function SendQuoteDialog({ state, onClose, onSent }) {
       // is empty. Admin can edit or wipe; we never clobber existing notes.
       setNotes(q.quoted_notes || getDefaultNotesForVehicle(q.vehicle_type));
       setAffiliateCost(q.affiliate_cost ? String(q.affiliate_cost) : "");
+      setTripFields({
+        full_name: q.full_name || "",
+        phone: q.phone || "",
+        email: q.email || "",
+        pickup_date: q.pickup_date || "",
+        pickup_time: q.pickup_time || "",
+        pickup_location: q.pickup_location || "",
+        dropoff_location: q.dropoff_location || "",
+        passengers: q.passengers != null ? String(q.passengers) : "",
+      });
       setCopied(false);
     }
   }, [q, phase]);
@@ -416,6 +441,17 @@ function SendQuoteDialog({ state, onClose, onSent }) {
     }
     setSending(true);
     try {
+      // Strip blanks so we don't blow away unrelated fields. Number-cast
+      // passengers since the input is a string.
+      const tripPatch = {};
+      Object.entries(tripFields).forEach(([k, v]) => {
+        const t = (v ?? "").toString().trim();
+        if (k === "passengers") {
+          if (t !== "") tripPatch.passengers = Number(t);
+        } else if (t !== "" || (q && q[k])) {
+          tripPatch[k] = t || null;
+        }
+      });
       const { data } = await api.patch(`/admin/quote-requests/${q.id}`, {
         quoted_price: numericPrice,
         deposit_pct: numericPct,
@@ -423,6 +459,7 @@ function SendQuoteDialog({ state, onClose, onSent }) {
         affiliate_cost: affiliateCost ? Number(affiliateCost) : null,
         status: "quoted",
         send_to_customer: true,
+        ...tripPatch,
       });
       toast.success(data.sent_to ? `Quote emailed to ${data.sent_to}` : "Quote saved");
       onSent(data.quote, data.confirm_url, data.sent_to);
@@ -497,6 +534,53 @@ function SendQuoteDialog({ state, onClose, onSent }) {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
+              {/* Editable trip + client fields. Lets admin patch last-minute
+                  changes (pickup time bumps, new headcount, address fixes)
+                  WITHOUT making the customer resubmit the quote form. */}
+              <details className="rounded-lg border border-[#27272A] bg-[#0E0E0E] overflow-hidden">
+                <summary className="cursor-pointer px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-white/55 hover:text-white/80 transition select-none">
+                  Trip & client details (tap to edit)
+                </summary>
+                <div className="p-3 space-y-3 border-t border-[#1f1f1f]">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] uppercase tracking-[0.16em] text-white/45 block mb-1">Name</label>
+                      <Input data-testid="qe-name" value={tripFields.full_name} onChange={updateTrip("full_name")} className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-[0.16em] text-white/45 block mb-1">Phone</label>
+                      <Input data-testid="qe-phone" value={tripFields.phone} onChange={updateTrip("phone")} className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-[0.16em] text-white/45 block mb-1">Email</label>
+                    <Input data-testid="qe-email" value={tripFields.email} onChange={updateTrip("email")} className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm" />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-[10px] uppercase tracking-[0.16em] text-white/45 block mb-1">Date</label>
+                      <Input data-testid="qe-date" type="date" value={tripFields.pickup_date} onChange={updateTrip("pickup_date")} className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-[0.16em] text-white/45 block mb-1">Time</label>
+                      <Input data-testid="qe-time" type="time" value={tripFields.pickup_time} onChange={updateTrip("pickup_time")} className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-[0.16em] text-white/45 block mb-1">Pax</label>
+                      <Input data-testid="qe-pax" type="number" min="1" max="60" value={tripFields.passengers} onChange={updateTrip("passengers")} className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-[0.16em] text-white/45 block mb-1">Pickup</label>
+                    <Input data-testid="qe-pickup" value={tripFields.pickup_location} onChange={updateTrip("pickup_location")} className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-[0.16em] text-white/45 block mb-1">Drop-off</label>
+                    <Input data-testid="qe-dropoff" value={tripFields.dropoff_location} onChange={updateTrip("dropoff_location")} className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm" />
+                  </div>
+                </div>
+              </details>
+
               <div>
                 <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-2 block">Flat rate (USD)</label>
                 <Input
