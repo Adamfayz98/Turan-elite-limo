@@ -157,14 +157,14 @@ export default function VehiclePicker() {
               style={[s.card, isSelected && s.cardSelected, disabled && { opacity: 0.55 }]}
             >
               <ImageBackground source={meta.img} style={s.cardImg} imageStyle={s.cardImgInner}>
-                <View style={s.cardImgDim} />
-                {/* OTA-safe gradient fallback: a stack of 3 thin Views with
-                    increasing opacity emulates a vertical fade to the surface
-                    color. Native-free, no expo-linear-gradient needed. */}
+                {/* Very subtle bottom fade so the image meets the card body
+                    cleanly. Original 3-band stack + 15% dim were way too dark
+                    on the new studio images — vehicles were nearly invisible.
+                    The body text sits BELOW the image (separate View), so we
+                    don't need a heavy text-readability gradient here. */}
                 <View pointerEvents="none" style={s.cardImgFadeStack}>
-                  <View style={[s.cardImgFadeBand, { backgroundColor: "rgba(15,15,15,0.30)", flex: 1 }]} />
-                  <View style={[s.cardImgFadeBand, { backgroundColor: "rgba(15,15,15,0.65)", flex: 1 }]} />
-                  <View style={[s.cardImgFadeBand, { backgroundColor: colors.surface, flex: 1 }]} />
+                  <View style={{ flex: 5, backgroundColor: "transparent" }} />
+                  <View style={{ flex: 1, backgroundColor: "rgba(15,15,15,0.35)" }} />
                 </View>
               </ImageBackground>
               <View style={s.cardBody}>
@@ -253,7 +253,7 @@ const s = StyleSheet.create({
   errorTxt: { color: colors.error, fontSize: 12, textAlign: "center" },
   card: { borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", overflow: "hidden", marginBottom: 12 },
   cardSelected: { borderColor: colors.gold, backgroundColor: "rgba(212,175,55,0.05)" },
-  cardImg: { height: 100, justifyContent: "flex-end", backgroundColor: colors.surface },
+  cardImg: { height: 130, justifyContent: "flex-end", backgroundColor: colors.surface },
   cardImgInner: { borderTopLeftRadius: 18, borderTopRightRadius: 18, resizeMode: "cover" },
   cardImgDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.15)" },
   // Vertical fade from transparent at the top of the image to the card surface
