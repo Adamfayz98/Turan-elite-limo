@@ -38,7 +38,18 @@ const VEHICLE_META: Record<string, { img: any; desc: string; cap: string }> = {
   "Party Bus":       { img: FLEET_IMG["Party Bus"], desc: "Limo Bus · Mini Coach", cap: "10–30" },
 };
 
-interface QuoteRow { vehicle_type: string; price: number | null; formatted_price: string | null; message: string | null }
+interface QuoteRow {
+  vehicle_type: string;
+  price: number | null;
+  formatted_price: string | null;
+  message: string | null;
+  // Auto-applied promo fields (mirrors web FleetPicker). When backend returns
+  // an active promo, `original_price` > `price` and we show a struck-through
+  // original next to the discounted price plus a "Save $X · CODE" badge.
+  original_price?: number | null;
+  discount_amount?: number | null;
+  applied_promo?: { code?: string; description?: string } | null;
+}
 
 export default function VehiclePicker() {
   const router = useRouter();
@@ -170,11 +181,33 @@ export default function VehiclePicker() {
               <View style={s.cardBody}>
                 <View style={s.cardRow}>
                   <Text style={s.cardTitle}>{q.vehicle_type}</Text>
-                  <Text style={[s.cardPrice, isSelected && { color: colors.gold }]}>
-                    {q.formatted_price || (isCallOnly ? "Quote" : "—")}
-                  </Text>
+                  {/* Promo-aware price block: when backend reports an
+                      original_price higher than the discounted price, show
+                      both — matching web FleetPicker so the savings are
+                      visible on mobile too. */}
+                  {q.original_price != null && q.price != null && q.original_price > q.price ? (
+                    <View style={s.priceCol}>
+                      <Text style={s.priceStrike}>${q.original_price.toFixed(2)}</Text>
+                      <Text style={[s.cardPrice, { color: colors.gold }]}>
+                        {q.formatted_price}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={[s.cardPrice, isSelected && { color: colors.gold }]}>
+                      {q.formatted_price || (isCallOnly ? "Quote" : "—")}
+                    </Text>
+                  )}
                 </View>
                 <Text style={s.cardDesc}>{meta.desc}</Text>
+                {/* Promo savings pill — only renders if backend attached an
+                    applied_promo to this quote row. */}
+                {q.applied_promo?.code && q.discount_amount != null && q.discount_amount > 0 && (
+                  <View style={s.promoPill}>
+                    <Text style={s.promoPillTxt}>
+                      Save ${q.discount_amount.toFixed(2)} · {q.applied_promo.code}
+                    </Text>
+                  </View>
+                )}
                 <View style={s.cardFoot}>
                   <View style={s.cardMeta}><Users size={11} color="rgba(255,255,255,0.55)" /><Text style={s.cardMetaTxt}>{meta.cap} pax</Text></View>
                   {q.message && !isCallOnly && <Text style={s.muted}>{q.message}</Text>}
@@ -269,6 +302,35 @@ const s = StyleSheet.create({
   cardRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
   cardTitle: { color: "#fff", fontSize: 14, fontWeight: "500" },
   cardPrice: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  // Promo display: stacked column so original (strikethrough) sits ABOVE the
+  // discounted price, right-aligned to match the card row layout.
+  priceCol: { alignItems: "flex-end" },
+  priceStrike: {
+    color: "rgba(255,255,255,0.40)",
+    fontSize: 11,
+    textDecorationLine: "line-through",
+    marginBottom: 1,
+  },
+  // Savings pill that mirrors the web "Save $X · CODE" badge under each card.
+  promoPill: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "rgba(212,175,55,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(212,175,55,0.40)",
+  },
+  promoPillTxt: {
+    color: colors.gold,
+    fontSize: 9,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    fontWeight: "600",
+  },
   cardDesc: { color: "rgba(255,255,255,0.45)", fontSize: 11 },
   cardFoot: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8 },
   cardMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
