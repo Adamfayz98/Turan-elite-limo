@@ -2,6 +2,38 @@
 
 > Last refreshed: Jun 20, 2026 — iter 44 (iOS pod-install SOLVED + Block-by-source + Web shadow fix)
 
+## ✅ Native v1.1.2 — Android crash hotfix + iOS rebuild (Feb 6, 2026 — iter 46)
+
+**Emergency context:** Android v1.1.1 (versionCode 27, runtime 1.1.1) was crashing on launch with "Something went wrong with TuranEliteLimo · This app has a bug." User couldn't open the app. The OTA fix from iter 43 didn't help because the app died before it could even fetch the OTA bundle.
+
+**Root cause:** Same as the iOS LinearGradient crash but worse on Android. The v1.1.1 native build had `expo: ^54.0.0` (SDK 54 native runtime) but `expo-linear-gradient: ^56.0.4` in JS — incompatible native module API. iOS showed it as a "Unimplemented component" placeholder on the vehicle picker screen; Android's stricter native module resolver killed the process at startup.
+
+**Permanent fix shipped:**
+1. **`expo-linear-gradient` removed from package.json entirely** (`yarn remove expo-linear-gradient`). No more orphan native module references at link time.
+2. **Native v1.1.2 builds** (versionCode 29 Android, buildNumber 51 iOS) on EAS — built without the offending native module at all.
+3. **OTA v1.1.2** pushed in parallel so runtime 1.1.2 has a clean update channel from day 1.
+4. **Auto-submitted both stores:**
+   - iOS: TestFlight upload via `eas submit --platform ios` using the existing ASC API key (`AuthKey_S6ZN2K2TN4.p8`). Apple processes in 5-10 min; user can promote to public App Store from App Store Connect.
+   - Android: Google Play Internal Testing via `eas submit --platform android`. Status COMPLETED. User can promote from Internal → Production in Play Console.
+
+**Build artifacts:**
+- Android: build `887ea485-b615-46d7-a4a0-65771e3564e3`, versionCode 29 → Internal Testing track
+- iOS: build `aea67986-fba5-4d1d-a0ea-e975f84dea7f`, buildNumber 51 → ASC processing → TestFlight
+- OTA: update group `f0906617-0bc4-41f1-afb9-eb1567d85293`, runtime 1.1.2
+
+**ALSO unblocked:** The iOS App Store Connect submission has been blocking since iter 41. Auto-submission to TestFlight just worked using the ASC key in `eas.json`. The previous "submission failed" issue from the handoff appears to have been transient. User can now promote v1.1.2 from TestFlight → App Store public release in App Store Connect when ready.
+
+**Hermes ARM64 shim re-applied** — yarn remove wiped node_modules, hermesc shim was lost. Re-installed `qemu-user-static` + wrapped hermesc again. Persists until next dependency change. Documented in PRD so next session knows.
+
+**User action items:**
+1. Force-uninstall the broken v1.1.1 from Android phone
+2. Open Play Console Internal Testing in 10-15 min → install v1.1.2 → confirm app launches
+3. Once verified, promote Android v1.1.2 → Production in Play Console
+4. iOS: wait for Apple processing email (5-10 min), then test from TestFlight
+5. Once tested, promote iOS v1.1.2 → App Store public release from ASC
+
+
+
 ## ✅ Multi-stop support on Quote Request (Feb 6, 2026 — iter 44)
 
 **Why:** Weddings (hotel → church → reception), proms (home → dinner → venue → after-party), wine tours, and bar crawls all have intermediate stops. Customers were shoving them into the free-text Notes field which made it hard for admin + affiliates to read the actual route at a glance.
