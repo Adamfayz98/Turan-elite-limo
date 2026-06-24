@@ -485,6 +485,10 @@ function SendQuoteDialog({ state, onClose, onSent }) {
     <Dialog open={!!state} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
         data-testid="send-quote-dialog"
+        // Sticky form: accidental clicks outside the modal don't blow away
+        // half-finished invoice text + custom pricing. ESC + X still close it.
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
         className="bg-[#0c0c0c] border-[#1f1f1f] text-white max-w-lg max-h-[90vh] overflow-y-auto"
       >
         {phase === "sent" ? (

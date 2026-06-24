@@ -189,6 +189,11 @@ export default function QuoteRequestDialog({
     <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
       <DialogContent
         data-testid="quote-request-dialog"
+        // Don't dismiss the form when the user accidentally taps outside the
+        // modal — we've seen them tap-near-an-input and lose all their typing.
+        // ESC + the X button still close it.
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
         className="bg-[#0A0A0A] border-[#1F1F1F] text-white max-w-xl max-h-[90vh] overflow-y-auto"
       >
         <DialogHeader>
