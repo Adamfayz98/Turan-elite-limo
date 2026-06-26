@@ -2650,3 +2650,173 @@ async def admin_attribution_block_source(payload: dict, _: dict = Depends(requir
         upsert=True,
     )
     return {"ok": True, "blocked": sorted(list(current))}
+
+
+# ---------- Google Ads Offline Conversion Import (CSV) ----------
+
+@router.get("/admin/ads/offline-conversions.csv")
+async def admin_offline_conversions_csv(
+    days: int = 30,
+    conversion_name: str = "Purchase",
+    _: dict = Depends(require_admin),
+):
+    """Export an Offline Conversion Import CSV for Google Ads.
+
+    Google Ads expects an exact column layout (see
+    https://support.google.com/google-ads/answer/2998031). This endpoint
+    returns one row per PAID booking in the last `days` days whose
+    first-touch attribution captured a `gclid` (i.e. came from a Google Ads
+    click).
+
+    Workflow for the admin:
+      1. Click "Export Google Ads CSV" in Admin → Attribution every Monday.
+      2. Sign in to Google Ads → Tools → Conversions → Uploads → Upload CSV.
+      3. Pick "Conversions from clicks", upload the file, confirm preview.
+
+    This is the stopgap until the Google Ads API integration ships and we
+    can submit `UploadClickConversionsRequest` directly from the Stripe
+    webhook handler.
+    """
+    days = max(1, min(int(days or 30), 365))
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    # The first 4 lines of a Google Ads offline-conversion CSV are a fixed
+    # header block. After that comes the actual data table.
+    tz_id = "America/Los_Angeles"
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Parameters:TimeZone=" + tz_id])
+    writer.writerow([])
+    writer.writerow([
+        "Google Click ID",
+        "Conversion Name",
+        "Conversion Time",
+        "Conversion Value",
+        "Conversion Currency",
+    ])
+
+    PAID = {"paid", "confirmed", "in_progress", "completed"}
+    rows_written = 0
+    skipped_no_gclid = 0
+    skipped_unpaid = 0
+
+    async for b in db.bookings.find(
+        {"created_at": {"$gte": cutoff}},
+        {"_id": 0, "utm": 1, "payment_status": 1, "status": 1, "quote_amount": 1,
+         "total_amount": 1, "amount_paid": 1, "stripe_paid_at": 1, "paid_at": 1,
+         "created_at": 1, "confirmation_number": 1, "id": 1},
+    ):
+        status = (b.get("payment_status") or b.get("status") or "").lower()
+        if status not in PAID:
+            skipped_unpaid += 1
+            continue
+        utm = b.get("utm") or {}
+        gclid = (utm.get("gclid") or "").strip()
+        if not gclid:
+            skipped_no_gclid += 1
+            continue
+
+        # Pick the conversion value — prefer the actual paid amount over the
+        # quote, but fall back gracefully.
+        value = 0.0
+        for k in ("amount_paid", "total_amount", "quote_amount"):
+            v = b.get(k)
+            if isinstance(v, (int, float)) and v > 0:
+                value = float(v)
+                break
+
+        # Conversion time: prefer Stripe's paid_at timestamp, else booking
+        # created_at. Google requires the format: yyyy-MM-dd HH:mm:ss+/-HH:MM
+        ts_raw = b.get("stripe_paid_at") or b.get("paid_at") or b.get("created_at")
+        try:
+            from dateutil import parser as _dtp  # type: ignore
+            dt = _dtp.isoparse(ts_raw) if isinstance(ts_raw, str) else ts_raw
+        except Exception:
+            try:
+                dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+            except Exception:
+                dt = datetime.now(timezone.utc)
+        # Convert to Pacific to match TimeZone header. Use a naive offset of
+        # -08:00 (PST) — Google accepts either fixed offset format.
+        try:
+            from zoneinfo import ZoneInfo
+            dt_local = dt.astimezone(ZoneInfo(tz_id))
+        except Exception:
+            dt_local = dt
+        conv_time = dt_local.strftime("%Y-%m-%d %H:%M:%S%z")
+        # Insert ':' into the +HHMM offset: +0800 -> +08:00
+        if len(conv_time) >= 5 and (conv_time[-5] in ("+", "-")):
+            conv_time = conv_time[:-2] + ":" + conv_time[-2:]
+
+        writer.writerow([
+            gclid,
+            conversion_name,
+            conv_time,
+            f"{value:.2f}",
+            "USD",
+        ])
+        rows_written += 1
+
+    buf.seek(0)
+    filename = f"google-ads-offline-conversions-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Rows-Written": str(rows_written),
+            "X-Skipped-No-Gclid": str(skipped_no_gclid),
+            "X-Skipped-Unpaid": str(skipped_unpaid),
+        },
+    )
+
+
+@router.get("/admin/ads/offline-conversions/preview")
+async def admin_offline_conversions_preview(
+    days: int = 30,
+    _: dict = Depends(require_admin),
+):
+    """Lightweight preview — counts how many rows the CSV would contain so the
+    admin sees a "X paid bookings · Y rows · $Z value" line in the UI before
+    downloading."""
+    days = max(1, min(int(days or 30), 365))
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    PAID = {"paid", "confirmed", "in_progress", "completed"}
+    rows = 0
+    paid_total = 0
+    no_gclid = 0
+    total_value = 0.0
+
+    async for b in db.bookings.find(
+        {"created_at": {"$gte": cutoff}},
+        {"_id": 0, "utm": 1, "payment_status": 1, "status": 1, "quote_amount": 1,
+         "total_amount": 1, "amount_paid": 1},
+    ):
+        status = (b.get("payment_status") or b.get("status") or "").lower()
+        if status not in PAID:
+            continue
+        paid_total += 1
+        utm = b.get("utm") or {}
+        if not (utm.get("gclid") or "").strip():
+            no_gclid += 1
+            continue
+        rows += 1
+        for k in ("amount_paid", "total_amount", "quote_amount"):
+            v = b.get(k)
+            if isinstance(v, (int, float)) and v > 0:
+                total_value += float(v)
+                break
+
+    return {
+        "days": days,
+        "paid_bookings": paid_total,
+        "rows_with_gclid": rows,
+        "skipped_no_gclid": no_gclid,
+        "total_value": round(total_value, 2),
+    }
+

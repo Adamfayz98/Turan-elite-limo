@@ -1,0 +1,26 @@
+{
+  "summary": "Iteration 45 (Google Ads Offline Conversion CSV exporter) verified end-to-end. Backend: 8/8 pytest cases pass — auth required (401 without token), preview returns correct shape {days, paid_bookings, rows_with_gclid, skipped_no_gclid, total_value}, CSV returns Google's exact 3-line header block (Parameters:TimeZone=America/Los_Angeles → blank → column row), seeded paid booking with utm.gclid='TEST-GCLID-XYZ' shows up with Conversion Name='Purchase', Value='300.00', Currency='USD', and Conversion Time matching '^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}$' (colon in offset confirmed). ?conversion_name=Lead override propagates to the column. Bookings without gclid or not in {paid,confirmed,in_progress,completed} are excluded and reflected in X-Skipped-No-Gclid / X-Skipped-Unpaid headers + preview counters. Content-Disposition filename matches 'google-ads-offline-conversions-YYYY-MM-DD.csv'. days clamped to [1,365] (9999 and 0 both return 200). Frontend: Admin → Attribution tab renders the blue-bordered panel ABOVE totals with data-testid='ads-offline-conversion-panel', preview line ('Last 30 days: 1 rows ready (1 paid bookings · 0 skipped without gclid · total value $300)') matches spec, Download CSV button is ENABLED when rows>0 and DISABLED when rows==0 (verified by seeding then removing the booking), clicking it fires a real fetch to /api/admin/ads/offline-conversions.csv?days=30 (status 200) and shows a success toast 'Downloaded google-ads-offline-conversions-2026-06-26.csv · 1 conversions'. Switching period selector from 30 → 7 days reloads the ads-offline preview (text updates to 'Last 7 days: ...'). Regression: period selector, refresh button, totals row, sources table all still work.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter45_offline_conversions_csv.py",
+    "/app/test_reports/pytest/iter45_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "admin.py is 2823 lines — well past the 700-line guideline. Strongly recommend splitting into resource-scoped modules (admin_bookings.py, admin_attribution.py, admin_ads.py, admin_zones.py, etc.) for maintainability. Not blocking this iteration but accruing risk.",
+    "admin_offline_conversions_csv & admin_offline_conversions_preview both iterate db.bookings with nearly identical filter+status logic. Consider extracting a shared `_iter_paid_gclid_bookings(days)` helper to keep the two endpoints in lockstep (today, if the PAID set changes in one, you must remember to update the other).",
+    "PAID set is hard-coded in two places ({'paid','confirmed','in_progress','completed'}). Move to a module-level constant (or shared with other admin endpoints that already use the same set) to avoid drift.",
+    "CSV writer pulls `import csv, io` and `from fastapi.responses import StreamingResponse` inside the function body — move to module-level imports for clarity and a small startup-cost win.",
+    "Conversion Time fallback when ts_raw is None: currently uses datetime.now(utc), which silently fabricates a value. Better to skip the row (and increment a counter like skipped_no_timestamp) so the admin sees an honest count rather than a row that may not pass Google's validator.",
+    "downloadAdsCsv in AttributionTab.jsx uses raw fetch() with manual Bearer header instead of the shared `api` axios client. Works fine for blobs but introduces a divergent auth pattern — consider api.get(url, { responseType: 'blob' }) to keep auth/refresh logic centralized."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter45_offline_conversions_csv.py (new)"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin JWT minted directly from JWT_SECRET in /app/backend/.env with payload {sub:'support@turanelitelimo.com', role:'admin', exp:+2h, type:'access'} — set via localStorage 'turon_admin_token' before navigating to /admin.",
+  "seed_data_creation": "Inserted booking id='it45-csv-test' (payment_status=paid, status=confirmed, utm.gclid='TEST-GCLID-XYZ', amount_paid=300, stripe_paid_at=now). Also inserted 'it45-no-gclid' (paid, no gclid) and 'it45-unpaid' (pending, gclid='UNPAID-GCLID') for the exclusion-counter test. All three deleted after each test (pytest fixture teardown + final cleanup). Confirmed 0 leftover bookings with gclid post-run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Admin route is /admin (not /admin/dashboard). Token key in localStorage is 'turon_admin_token'. Attribution tab testid is 'tab-attribution'. The CSV endpoint includes 3 fixed lines before data rows (Parameters block, blank, column row) — when csv.reader-parsing, slice from line index 2. The Conversion Time format produced is 'YYYY-MM-DD HH:MM:SS±HH:MM' (with the colon manually inserted into the offset since strftime emits ±HHMM). All 8 backend pytest cases live in /app/backend/tests/test_iter45_offline_conversions_csv.py and use a module-scoped MongoClient fixture + JWT minted from /app/backend/.env.",
+  "rca of the issue": "N/A — no bugs found this iteration."
+}

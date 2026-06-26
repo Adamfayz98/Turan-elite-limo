@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, TrendingUp, AlertCircle, RefreshCw, Ban, CheckCircle2 } from "lucide-react";
+import { Loader2, TrendingUp, AlertCircle, RefreshCw, Ban, CheckCircle2, Download, FileText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -65,6 +65,45 @@ export default function AttributionTab() {
   const [loading, setLoading] = useState(true);
   const [blocked, setBlocked] = useState([]);
   const [togglingSource, setTogglingSource] = useState(null);
+  const [adsPreview, setAdsPreview] = useState(null);
+  const [adsDownloading, setAdsDownloading] = useState(false);
+
+  const loadAdsPreview = async (d) => {
+    try {
+      const { data: resp } = await api.get(`/admin/ads/offline-conversions/preview?days=${d}`);
+      setAdsPreview(resp);
+    } catch {
+      setAdsPreview(null);
+    }
+  };
+
+  const downloadAdsCsv = async () => {
+    setAdsDownloading(true);
+    try {
+      const token = localStorage.getItem("turon_admin_token");
+      const url = `${process.env.REACT_APP_BACKEND_URL}/api/admin/ads/offline-conversions.csv?days=${days}`;
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const rowsHeader = res.headers.get("X-Rows-Written");
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      const filename = `google-ads-offline-conversions-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+      toast.success(`Downloaded ${filename}${rowsHeader ? ` · ${rowsHeader} conversions` : ""}`);
+    } catch (err) {
+      toast.error(`Couldn't download CSV: ${err.message}`);
+    } finally {
+      setAdsDownloading(false);
+    }
+  };
 
   const loadBlocked = async () => {
     try {
@@ -103,6 +142,7 @@ export default function AttributionTab() {
   useEffect(() => {
     load(days);
     loadBlocked();
+    loadAdsPreview(days);
   }, [days]);
 
   if (loading && !data) {
@@ -157,6 +197,47 @@ export default function AttributionTab() {
             data-testid="attribution-refresh"
           >
             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+          </Button>
+        </div>
+      </div>
+
+      {/* Google Ads Offline Conversion Import (CSV) */}
+      <div
+        data-testid="ads-offline-conversion-panel"
+        className="rounded-2xl border border-[#4285F4]/30 bg-gradient-to-br from-[#4285F4]/[0.04] to-transparent p-5"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-full bg-[#4285F4]/15 border border-[#4285F4]/30 flex items-center justify-center shrink-0">
+              <FileText className="w-4 h-4 text-[#4285F4]" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-white text-sm font-medium">Google Ads — Offline Conversion Import</p>
+              <p className="text-white/55 text-xs mt-1 leading-relaxed max-w-xl">
+                Export paid bookings with a Google Ads <code className="text-[#D4AF37]">gclid</code> as a
+                CSV. Upload weekly at <span className="text-white/75">Google Ads → Tools → Conversions → Uploads</span>{" "}
+                to recover ad-blocker / cookie-loss attribution.
+              </p>
+              {adsPreview ? (
+                <p className="text-white/45 text-[11px] mt-2" data-testid="ads-offline-preview">
+                  Last {adsPreview.days} days: <span className="text-white/75">{adsPreview.rows_with_gclid}</span> rows ready
+                  ({adsPreview.paid_bookings} paid bookings · {adsPreview.skipped_no_gclid} skipped without gclid ·
+                  total value <span className="text-[#D4AF37]">${(adsPreview.total_value || 0).toLocaleString()}</span>)
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <Button
+            onClick={downloadAdsCsv}
+            disabled={adsDownloading || !adsPreview?.rows_with_gclid}
+            className="bg-[#4285F4] text-white hover:bg-[#4285F4]/90 shrink-0"
+            data-testid="ads-offline-download-btn"
+          >
+            {adsDownloading ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Preparing…</>
+            ) : (
+              <><Download className="w-4 h-4 mr-2" /> Download CSV</>
+            )}
           </Button>
         </div>
       </div>
