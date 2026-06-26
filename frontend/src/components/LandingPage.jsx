@@ -65,6 +65,13 @@ export default function LandingPage({
   ctaTitleAccent,
   ctaSubtitle,
   faqs,
+  // ---- Optional ad-tuning props (silently default if not provided) ----
+  // Custom hero CTA button label (defaults to "Get Instant Quote →").
+  ctaLabel,
+  // Short above-fold social proof line ("★★★★★ 4.9 · 213 reviews" or similar).
+  socialProof,
+  // Optional pricing transparency strip ("From $750 / all-day").
+  priceFrom,
 }) {
   useEffect(() => {
     if (pageTitle) document.title = pageTitle;
@@ -103,13 +110,31 @@ export default function LandingPage({
           <div className="flex flex-wrap items-center gap-4 mt-10">
             <a data-testid={`${testId}-book-cta`} href={BOOK_URL}
               className="inline-flex items-center gap-2 px-7 py-4 rounded-full bg-[#D4AF37] text-black font-medium hover:opacity-90 transition shadow-[0_8px_30px_rgba(212,175,55,0.35)]">
-              Get Instant Quote →
+              {ctaLabel || "Get Instant Quote →"}
             </a>
             <a data-testid={`${testId}-call-cta`} href={TEL}
               className="inline-flex items-center gap-2 px-7 py-4 rounded-full border border-white/20 text-white hover:bg-white/5 transition">
               Call {PHONE}
             </a>
           </div>
+
+          {(socialProof || priceFrom) && (
+            <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" data-testid={`${testId}-proof-bar`}>
+              {socialProof && (
+                <span className="inline-flex items-center gap-2 text-white/85">
+                  <span className="text-[#D4AF37] tracking-widest text-xs">★★★★★</span>
+                  <span>{socialProof}</span>
+                </span>
+              )}
+              {socialProof && priceFrom && <span className="text-white/25">·</span>}
+              {priceFrom && (
+                <span className="inline-flex items-center gap-1.5 text-white/75">
+                  <span className="text-white/45 text-xs uppercase tracking-[0.2em]">From</span>
+                  <span className="text-[#D4AF37] font-medium">{priceFrom}</span>
+                </span>
+              )}
+            </div>
+          )}
 
           <ul className="mt-14 grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 max-w-3xl">
             {trustStrip.map((b) => (

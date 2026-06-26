@@ -34,6 +34,9 @@ export default function WineTourLanding() {
       titleAccent="You taste."
       titleB="Worry about nothing."
       subtitle="A private chauffeur picks you up at your hotel, drives you to 3–5 hand-picked wineries, and waits while you taste. We handle parking, reservations, and routing — you handle the wine. Sprinter vans for groups of 6 to 12."
+      ctaLabel="Plan My Wine Day →"
+      socialProof="Trusted by 200+ Bay Area & SF wine country travelers"
+      priceFrom="$95/hour · 6-hour minimum · all-inclusive"
       trustStrip={["Custom Itinerary", "Hotel Pickup Included", "All-Day Hourly Rate", "Multilingual Chauffeurs"]}
       pillarHeading="Why Bay Area & SF travelers"
       pillarHeadingAccent="book wine country with us"

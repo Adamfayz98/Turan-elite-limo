@@ -2832,6 +2832,7 @@ async def get_public_booking(booking_id: str):
         "payment_status": b.get("payment_status", "unpaid"),
         "full_name": b.get("full_name"),
         "email": b.get("email"),
+        "phone": b.get("phone"),
         "service_type": b.get("service_type"),
         "vehicle_type": b.get("vehicle_type"),
         "pickup_date": b.get("pickup_date"),

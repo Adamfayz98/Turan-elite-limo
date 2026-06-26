@@ -160,7 +160,12 @@ export default function QuoteRequestDialog({
         utm: getStoredUtm(),
       });
       try {
-        trackQuoteRequest({ requestId: data?.id, vehicleType });
+        trackQuoteRequest({
+          requestId: data?.id,
+          vehicleType,
+          email: form.email,
+          phone: form.phone,
+        });
       } catch {/* never block UX on tracking */}
       setDone(true);
     } catch (err) {

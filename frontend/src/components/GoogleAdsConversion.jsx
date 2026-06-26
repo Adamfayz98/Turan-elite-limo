@@ -16,6 +16,8 @@ export default function GoogleAdsConversion({ booking }) {
     trackPurchase({
       bookingId: booking.confirmation_number || booking.id,
       amount: booking.quote_amount,
+      email: booking.email,
+      phone: booking.phone,
     });
     fired.current = true;
   }, [booking]);

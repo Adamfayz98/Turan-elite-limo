@@ -1,0 +1,43 @@
+{
+  "summary": "Verified Enhanced Conversions for Web + Wine Tour landing CTRBR. Backend: /bookings/{id}/public now returns `phone` correctly (3/3 pytest passing). Frontend: /thank-you fires SHA-256-hashed user_data with both sha256_email_address & sha256_phone_number (64-char lowercase hex matching Node-computed expected values) and conversion event sending to AW-18168374727. _gads_eu_data and _gads_purchase_TEST-RFND keys both set in sessionStorage. Wine-tour shows custom 'Plan My Wine Day →' CTA and proof bar with all expected substrings. Wedding/Airport/Corporate/Party-Bus landings retain default 'Get Instant Quote →' CTA and do NOT render a proof bar (props confirmed opt-in). Phone normalization tested for all four input formats — all collapse to +16504100687 producing identical fingerprint.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Enhanced Conversions ordering on /thank-you (and trackQuoteRequest)",
+        "issue": "gtag('event','conversion',...) is pushed to dataLayer BEFORE gtag('set','user_data',...). Confirmed by inspecting window.dataLayer order on /thank-you: index [4] = conversion, index [5] = user_data. Root cause in /app/frontend/src/lib/googleAdsEvents.js trackPurchase()/trackQuoteRequest(): `setEnhancedConversionData(...)` is fire-and-forget (async, not awaited) while the synchronous fireOnce() runs immediately. Per Google's Enhanced Conversions docs, user_data must be set BEFORE the conversion event so that the event is enriched. As implemented, the very first conversion in a session fires WITHOUT the hashed identifiers attached on the gtag side (still ok client-side for sessionStorage but Google may not enrich that first event). Subsequent same-session conversions would be fine because user_data persists via gtag config. Recommend: make these functions async and `await setEnhancedConversionData(...)` before fireOnce, or push to dataLayer synchronously (skip Web Crypto for first event and use a fallback).",
+        "affected_selectors": ["window.dataLayer", "lib/googleAdsEvents.js"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter44_public_booking_phone.py",
+    "/app/test_reports/pytest/iter44_results.xml"
+  ],
+  "action_items": [
+    "Fix ordering of gtag('set','user_data',...) vs gtag('event','conversion',...) in /app/frontend/src/lib/googleAdsEvents.js — make trackPurchase / trackQuoteRequest async and await setEnhancedConversionData() so user_data is registered BEFORE the conversion event is pushed to dataLayer. Without this, the very first conversion of a session is sent un-enriched to Google Ads, defeating the purpose of Enhanced Conversions for the highest-value first hit (which is exactly what /thank-you is)."
+  ],
+  "critical_code_review_comments": [
+    "googleAdsEvents.js: trackPurchase / trackQuoteRequest call setEnhancedConversionData(...).catch(()=>{}) without await — the synchronous fireOnce() pushes the conversion event to dataLayer first, then the user_data set lands later when the SHA-256 promise resolves. Per Google's Enhanced Conversions docs, this order is reversed from what's required and the first event of a session won't be enriched.",
+    "LandingPage.jsx: bottom-of-page CTA banner still hard-codes 'Get Instant Quote →' even when ctaLabel prop is provided. Minor inconsistency — /wine-tour hero says 'Plan My Wine Day →' but the bottom CTA says 'Get Instant Quote →'. Consider applying ctaLabel to the bottom CTA too for messaging consistency.",
+    "LandingPage.jsx is large (411 lines) and mixes hero, pillars, gallery, FAQ, etc. — could be split into focused subcomponents for maintainability, but not blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter44_public_booking_phone.py (new file)"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "95%"
+  },
+  "test_credentials": "Seed booking 9fb00287-2154-4178-81fd-11c16a4f8a32 (email=t@t.com, phone=+16504100687, payment_status=paid, confirmation_number=TEST-RFND). Verified live.",
+  "seed_data_creation": "None — used existing seed booking. No quote_request was actually submitted end-to-end (floating widget button label could not be reliably located by selector + the date/location fields involve Google Maps autocomplete that is brittle to automate). The trackQuoteRequest path is structurally identical to trackPurchase (same setEnhancedConversionData() + fireOnce() pair) which was fully verified on /thank-you, and phone normalization was unit-tested directly against the same normalizePhoneE164() logic. No cleanup required.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Hashes computed via Node match the in-browser dataLayer hashes exactly: email 't@t.com' -> 61d5688aebb7cd2dea81bb0b81b4c8191a88fdcbe56e3b56c7d27a1798450ece (NOT the value in the original review request — that one was incorrect, as the request warned would be possible); phone '+16504100687' -> e2547706941e72c4ccff9d2ed29f93293dcd173d632174822b1d0e9d1a6d1553. Phone normalization confirmed working for +16504100687 / (650) 410-0687 / 6504100687 / 16504100687 — all four produce identical fingerprint 'test+lead@example.com|+16504100687'. The only real issue is the async ordering of user_data vs conversion event push to dataLayer — once fixed, re-verify dataLayer index ordering on /thank-you with a fresh sessionStorage.",
+  "rca of the issue": "Enhanced Conversions ordering bug — googleAdsEvents.js calls `setEnhancedConversionData(...).catch(()=>{})` (returns a Promise, not awaited) and then immediately calls `fireOnce(...)` (synchronous, pushes to dataLayer). Because Promise resolution is microtask-deferred, the synchronous fireOnce push lands in dataLayer BEFORE the asynchronous user_data push. Confirmed by inspecting window.dataLayer entries on /thank-you: [4]=conversion event, [5]=set user_data. Fix: convert trackPurchase / trackQuoteRequest to async functions and `await setEnhancedConversionData({email, phone})` before calling fireOnce(). Reproduction: load /thank-you?bid=9fb00287-... with fresh sessionStorage, then inspect window.dataLayer — the 'event','conversion' entry appears at a lower index than the 'set','user_data' entry."
+}
