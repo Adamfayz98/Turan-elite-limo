@@ -12,12 +12,15 @@ Routes mounted in server.py via `include_router(affiliates_router)`.
 
 from __future__ import annotations
 
+import csv
+import io
 import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
 
 router = APIRouter(prefix="/admin/affiliates", tags=["affiliates"])
@@ -82,7 +85,7 @@ def detect_region(*texts: str) -> Optional[str]:
 # ----- models ---------------------------------------------------------------
 
 class AffiliateBase(BaseModel):
-    name: str = Field(..., min_length=2, max_length=120)  # company name
+    name: str = Field(..., min_length=2, max_length=120)  # company name (DBA)
     contact_name: Optional[str] = Field(None, max_length=80)
     phone: Optional[str] = Field(None, max_length=30)
     email: Optional[EmailStr] = None
@@ -96,6 +99,13 @@ class AffiliateBase(BaseModel):
     base_suv_rate: Optional[float] = Field(None, ge=0)
     notes: Optional[str] = Field(None, max_length=2000)
     active: bool = True
+    # ---- 1099 / tax fields (optional; required only when issuing 1099) ----
+    legal_name: Optional[str] = Field(None, max_length=120)   # legal name on W-9
+    tax_id: Optional[str] = Field(None, max_length=20)        # EIN or SSN, stored as-typed
+    tax_classification: Optional[str] = Field(None, max_length=40)
+    # one of: Individual/Sole Prop, Single-Member LLC, LLC-C, LLC-S, LLC-P, C-Corp, S-Corp, Partnership, Other
+    w9_received: bool = False
+    mailing_address: Optional[str] = Field(None, max_length=300)
 
 
 class AffiliateCreate(AffiliateBase):
@@ -117,6 +127,11 @@ class AffiliateUpdate(BaseModel):
     base_suv_rate: Optional[float] = Field(None, ge=0)
     notes: Optional[str] = None
     active: Optional[bool] = None
+    legal_name: Optional[str] = None
+    tax_id: Optional[str] = None
+    tax_classification: Optional[str] = None
+    w9_received: Optional[bool] = None
+    mailing_address: Optional[str] = None
 
 
 class Affiliate(AffiliateBase):
@@ -126,6 +141,7 @@ class Affiliate(AffiliateBase):
     # roll-up stats — populated by the list endpoint, not stored
     rides_total: int = 0
     profit_total: float = 0.0
+    paid_ytd: float = 0.0  # sum of affiliate_payments in current calendar year
 
 
 class AffiliateAssignmentRequest(BaseModel):
@@ -133,6 +149,44 @@ class AffiliateAssignmentRequest(BaseModel):
     affiliate_id: str
     affiliate_cost: float = Field(..., ge=0)  # what we pay them
     notes: Optional[str] = Field(None, max_length=2000)
+
+
+# ----- Payments (Zelle / Venmo / Check etc. paid TO an affiliate) -----------
+
+PAYMENT_METHODS = ["Zelle", "Venmo", "Check", "Cash", "ACH", "Wire", "PayPal", "Other"]
+
+
+class AffiliatePaymentBase(BaseModel):
+    affiliate_id: str
+    amount: float = Field(..., gt=0)
+    payment_date: str = Field(..., description="ISO date YYYY-MM-DD")
+    method: str = Field(..., max_length=40)  # one of PAYMENT_METHODS
+    reference: Optional[str] = Field(None, max_length=120)  # confirmation #
+    booking_id: Optional[str] = Field(None, max_length=80)
+    booking_label: Optional[str] = Field(None, max_length=240)
+    notes: Optional[str] = Field(None, max_length=2000)
+
+
+class AffiliatePaymentCreate(AffiliatePaymentBase):
+    pass
+
+
+class AffiliatePaymentUpdate(BaseModel):
+    amount: Optional[float] = Field(None, gt=0)
+    payment_date: Optional[str] = None
+    method: Optional[str] = None
+    reference: Optional[str] = None
+    booking_id: Optional[str] = None
+    booking_label: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class AffiliatePayment(AffiliatePaymentBase):
+    id: str
+    affiliate_name: str  # snapshot at time of payment
+    created_at: str
+    updated_at: str
+    created_by: Optional[str] = None
 
 
 # ----- dependency import (lazy to dodge circular) ---------------------------
@@ -165,6 +219,23 @@ async def _aff_stats(db, affiliate_id: str) -> dict:
     return {"rides_total": rides, "profit_total": round(profit, 2)}
 
 
+async def _paid_ytd(db, affiliate_id: str, year: Optional[int] = None) -> float:
+    """Sum of affiliate_payments for the given calendar year (defaults to current)."""
+    y = year or datetime.now(timezone.utc).year
+    start = f"{y}-01-01"
+    end = f"{y}-12-31"
+    total = 0.0
+    async for p in db.affiliate_payments.find(
+        {
+            "affiliate_id": affiliate_id,
+            "payment_date": {"$gte": start, "$lte": end},
+        },
+        {"_id": 0, "amount": 1},
+    ):
+        total += float(p.get("amount") or 0)
+    return round(total, 2)
+
+
 # ----- routes ---------------------------------------------------------------
 
 @router.get("", response_model=List[Affiliate])
@@ -187,7 +258,8 @@ def _build_router():
         items: List[Affiliate] = []
         async for doc in db.affiliates.find(query, {"_id": 0}).sort("name", 1):
             stats = await _aff_stats(db, doc["id"])
-            items.append(Affiliate(**doc, **stats))
+            paid_ytd = await _paid_ytd(db, doc["id"])
+            items.append(Affiliate(**doc, **stats, paid_ytd=paid_ytd))
         return items
 
     @r.post("", response_model=Affiliate)
@@ -196,7 +268,237 @@ def _build_router():
         now = _now_iso()
         doc = {**payload.model_dump(), "id": aid, "created_at": now, "updated_at": now}
         await db.affiliates.insert_one(dict(doc))
-        return Affiliate(**doc, rides_total=0, profit_total=0.0)
+        return Affiliate(**doc, rides_total=0, profit_total=0.0, paid_ytd=0.0)
+
+    # ----- PAYMENTS (must be registered before /{affiliate_id} dynamic routes) -----
+
+    @r.get("/payments", response_model=List[AffiliatePayment])
+    async def list_payments(
+        year: Optional[int] = Query(None, ge=2000, le=2100),
+        affiliate_id: Optional[str] = None,
+        method: Optional[str] = None,
+        _=Depends(require_admin),
+    ):
+        query: dict = {}
+        if year:
+            query["payment_date"] = {"$gte": f"{year}-01-01", "$lte": f"{year}-12-31"}
+        if affiliate_id:
+            query["affiliate_id"] = affiliate_id
+        if method:
+            query["method"] = method
+        items: List[AffiliatePayment] = []
+        async for doc in db.affiliate_payments.find(query, {"_id": 0}).sort("payment_date", -1):
+            items.append(AffiliatePayment(**doc))
+        return items
+
+    @r.post("/payments", response_model=AffiliatePayment)
+    async def create_payment(payload: AffiliatePaymentCreate, admin=Depends(require_admin)):
+        if payload.method not in PAYMENT_METHODS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"method must be one of {PAYMENT_METHODS}",
+            )
+        try:
+            datetime.strptime(payload.payment_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="payment_date must be YYYY-MM-DD")
+
+        aff = await db.affiliates.find_one(
+            {"id": payload.affiliate_id},
+            {"_id": 0, "id": 1, "name": 1},
+        )
+        if not aff:
+            raise HTTPException(status_code=404, detail="Affiliate not found")
+
+        pid = str(uuid.uuid4())
+        now = _now_iso()
+        created_by = (admin.get("sub") or admin.get("email")) if isinstance(admin, dict) else None
+        doc = {
+            **payload.model_dump(),
+            "id": pid,
+            "affiliate_name": aff["name"],
+            "created_at": now,
+            "updated_at": now,
+            "created_by": created_by,
+        }
+        await db.affiliate_payments.insert_one(dict(doc))
+        return AffiliatePayment(**doc)
+
+    @r.patch("/payments/{payment_id}", response_model=AffiliatePayment)
+    async def update_payment(
+        payment_id: str,
+        payload: AffiliatePaymentUpdate,
+        _=Depends(require_admin),
+    ):
+        update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+        if not update:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        if "method" in update and update["method"] not in PAYMENT_METHODS:
+            raise HTTPException(status_code=400, detail=f"method must be one of {PAYMENT_METHODS}")
+        if "payment_date" in update:
+            try:
+                datetime.strptime(update["payment_date"], "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="payment_date must be YYYY-MM-DD")
+        update["updated_at"] = _now_iso()
+        result = await db.affiliate_payments.update_one({"id": payment_id}, {"$set": update})
+        if not result.matched_count:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        doc = await db.affiliate_payments.find_one({"id": payment_id}, {"_id": 0})
+        return AffiliatePayment(**doc)
+
+    @r.delete("/payments/{payment_id}")
+    async def delete_payment(payment_id: str, _=Depends(require_admin)):
+        result = await db.affiliate_payments.delete_one({"id": payment_id})
+        if not result.deleted_count:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        return {"ok": True}
+
+    @r.get("/payments/summary")
+    async def payments_summary(
+        year: Optional[int] = Query(None, ge=2000, le=2100),
+        _=Depends(require_admin),
+    ):
+        """Per-affiliate roll-up for the given year — used by the Payments tab cards."""
+        y = year or datetime.now(timezone.utc).year
+        start = f"{y}-01-01"
+        end = f"{y}-12-31"
+        totals: dict[str, dict] = {}
+        async for p in db.affiliate_payments.find(
+            {"payment_date": {"$gte": start, "$lte": end}},
+            {"_id": 0},
+        ):
+            aid = p["affiliate_id"]
+            slot = totals.setdefault(
+                aid,
+                {
+                    "affiliate_id": aid,
+                    "affiliate_name": p.get("affiliate_name") or "",
+                    "total": 0.0,
+                    "count": 0,
+                },
+            )
+            slot["total"] += float(p.get("amount") or 0)
+            slot["count"] += 1
+        # Round amounts
+        rows = []
+        for a in totals.values():
+            a["total"] = round(a["total"], 2)
+            rows.append(a)
+        rows.sort(key=lambda x: x["total"], reverse=True)
+        grand_total = round(sum(r["total"] for r in rows), 2)
+        return {"year": y, "grand_total": grand_total, "rows": rows}
+
+    @r.get("/payments/export.csv")
+    async def export_payments_csv(
+        year: Optional[int] = Query(None, ge=2000, le=2100),
+        _=Depends(require_admin),
+    ):
+        """Full payment ledger for the given year."""
+        y = year or datetime.now(timezone.utc).year
+        start = f"{y}-01-01"
+        end = f"{y}-12-31"
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "Payment Date", "Affiliate", "Amount (USD)", "Method", "Reference",
+            "Booking ID", "Booking Label", "Notes", "Recorded By", "Recorded At",
+        ])
+        async for p in db.affiliate_payments.find(
+            {"payment_date": {"$gte": start, "$lte": end}},
+            {"_id": 0},
+        ).sort("payment_date", 1):
+            writer.writerow([
+                p.get("payment_date", ""),
+                p.get("affiliate_name", ""),
+                f"{float(p.get('amount') or 0):.2f}",
+                p.get("method", ""),
+                p.get("reference") or "",
+                p.get("booking_id") or "",
+                p.get("booking_label") or "",
+                (p.get("notes") or "").replace("\n", " "),
+                p.get("created_by") or "",
+                p.get("created_at", ""),
+            ])
+        buf.seek(0)
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="affiliate-payments-{y}.csv"',
+            },
+        )
+
+    @r.get("/payments/1099-csv")
+    async def export_1099_csv(
+        year: Optional[int] = Query(None, ge=2000, le=2100),
+        threshold: float = Query(600.0, ge=0),
+        _=Depends(require_admin),
+    ):
+        """One row per affiliate with totals + W-9 fields, ready for 1099-NEC prep.
+
+        Default threshold is $600 (IRS 1099-NEC requirement). Corporations
+        (C-Corp / S-Corp) are flagged as 'No' under "1099 Required" since
+        payments to corporations generally do not require a 1099-NEC.
+        """
+        y = year or datetime.now(timezone.utc).year
+        start = f"{y}-01-01"
+        end = f"{y}-12-31"
+
+        # Aggregate totals per affiliate first
+        totals: dict[str, dict] = {}
+        async for p in db.affiliate_payments.find(
+            {"payment_date": {"$gte": start, "$lte": end}},
+            {"_id": 0, "affiliate_id": 1, "amount": 1},
+        ):
+            aid = p["affiliate_id"]
+            slot = totals.setdefault(aid, {"total": 0.0, "count": 0})
+            slot["total"] += float(p.get("amount") or 0)
+            slot["count"] += 1
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "Vendor (DBA)", "Legal Name", "Tax ID (EIN/SSN)", "Tax Classification",
+            "W-9 Received", "Mailing Address", "City", "Phone", "Email",
+            f"Total Paid {y} (USD)", "Payment Count",
+            f"1099 Required (>= ${threshold:.0f})",
+        ])
+
+        for aid, agg in sorted(totals.items(), key=lambda kv: -kv[1]["total"]):
+            doc = await db.affiliates.find_one({"id": aid}, {"_id": 0}) or {}
+            total = round(agg["total"], 2)
+            classification = (doc.get("tax_classification") or "").strip()
+            is_corp = classification.lower() in (
+                "c-corp", "s-corp", "c corp", "s corp",
+                "llc-c", "llc-s",  # LLCs taxed as corporations
+            )
+            required = "No" if is_corp else ("Yes" if total >= threshold else "No")
+            writer.writerow([
+                doc.get("name") or "",
+                doc.get("legal_name") or "",
+                doc.get("tax_id") or "",
+                classification,
+                "Yes" if doc.get("w9_received") else "No",
+                (doc.get("mailing_address") or "").replace("\n", " "),
+                doc.get("city") or "",
+                doc.get("phone") or "",
+                doc.get("email") or "",
+                f"{total:.2f}",
+                agg["count"],
+                required,
+            ])
+
+        buf.seek(0)
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="1099-prep-{y}.csv"',
+            },
+        )
+
+    # ----- /{affiliate_id} dynamic routes (registered AFTER /payments) -----
 
     @r.patch("/{affiliate_id}", response_model=Affiliate)
     async def update_affiliate(affiliate_id: str, payload: AffiliateUpdate, _=Depends(require_admin)):
@@ -209,7 +511,8 @@ def _build_router():
             raise HTTPException(status_code=404, detail="Affiliate not found")
         doc = await db.affiliates.find_one({"id": affiliate_id}, {"_id": 0})
         stats = await _aff_stats(db, affiliate_id)
-        return Affiliate(**doc, **stats)
+        paid_ytd = await _paid_ytd(db, affiliate_id)
+        return Affiliate(**doc, **stats, paid_ytd=paid_ytd)
 
     @r.delete("/{affiliate_id}")
     async def delete_affiliate(affiliate_id: str, _=Depends(require_admin)):

@@ -15,6 +15,26 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import AffiliatePaymentsView from "./AffiliatePaymentsView";
+
+const TAX_CLASSIFICATIONS = [
+  "Individual / Sole Prop",
+  "Single-Member LLC",
+  "LLC-P",
+  "LLC-C",
+  "LLC-S",
+  "C-Corp",
+  "S-Corp",
+  "Partnership",
+  "Other",
+];
 
 const EMPTY = {
   name: "",
@@ -31,6 +51,12 @@ const EMPTY = {
   base_suv_rate: "",
   notes: "",
   active: true,
+  // tax / 1099 fields
+  legal_name: "",
+  tax_id: "",
+  tax_classification: "",
+  w9_received: false,
+  mailing_address: "",
 };
 
 function csvToArray(s) {
@@ -52,6 +78,7 @@ export default function AffiliatesTab() {
   const [showInactive, setShowInactive] = useState(false);
   const [regionFilter, setRegionFilter] = useState("All");
   const [regions, setRegions] = useState([]);
+  const [view, setView] = useState("network"); // "network" | "payments"
 
   const load = async () => {
     setLoading(true);
@@ -114,6 +141,11 @@ export default function AffiliatesTab() {
       base_suv_rate: editing.base_suv_rate ? Number(editing.base_suv_rate) : null,
       notes: editing.notes?.trim() || null,
       active: !!editing.active,
+      legal_name: editing.legal_name?.trim() || null,
+      tax_id: editing.tax_id?.trim() || null,
+      tax_classification: editing.tax_classification?.trim() || null,
+      w9_received: !!editing.w9_received,
+      mailing_address: editing.mailing_address?.trim() || null,
     };
     try {
       if (editing.id) {
@@ -145,41 +177,73 @@ export default function AffiliatesTab() {
 
   return (
     <div data-testid="affiliates-tab" className="space-y-6">
-      {/* Header + stats */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h2 className="text-2xl text-white font-light">Affiliate Network</h2>
-          <p className="text-white/55 text-sm mt-1 max-w-xl">
-            Partner operators for out-of-territory rides. Customer pays you the full quote; you pay the affiliate their net rate; you keep the markup.
-          </p>
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="text-right">
-            <p className="text-white/40 text-[10px] uppercase tracking-widest">Total brokered rides</p>
-            <p className="text-white text-2xl font-light" data-testid="affiliates-total-rides">{totals.rides}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-white/40 text-[10px] uppercase tracking-widest">Total markup profit</p>
-            <p className="text-[#D4AF37] text-2xl font-light" data-testid="affiliates-total-profit">
-              ${totals.profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-          </div>
-        </div>
+      {/* View toggle: Network vs Payments */}
+      <div className="flex items-center gap-2" data-testid="affiliates-view-toggle">
+        <button
+          type="button"
+          onClick={() => setView("network")}
+          data-testid="affiliates-view-network"
+          className={`px-4 py-2 rounded-full text-xs uppercase tracking-widest border transition ${
+            view === "network"
+              ? "bg-[#D4AF37] text-black border-[#D4AF37]"
+              : "bg-white/[0.02] text-white/65 border-white/10 hover:border-white/25"
+          }`}
+        >
+          Network
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("payments")}
+          data-testid="affiliates-view-payments"
+          className={`px-4 py-2 rounded-full text-xs uppercase tracking-widest border transition ${
+            view === "payments"
+              ? "bg-[#D4AF37] text-black border-[#D4AF37]"
+              : "bg-white/[0.02] text-white/65 border-white/10 hover:border-white/25"
+          }`}
+        >
+          Payments &amp; 1099
+        </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          data-testid="affiliates-add-btn"
-          onClick={() => setEditing({ ...EMPTY })}
-          className="bg-[#D4AF37] text-black hover:opacity-90"
-        >
-          <Plus className="w-4 h-4 mr-2" /> Add Affiliate
-        </Button>
-        <label className="flex items-center gap-2 text-white/55 text-sm cursor-pointer">
-          <Switch checked={showInactive} onCheckedChange={setShowInactive} data-testid="affiliates-show-inactive" />
-          Show inactive
-        </label>
-      </div>
+      {view === "payments" ? (
+        <AffiliatePaymentsView affiliates={items} />
+      ) : (
+        <>
+          {/* Header + stats */}
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="text-2xl text-white font-light">Affiliate Network</h2>
+              <p className="text-white/55 text-sm mt-1 max-w-xl">
+                Partner operators for out-of-territory rides. Customer pays you the full quote; you pay the affiliate their net rate; you keep the markup.
+              </p>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="text-right">
+                <p className="text-white/40 text-[10px] uppercase tracking-widest">Total brokered rides</p>
+                <p className="text-white text-2xl font-light" data-testid="affiliates-total-rides">{totals.rides}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-white/40 text-[10px] uppercase tracking-widest">Total markup profit</p>
+                <p className="text-[#D4AF37] text-2xl font-light" data-testid="affiliates-total-profit">
+                  ${totals.profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              data-testid="affiliates-add-btn"
+              onClick={() => setEditing({ ...EMPTY })}
+              className="bg-[#D4AF37] text-black hover:opacity-90"
+            >
+              <Plus className="w-4 h-4 mr-2" /> Add Affiliate
+            </Button>
+            <label className="flex items-center gap-2 text-white/55 text-sm cursor-pointer">
+              <Switch checked={showInactive} onCheckedChange={setShowInactive} data-testid="affiliates-show-inactive" />
+              Show inactive
+            </label>
+          </div>
 
       {/* Region filter pills */}
       {regions.length > 0 && (
@@ -342,6 +406,8 @@ export default function AffiliatesTab() {
             </div>
           ))}
         </div>
+      )}
+        </>
       )}
 
       {/* Edit Dialog */}
@@ -514,6 +580,76 @@ export default function AffiliatesTab() {
                   value={editing.insurance_expiry || ""}
                   onChange={(e) => setEditing({ ...editing, insurance_expiry: e.target.value })}
                   className="bg-[#0E0E0E] border-[#27272A] mt-1"
+                />
+              </div>
+
+              {/* ---- Tax / 1099 info ---- */}
+              <div className="sm:col-span-2 mt-3 pt-3 border-t border-white/10">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[#D4AF37]/80 mb-2">
+                  Tax / 1099 prep
+                </p>
+                <p className="text-white/40 text-[11px] leading-snug">
+                  Fill these in once per vendor so the 1099-NEC CSV in January is one click.
+                </p>
+              </div>
+
+              <div>
+                <Label className="text-white/70 text-xs">Legal name (on W-9)</Label>
+                <Input
+                  data-testid="affiliate-input-legal-name"
+                  value={editing.legal_name || ""}
+                  onChange={(e) => setEditing({ ...editing, legal_name: e.target.value })}
+                  placeholder="Capital City Limousine LLC"
+                  className="bg-[#0E0E0E] border-[#27272A] mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-white/70 text-xs">Tax ID (EIN or SSN)</Label>
+                <Input
+                  data-testid="affiliate-input-tax-id"
+                  value={editing.tax_id || ""}
+                  onChange={(e) => setEditing({ ...editing, tax_id: e.target.value })}
+                  placeholder="12-3456789"
+                  className="bg-[#0E0E0E] border-[#27272A] mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-white/70 text-xs">Tax classification</Label>
+                <Select
+                  value={editing.tax_classification || ""}
+                  onValueChange={(v) => setEditing({ ...editing, tax_classification: v })}
+                >
+                  <SelectTrigger
+                    className="bg-[#0E0E0E] border-[#27272A] mt-1"
+                    data-testid="affiliate-input-tax-class"
+                  >
+                    <SelectValue placeholder="Select…" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#0a0a0a] border-white/10 text-white">
+                    {TAX_CLASSIFICATIONS.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end gap-2">
+                <div className="flex items-center gap-2 pb-2">
+                  <Switch
+                    checked={!!editing.w9_received}
+                    onCheckedChange={(v) => setEditing({ ...editing, w9_received: v })}
+                    data-testid="affiliate-input-w9"
+                  />
+                  <span className="text-white/70 text-sm">W-9 on file</span>
+                </div>
+              </div>
+              <div className="sm:col-span-2">
+                <Label className="text-white/70 text-xs">Mailing address (for 1099)</Label>
+                <Textarea
+                  data-testid="affiliate-input-mailing-address"
+                  value={editing.mailing_address || ""}
+                  onChange={(e) => setEditing({ ...editing, mailing_address: e.target.value })}
+                  placeholder="100 K St, Sacramento CA 95814"
+                  className="bg-[#0E0E0E] border-[#27272A] mt-1 min-h-[60px]"
                 />
               </div>
 
