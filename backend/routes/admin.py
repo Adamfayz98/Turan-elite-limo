@@ -2219,6 +2219,154 @@ async def admin_clear_driver_password(driver_id: str, _: dict = Depends(require_
     return {"ok": True, "driver_email": d.get("email"), "message": "Driver password cleared. They can now use the 'Set password' flow."}
 
 
+@router.post("/admin/drivers/{driver_id}/invite")
+async def admin_invite_driver(driver_id: str, _: dict = Depends(require_admin)):
+    """Email a driver an onboarding invite with:
+
+      • App download links (iOS + Android)
+      • A one-time 'Set your password' link (7-day expiry) so they don't have
+        to reset on first launch
+      • Phone-number reminder + support contact
+
+    Tracks `last_invited_at` and `invite_count` on the driver document so the
+    Admin UI can show "Invited 2 days ago · 3 times" next to each row.
+
+    Reuses the existing `password_reset_tokens` collection — same shape as
+    forgot-password, but the email copy is welcome-flavored instead of reset.
+    """
+    d = await db.drivers.find_one({"id": driver_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Driver not found")
+
+    email = (d.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(
+            status_code=400,
+            detail="Driver has no email on file. Edit the driver and add an email first.",
+        )
+
+    # Issue a 7-day setup token. Identical shape to the forgot-password
+    # token so /driver-auth/reset-password handles it transparently.
+    import secrets
+    token = secrets.token_urlsafe(32)
+    expires = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    await db.password_reset_tokens.insert_one({
+        "token": token,
+        "driver_id": d["id"],
+        "role": "driver",
+        "email": email,
+        "expires_at": expires,
+        "used": False,
+        "kind": "invite",  # distinguishes invite from forgot-password in logs
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    setup_url = f"{SITE_BASE_URL}/driver-reset-password?token={token}"
+    ios_url = "https://apps.apple.com/us/app/turanelitelimo/id6749083122"
+    android_url = (
+        "https://play.google.com/store/apps/details?id=com.turanelitelimo.app"
+    )
+
+    sent = False
+    try:
+        from email_service import send_email
+        first_name = (d.get("name") or "there").split(" ")[0]
+        html = f"""
+        <div style="background:#050505;padding:40px 20px;font-family:Helvetica,Arial,sans-serif;color:#fff;">
+          <div style="max-width:560px;margin:0 auto;background:#0e0e0e;border:1px solid rgba(212,175,55,0.2);border-radius:16px;padding:32px;">
+            <div style="text-align:center;margin-bottom:24px;">
+              <img src="{SITE_BASE_URL}/logo-mark.png" alt="TuranEliteLimo" style="height:60px;">
+            </div>
+            <p style="color:#D4AF37;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;margin:0 0 12px;">Welcome aboard</p>
+            <h1 style="color:#fff;font-size:24px;font-weight:300;margin:0 0 14px;line-height:1.25;">Hi {first_name} — you're on the team.</h1>
+            <p style="color:rgba(255,255,255,0.7);font-size:14px;line-height:1.65;margin:0 0 22px;">
+              We added you as a chauffeur on TuranEliteLimo. Two quick steps to get started:
+            </p>
+
+            <div style="background:rgba(212,175,55,0.06);border:1px solid rgba(212,175,55,0.25);border-radius:12px;padding:18px;margin-bottom:18px;">
+              <p style="color:#D4AF37;font-size:12px;letter-spacing:0.15em;text-transform:uppercase;margin:0 0 8px;">Step 1 · Set your password</p>
+              <p style="color:rgba(255,255,255,0.75);font-size:13px;line-height:1.55;margin:0 0 14px;">
+                Pick a password you'll remember. This link expires in 7 days.
+              </p>
+              <a href="{setup_url}" style="display:inline-block;background:#D4AF37;color:#000;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600;font-size:13px;">
+                Set my password →
+              </a>
+            </div>
+
+            <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:18px;margin-bottom:22px;">
+              <p style="color:rgba(255,255,255,0.85);font-size:12px;letter-spacing:0.15em;text-transform:uppercase;margin:0 0 8px;">Step 2 · Download the driver app</p>
+              <p style="color:rgba(255,255,255,0.6);font-size:13px;line-height:1.55;margin:0 0 14px;">
+                Sign in with the email <span style="color:#D4AF37;">{email}</span> and the password you just set.
+              </p>
+              <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+                <tr>
+                  <td style="padding-right:10px;">
+                    <a href="{ios_url}" style="display:inline-block;background:#fff;color:#000;text-decoration:none;padding:10px 18px;border-radius:8px;font-size:12px;font-weight:600;">iOS App Store</a>
+                  </td>
+                  <td>
+                    <a href="{android_url}" style="display:inline-block;background:#fff;color:#000;text-decoration:none;padding:10px 18px;border-radius:8px;font-size:12px;font-weight:600;">Google Play</a>
+                  </td>
+                </tr>
+              </table>
+            </div>
+
+            <p style="color:rgba(255,255,255,0.55);font-size:12px;line-height:1.6;margin:0 0 6px;">
+              Once signed in you'll see assigned trips with pickup/drop-off, live navigation, and one-tap status updates (En Route → Arrived → Trip Started → Completed).
+            </p>
+            <p style="color:rgba(255,255,255,0.45);font-size:12px;line-height:1.6;margin:0 0 22px;">
+              Questions? Reply to this email or text dispatch at <span style="color:#D4AF37;">(650) 410-0687</span>.
+            </p>
+
+            <p style="color:rgba(255,255,255,0.3);font-size:11px;line-height:1.5;margin-top:24px;border-top:1px solid rgba(255,255,255,0.08);padding-top:16px;">
+              TuranEliteLimo · Bay Area &amp; Northern California
+            </p>
+          </div>
+        </div>
+        """
+        text = (
+            f"Hi {first_name}, you've been added as a chauffeur on TuranEliteLimo.\n\n"
+            f"Step 1 — Set your password: {setup_url}  (link expires in 7 days)\n"
+            f"Step 2 — Download the driver app:\n"
+            f"  iOS:     {ios_url}\n"
+            f"  Android: {android_url}\n\n"
+            f"Sign in with {email} and the password you just set.\n\n"
+            f"Questions? Text dispatch at (650) 410-0687."
+        )
+        _ = text  # email_service ignores plain-text fallback for now; kept for future use
+        await send_email(
+            to=email,
+            subject="Welcome to TuranEliteLimo — set your driver password",
+            html=html,
+        )
+        sent = True
+    except Exception as e:
+        logger.error(f"Driver invite email send failed for {email}: {e}")
+        # Don't 500 — let the admin see the token URL so they can hand-deliver
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.drivers.update_one(
+        {"id": driver_id},
+        {
+            "$set": {"last_invited_at": now_iso},
+            "$inc": {"invite_count": 1},
+        },
+    )
+
+    return {
+        "ok": True,
+        "sent": sent,
+        "email": email,
+        "expires_at": expires,
+        # Manual fallback so admin can copy/paste if email bounced
+        "setup_url_if_email_failed": setup_url if not sent else None,
+        "message": (
+            f"Invite emailed to {email}. Link expires in 7 days."
+            if sent
+            else f"Could not email {email}. Copy the setup URL and send it manually."
+        ),
+    }
+
+
 @router.post("/admin/bookings/sync-completed")
 async def admin_sync_completed_bookings(_: dict = Depends(require_admin)):
     """Backfill helper: finds bookings whose driver marked trip_status='completed'

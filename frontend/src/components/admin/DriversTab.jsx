@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Edit2, Trash2, Loader2, UserPlus, Phone, Mail } from "lucide-react";
+import { Plus, Edit2, Trash2, Loader2, UserPlus, Phone, Mail, Send } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -17,11 +17,30 @@ import {
 
 const EMPTY = { name: "", phone: "", email: "", plate: "", vehicle: "", active: true };
 
+// "2 days ago" style — keeps the UI tight when an invite was sent recently.
+function timeAgoShort(iso) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!t) return null;
+  const secs = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
+}
+
 export default function DriversTab() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [invitingId, setInvitingId] = useState(null);
+  const [fallbackUrl, setFallbackUrl] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -78,6 +97,36 @@ export default function DriversTab() {
     }
   };
 
+  const sendInvite = async (d) => {
+    if (!d.email) {
+      toast.error(`${d.name} has no email — edit them and add one first.`);
+      return;
+    }
+    const isResend = d.invite_count && d.invite_count > 0;
+    const msg = isResend
+      ? `Resend invite to ${d.name} (${d.email})? They'll get a fresh 7-day setup link.`
+      : `Email ${d.name} (${d.email}) the driver invite with app links + a 7-day password-setup link?`;
+    if (!window.confirm(msg)) return;
+    setInvitingId(d.id);
+    try {
+      const { data } = await api.post(`/admin/drivers/${d.id}/invite`);
+      if (data?.sent) {
+        toast.success(`Invite emailed to ${data.email}`);
+      } else if (data?.setup_url_if_email_failed) {
+        // Email transport failed — surface the link so admin can hand-deliver
+        setFallbackUrl({ url: data.setup_url_if_email_failed, driver: d.name, email: data.email });
+        toast.error("Email couldn't be delivered — use the manual link instead");
+      } else {
+        toast.success(data?.message || "Invite processed");
+      }
+      await load();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't send invite");
+    } finally {
+      setInvitingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6" data-testid="drivers-tab">
       <div className="flex items-start justify-between gap-4">
@@ -128,9 +177,35 @@ export default function DriversTab() {
                   <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" /> {d.phone}</span>
                   {d.email && <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" /> {d.email}</span>}
                   {d.plate && <span className="uppercase tracking-wider">{d.plate}</span>}
+                  {d.last_invited_at && (
+                    <span
+                      className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-[#D4AF37]/80"
+                      data-testid={`driver-invited-${d.id}`}
+                      title={`Invited ${d.invite_count || 1} time${(d.invite_count || 1) > 1 ? "s" : ""}`}
+                    >
+                      <Send className="w-3 h-3" />
+                      Invited {timeAgoShort(d.last_invited_at)}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => sendInvite(d)}
+                  disabled={invitingId === d.id || !d.email}
+                  data-testid={`invite-driver-${d.id}`}
+                  className="p-2 rounded-lg text-white/55 hover:text-[#D4AF37] hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title={d.email
+                    ? (d.last_invited_at ? "Resend invite email" : "Send invite email")
+                    : "Add an email first"}
+                >
+                  {invitingId === d.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={() => setEditing({
@@ -242,6 +317,41 @@ export default function DriversTab() {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Fallback dialog: shown when the email transport failed so the admin
+         can copy the setup URL and hand-deliver via SMS / WhatsApp / etc. */}
+      <Dialog open={!!fallbackUrl} onOpenChange={(o) => !o && setFallbackUrl(null)}>
+        <DialogContent className="bg-[#0A0A0A] border-[#1F1F1F] text-white max-w-md" data-testid="invite-fallback-dialog">
+          <DialogHeader>
+            <DialogTitle>Email delivery failed</DialogTitle>
+            <DialogDescription className="text-white/55">
+              We couldn&apos;t reach <span className="text-[#D4AF37]">{fallbackUrl?.email}</span>. Copy this one-time setup link and text or message it to {fallbackUrl?.driver} directly. It expires in 7 days.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-3 space-y-2">
+            <Input
+              readOnly
+              value={fallbackUrl?.url || ""}
+              onFocus={(e) => e.target.select()}
+              className="bg-[#0E0E0E] border-[#27272A] text-[#D4AF37] text-xs font-mono"
+              data-testid="invite-fallback-url"
+            />
+            <Button
+              onClick={() => {
+                navigator.clipboard.writeText(fallbackUrl?.url || "");
+                toast.success("Copied to clipboard");
+              }}
+              className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-10"
+              data-testid="copy-invite-url-btn"
+            >
+              Copy link
+            </Button>
+            <p className="text-[11px] text-white/40 leading-relaxed pt-1">
+              Common reasons email fails: domain is on a deny list, mailbox is full, or the address has a typo. Verify the email in the driver&apos;s row, then try again.
+            </p>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
