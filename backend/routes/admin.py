@@ -2323,22 +2323,15 @@ async def admin_invite_driver(driver_id: str, _: dict = Depends(require_admin)):
           </div>
         </div>
         """
-        text = (
-            f"Hi {first_name}, you've been added as a chauffeur on TuranEliteLimo.\n\n"
-            f"Step 1 — Set your password: {setup_url}  (link expires in 7 days)\n"
-            f"Step 2 — Download the driver app:\n"
-            f"  iOS:     {ios_url}\n"
-            f"  Android: {android_url}\n\n"
-            f"Sign in with {email} and the password you just set.\n\n"
-            f"Questions? Text dispatch at (650) 410-0687."
-        )
-        _ = text  # email_service ignores plain-text fallback for now; kept for future use
-        await send_email(
+        # send_email returns the Resend message id on success, None on failure
+        # (it swallows Resend exceptions). Check the return value instead of
+        # relying on raise-on-failure semantics so we don't break other callers.
+        result = await send_email(
             to=email,
             subject="Welcome to TuranEliteLimo — set your driver password",
             html=html,
         )
-        sent = True
+        sent = bool(result)
     except Exception as e:
         logger.error(f"Driver invite email send failed for {email}: {e}")
         # Don't 500 — let the admin see the token URL so they can hand-deliver
