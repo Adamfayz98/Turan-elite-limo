@@ -189,14 +189,6 @@ class AffiliatePayment(AffiliatePaymentBase):
     created_by: Optional[str] = None
 
 
-# ----- dependency import (lazy to dodge circular) ---------------------------
-
-def _get_deps():
-    """Resolve db + require_admin from the main server module at call time."""
-    from server import db, require_admin
-    return db, require_admin
-
-
 # ----- helpers --------------------------------------------------------------
 
 def _now_iso() -> str:
@@ -237,13 +229,11 @@ async def _paid_ytd(db, affiliate_id: str, year: Optional[int] = None) -> float:
 
 
 # ----- routes ---------------------------------------------------------------
-
-@router.get("", response_model=List[Affiliate])
-async def list_affiliates(include_inactive: bool = False):
-    db, require_admin_fn = _get_deps()
-    # Apply auth — FastAPI Depends() can't be called manually, but the
-    # decorator pattern below works because each route applies it.
-    raise NotImplementedError("Use the decorated version below")
+# NOTE: All routes live inside `_build_router()` below so they can use
+# `Depends(require_admin)` (resolved from server module at import time).
+# IMPORTANT: payment routes (/payments, /payments/{id}, etc.) are registered
+# BEFORE the dynamic /{affiliate_id} routes so PATCH /payments/{id} reaches
+# the payments handler — not the affiliate update handler.
 
 
 def _build_router():

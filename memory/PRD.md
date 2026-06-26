@@ -1,6 +1,37 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Jun 20, 2026 — iter 44 (iOS pod-install SOLVED + Block-by-source + Web shadow fix)
+> Last refreshed: Feb 26, 2026 — iter 47 (Affiliate Payments Tracker + 1099 Prep)
+
+## ✅ Affiliate Payments Tracker & 1099 Prep (Feb 26, 2026 — iter 47)
+
+**Why:** Owner pays affiliate operators (Sacramento, Tahoe, Wine Country) via Zelle/Venmo/Check after each brokered trip. Without a tracker, YTD totals were managed in spreadsheets and 1099-NEC prep at tax time was a manual nightmare. Customer payments are tracked via Stripe; affiliate payouts had no system of record.
+
+**What shipped:**
+1. **Backend (`/app/backend/affiliates.py`):**
+   - Extended `Affiliate` model with W-9/1099 fields: `legal_name`, `tax_id` (EIN or SSN), `tax_classification` (Individual / Sole Prop / Single-Member LLC / LLC-P / LLC-C / LLC-S / C-Corp / S-Corp / Partnership / Other), `w9_received`, `mailing_address`.
+   - New `affiliate_payments` Mongo collection with full CRUD.
+   - `paid_ytd` rollup auto-added to `GET /admin/affiliates` (sum of payments for current calendar year).
+   - New endpoints (all admin-only):
+     - `GET /api/admin/affiliates/payments?year=&affiliate_id=&method=` — list (sorted by date desc)
+     - `POST /api/admin/affiliates/payments` — create (validates method enum, YYYY-MM-DD date, amount > 0, affiliate exists)
+     - `PATCH /api/admin/affiliates/payments/{id}` — update
+     - `DELETE /api/admin/affiliates/payments/{id}` — delete
+     - `GET /api/admin/affiliates/payments/summary?year=` — per-affiliate roll-up + grand total
+     - `GET /api/admin/affiliates/payments/export.csv?year=` — full ledger CSV download
+     - `GET /api/admin/affiliates/payments/1099-csv?year=&threshold=600` — one row per affiliate with W-9 fields and an automated "1099 Required" Yes/No flag (corporations excluded per IRS rules, threshold default $600).
+   - **Route ordering carefully ensured**: payment routes registered before `/{affiliate_id}` dynamic routes so `PATCH /payments/{id}` doesn't accidentally hit the affiliate-update handler.
+
+2. **Frontend (`/app/frontend/src/components/admin/AffiliatesTab.jsx` + new `AffiliatePaymentsView.jsx`):**
+   - Affiliates tab now has a sub-toggle: `NETWORK | PAYMENTS & 1099`.
+   - Payments view: year selector, method + affiliate filters, Add/Edit/Delete dialog, per-affiliate YTD summary cards (with "1099 threshold met" badge ≥$600), grand total in header.
+   - One-click CSV exports: **Ledger CSV** (full audit trail) and **1099 Prep CSV** (one row per vendor with totals + W-9 data — hand directly to bookkeeper).
+   - Affiliate edit dialog now has a "Tax / 1099 prep" section with all 5 W-9 fields.
+
+**Testing:** 19/19 pytest cases pass (`/app/backend/tests/test_iter43_affiliate_payments.py`); full Playwright UI flow passes (testing_agent_v3_fork iteration_43.json).
+
+**Files added:** `/app/frontend/src/components/admin/AffiliatePaymentsView.jsx`, `/app/backend/tests/test_iter43_affiliate_payments.py`.
+
+---
 
 ## ✅ Native v1.1.2 — Android crash hotfix + iOS rebuild (Feb 6, 2026 — iter 46)
 
