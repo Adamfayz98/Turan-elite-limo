@@ -1,6 +1,35 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 26, 2026 — iter 48 (Google Ads conversion overhaul: Enhanced Conversions for Web + Wine Tour CRO + Phone Call Tap label)
+> Last refreshed: Feb 26, 2026 — iter 49 (Google Ads Offline Conversion CSV Exporter)
+
+## ✅ Google Ads Offline Conversion CSV Exporter (Feb 26, 2026 — iter 49)
+
+**Why:** Stopgap for full Google Ads API server-side conversion forwarding while CAI applies for API access (~24-48 hr). Recovers attribution from ad-blocker / cookie-blocked customers — admin downloads a weekly CSV of paid bookings with captured `gclid`, manually uploads via Google Ads → Tools → Conversions → Uploads.
+
+**What shipped:**
+1. **Backend** (`/app/backend/routes/admin.py`):
+   - `GET /api/admin/ads/offline-conversions/preview?days=N` — returns `{paid_bookings, rows_with_gclid, skipped_no_gclid, total_value}` for the dashboard preview line.
+   - `GET /api/admin/ads/offline-conversions.csv?days=N&conversion_name=Purchase` — streams a Google-Ads-spec CSV:
+     ```
+     Parameters:TimeZone=America/Los_Angeles
+     <blank line>
+     Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency
+     <data rows>
+     ```
+   - Response headers include `X-Rows-Written`, `X-Skipped-No-Gclid`, `X-Skipped-Unpaid`.
+   - Filters: only bookings with `payment_status ∈ {paid, confirmed, in_progress, completed}` AND `utm.gclid` present.
+   - Conversion Time formatted as `YYYY-MM-DD HH:MM:SS±HH:MM` (Pacific, with colon in offset per Google's parser).
+2. **Frontend** (`/app/frontend/src/components/admin/AttributionTab.jsx`):
+   - New blue-bordered panel above the totals row with live preview line and one-click "Download CSV" button.
+   - Disabled when 0 rows ready so the admin doesn't click into an empty CSV.
+
+**Pricing data correction:** Confirmed actual hourly rate is **$95/hr** (Executive Sedan, from `server.py:144`) — NOT $89 as I'd previously assumed. CAI's ad copy should reflect $95/hr.
+
+**Testing:** iteration_45.json — 100% backend (8/8 pytest) + 100% frontend. No bugs.
+
+**Files changed:** `/app/backend/routes/admin.py`, `/app/frontend/src/components/admin/AttributionTab.jsx`, `/app/backend/tests/test_iter45_offline_conversions_csv.py` (new).
+
+---
 
 ## ✅ Google Ads Conversion Overhaul (Feb 26, 2026 — iter 48)
 
