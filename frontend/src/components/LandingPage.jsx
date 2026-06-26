@@ -360,7 +360,7 @@ export default function LandingPage({
           <div className="flex flex-wrap justify-center gap-4 mt-10">
             <a data-testid={`${testId}-cta-bottom`} href={BOOK_URL}
               className="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-[#D4AF37] text-black font-medium hover:opacity-90 transition shadow-[0_8px_30px_rgba(212,175,55,0.35)]">
-              Get Instant Quote →
+              {ctaLabel || "Get Instant Quote →"}
             </a>
             <a data-testid={`${testId}-call-bottom`} href={TEL}
               className="inline-flex items-center gap-2 px-8 py-4 rounded-full border border-white/20 text-white hover:bg-white/5 transition">

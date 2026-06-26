@@ -125,14 +125,13 @@ function fireOnce(stashKey, sendTo, payload) {
 }
 
 /** Quote form submitted — counts as a "lead". Estimated value $20. */
-export function trackQuoteRequest({ requestId, vehicleType, email, phone } = {}) {
+export async function trackQuoteRequest({ requestId, vehicleType, email, phone } = {}) {
   const label = process.env.REACT_APP_GADS_LABEL_LEAD;
   if (!label) return;
   const txnId = requestId || `lead-${Date.now()}`;
-  // Fire-and-forget Enhanced Conversions before the event. Promise resolves
-  // async; gtag('set','user_data',...) before gtag('event','conversion',...)
-  // is what the docs require — we kick it off first so it lands first.
-  setEnhancedConversionData({ email, phone }).catch(() => {});
+  // Enhanced Conversions: hash + register identifiers BEFORE the event fires
+  // so Google enriches THIS event (not just subsequent ones in the session).
+  try { await setEnhancedConversionData({ email, phone }); } catch { /* ignore */ }
   fireOnce(`_gads_lead_${txnId}`, `${CONV_ID}/${label}`, {
     value: 20,
     currency: "USD",
@@ -169,7 +168,7 @@ export function trackBeginCheckout({ bookingId, amount } = {}) {
 }
 
 /** Stripe payment succeeded — the real money conversion. */
-export function trackPurchase({ bookingId, amount, email, phone } = {}) {
+export async function trackPurchase({ bookingId, amount, email, phone } = {}) {
   // Fall back to the legacy single-label env so existing purchase tracking
   // keeps working before the new "PURCHASE" label is created in Google Ads.
   const label =
@@ -178,8 +177,9 @@ export function trackPurchase({ bookingId, amount, email, phone } = {}) {
   if (!label) return;
   const txnId = bookingId;
   if (!txnId) return;
-  // Enhanced Conversions: hash + register email/phone before firing the event.
-  setEnhancedConversionData({ email, phone }).catch(() => {});
+  // Enhanced Conversions: hash + register identifiers BEFORE the event fires
+  // so Google enriches THIS event (not just subsequent ones in the session).
+  try { await setEnhancedConversionData({ email, phone }); } catch { /* ignore */ }
   fireOnce(`_gads_purchase_${txnId}`, `${CONV_ID}/${label}`, {
     value: Number(amount || 0),
     currency: "USD",

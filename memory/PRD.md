@@ -1,6 +1,31 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 26, 2026 — iter 47 (Affiliate Payments Tracker + 1099 Prep)
+> Last refreshed: Feb 26, 2026 — iter 48 (Google Ads conversion overhaul: Enhanced Conversions for Web + Wine Tour CRO + Phone Call Tap label)
+
+## ✅ Google Ads Conversion Overhaul (Feb 26, 2026 — iter 48)
+
+**Why:** CAI report flagged $217 avg CPA and "Airport $255 / 0 conv" mystery. Investigation showed:
+- `REACT_APP_GADS_LABEL_PHONE_CALL` was empty → every Call button on the site silently failed to fire (explains Airport's missing conversions — airport searchers call instead of fill forms).
+- "Misconfigured" warnings across all goals were "no recent fire" Google warnings, not real bugs.
+- Wine Tour landing had no above-fold price/social-proof signals → low Quality Score and qualified-lead rate.
+
+**What shipped:**
+1. **Phone Call Tap label populated**: `REACT_APP_GADS_LABEL_PHONE_CALL=83GZCPSz7cUcEMfLrddD` in `/app/frontend/.env`. Every `tel:` tap on Navbar/Footer/FleetPicker/PayBooking/QuoteSuccess now fires a $30 conversion.
+2. **Enhanced Conversions for Web**: hashed (SHA-256, lowercase hex) `email` + `phone` are pushed to gtag `set` `user_data` BEFORE every Purchase + Lead conversion event. Recovers attribution from iOS/Safari/Brave/cookie-blocked browsers. Phone is normalized to E.164 client-side via Web Crypto.
+   - New helpers in `/app/frontend/src/lib/googleAdsEvents.js`: `sha256Hex`, `normalizeEmail`, `normalizePhoneE164`, `setEnhancedConversionData`.
+   - `trackPurchase` / `trackQuoteRequest` are now `async` and `await` user_data before pushing the conversion event (verified dataLayer index ordering: set[6] → event[7]).
+   - `/api/bookings/{id}/public` now exposes `phone` (already exposed `email`) so the /thank-you page has both signals.
+   - **REQUIRES USER ACTION** in Google Ads UI: toggle "Enhanced conversions for web" ON for each conversion action (Goals → Conversions → Edit goal → Settings → Enhanced conversions → API → Google tag).
+3. **Wine Tour landing CRO**: shared `LandingPage` now accepts optional `ctaLabel`, `socialProof`, `priceFrom` props (all opt-in; other landings unchanged). `/wine-tour` opts in with:
+   - CTA labels: "Plan My Wine Day →" (hero + bottom CTA)
+   - Social proof: "★★★★★ Trusted by 200+ Bay Area & SF wine country travelers"
+   - Pricing strip: "From $95/hour · 6-hour minimum · all-inclusive"
+
+**Testing:** iteration_44.json passes after ordering-fix retest. Backend 100%, frontend 95% (initial async-ordering bug found and fixed). Hashes verified to match Node-computed expected values byte-for-byte.
+
+**Files changed:** `/app/backend/server.py` (+phone in public), `/app/frontend/.env` (+PHONE_CALL label), `/app/frontend/src/lib/googleAdsEvents.js`, `/app/frontend/src/components/GoogleAdsConversion.jsx`, `/app/frontend/src/components/QuoteRequestDialog.jsx`, `/app/frontend/src/components/LandingPage.jsx`, `/app/frontend/src/pages/WineTourLanding.jsx`.
+
+---
 
 ## ✅ Affiliate Payments Tracker & 1099 Prep (Feb 26, 2026 — iter 47)
 
