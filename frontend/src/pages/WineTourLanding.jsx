@@ -27,8 +27,8 @@ export default function WineTourLanding() {
   return (
     <LandingPage
       testId="wine-tour-landing"
-      pageTitle="Napa & Sonoma Wine Tour Chauffeur · Private Driver — TuranEliteLimo"
-      metaDescription="Private chauffeur for Napa & Sonoma wine tours. Custom 3–5 winery itineraries to Stags Leap, Opus One, Castello di Amorosa & more. Hotel pickup, multilingual chauffeurs, Sprinter vans for groups of 12."
+      pageTitle="Napa Valley Chauffeur · Wine Country Private Driver — TuranEliteLimo"
+      metaDescription="Private chauffeur for Napa, Sonoma & Carneros day trips. Hotel pickup, custom 3–5 stop itineraries, professional Mercedes-Benz Sprinter, multilingual driver. Designated driver for groups of 6 to 12. TCP licensed · $5M insured."
       eyebrow="Napa · Sonoma · Carneros · Russian River"
       titleA="The car waits."
       titleAccent="You taste."

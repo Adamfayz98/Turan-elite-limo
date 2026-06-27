@@ -1,0 +1,48 @@
+{
+  "summary": "Verified SEO-only change on /wine-tour landing: document.title and <meta name=description> now lead with 'Chauffeur / Private Driver / Transportation' framing while the visible page body is unchanged. Ran regression on /airport, /wedding, /corporate, /party-bus, /limo to confirm no cross-bleed of pageTitle/metaDescription.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "wine_tour_title_exact_match": "PASS — 'Napa Valley Chauffeur · Wine Country Private Driver — TuranEliteLimo'",
+    "wine_tour_meta_description_exact_match": "PASS — exact string match",
+    "wine_tour_proof_points": {
+      "Private chauffeur": "PASS",
+      "Designated driver": "PASS",
+      "TCP licensed": "PASS",
+      "$5M insured": "PASS"
+    },
+    "wine_tour_body_unchanged": {
+      "The car waits.": "PASS",
+      "You taste.": "PASS",
+      "Worry about nothing.": "PASS",
+      "NAPA · SONOMA · CARNEROS · RUSSIAN RIVER (eyebrow, uppercased via CSS)": "PASS",
+      "Plan My Wine Day → CTA": "PASS",
+      "★★★★★ + Trusted by 200+ Bay Area & SF wine country travelers social proof": "PASS",
+      "Price strip: From $95/hour · 6-hour minimum · all-inclusive": "PASS — visible in screenshot; rendered as 'FROM' (small uppercase label) + '$95/hour · 6-hour minimum · all-inclusive' (gold). innerText join produced 'FROM ' which made a literal substring match miss in the script, but the price strip is intact and unchanged.",
+      "Trust-strip chips (Custom Itinerary, Hotel Pickup Included, All-Day Hourly Rate, Multilingual Chauffeurs)": "PASS (all 4 present)"
+    },
+    "regression_other_landings": {
+      "/airport": "PASS — title: 'Bay Area Airport Limo · SFO OAK SJC Chauffeur — TuranEliteLimo' (distinct)",
+      "/wedding": "PASS — title: 'Bay Area Wedding Limo · Bridal Chauffeur Service — TuranEliteLimo' (distinct)",
+      "/corporate": "PASS — title: 'Silicon Valley Corporate Chauffeur · Executive Transfers — TuranEliteLimo' (distinct)",
+      "/party-bus": "PASS — title: 'Bay Area Party Bus Rental · 14–30 Passenger Limo Coach — TuranEliteLimo' (distinct)",
+      "/limo": "PASS — title: 'TuranEliteLimo · Bay Area Luxury Chauffeur · SFO/OAK/SJC Airport Transfers, Weddings & Wine Tours' (distinct; mentions own service)"
+    }
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "LandingPage.jsx useEffect on lines 76-88 correctly hooks pageTitle into document.title and patches the global <meta name=description>. Note: meta tag is shared across SPA routes, so first-paint title/desc on hard-reload is whatever index.html ships before React mounts. For Google Ads crawler this is fine (JS-rendered description is read by Googlebot post-render), but for any non-JS crawler the index.html static description still wins. Not in scope of this iteration but worth flagging.",
+    "og:title and og:description in index.html intentionally remain brand-wide per the request — confirmed not changed per page, which is correct behavior."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only test)", "frontend": "100%"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Wine-tour SEO change (pageTitle + metaDescription) verified live at https://limo-experience-1.preview.emergentagent.com/wine-tour. Visible body content untouched. No cross-bleed into /airport, /wedding, /corporate, /party-bus, /limo. og:title/og:description in index.html are intentionally brand-wide and should NOT be flagged."
+}
