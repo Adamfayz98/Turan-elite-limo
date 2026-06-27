@@ -18,11 +18,38 @@ const NOISE = [
   "Failed to fetch", // user navigated away mid-request — harmless
   "NetworkError when attempting to fetch resource",
   "Load failed",
+  // ---- Browser-extension noise ---------------------------------------
+  // These come from password managers / coupon extensions / etc. running
+  // in the customer's browser, NOT from our code. Common culprits: LastPass,
+  // 1Password, Honey, Capital One Shopping, Bitwarden, Grammarly, Rakuten,
+  // Avast/Norton, etc.
+  "No Listener:",                       // LastPass / 1Password content<->bg messaging
+  "tabs:outgoing.message",              // ditto, different framing
+  "The message port closed before a response was received",  // Chrome extension classic
+  "Could not establish connection",     // ditto
+  "Extension context invalidated",      // extension reloaded while tab open
+  "WebKit encountered an internal error",
+  "ChunkLoadError",                     // CDN flake on user side; not our bug
+  "Loading chunk",
+  "Loading CSS chunk",
 ];
 
-function isNoise(message) {
-  if (!message) return true;
-  return NOISE.some((n) => message.includes(n));
+// Stack-trace prefixes that ALWAYS belong to browser extensions. If ANY frame
+// in the stack points to one of these schemes, the error happened inside
+// extension code, not in our app — drop it.
+const EXTENSION_STACK_MARKERS = [
+  "webkit-masked-url://hidden",  // Safari masks extension scripts here
+  "chrome-extension://",          // Chrome / Edge / Brave
+  "moz-extension://",             // Firefox
+  "safari-web-extension://",      // Safari Web Extensions
+  "safari-extension://",          // Safari (legacy)
+];
+
+function isNoise(message, stack) {
+  if (!message && !stack) return true;
+  if (message && NOISE.some((n) => message.includes(n))) return true;
+  if (stack && EXTENSION_STACK_MARKERS.some((m) => stack.includes(m))) return true;
+  return false;
 }
 
 // Client-side dedupe — same message within 5 min isn't re-reported even if backend allows it
@@ -31,7 +58,7 @@ const CLIENT_DEDUPE_MS = 5 * 60 * 1000;
 
 function report(payload) {
   if (SUPPRESS_LOCALHOST) return; // never alert from dev/preview without a backend URL
-  if (isNoise(payload.message)) return;
+  if (isNoise(payload.message, payload.stack)) return;
 
   const fp = `${(payload.message || "").slice(0, 120)}|${(payload.page_url || "").split("?")[0]}`;
   const last = seen.get(fp);
