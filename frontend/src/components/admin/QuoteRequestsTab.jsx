@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2, Sparkles, ExternalLink, ClipboardPaste, Tag } from "lucide-react";
+import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2, Sparkles, ExternalLink, ClipboardPaste, Tag, TrendingUp } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
+import {
+  estimateQuote,
+  parseHours,
+  computeMargin,
+  marginBand,
+  fmtPct,
+  MARGIN_FLOOR,
+  MARGIN_TARGET,
+} from "@/lib/pricingReference";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -99,6 +108,52 @@ const STATUS_BADGE = {
 
 const fmtMoney = (n) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(n || 0));
+
+// ----- Profit Preview Chip -----
+// Tiny inline pill showing the recommended floor + target retail prices for a
+// quote based on its vehicle type and service duration. Pulled from
+// pricingReference.js so it stays in sync with PRICING_REFERENCE.md. Renders
+// nothing if we don't have rate data for that vehicle.
+
+function ProfitPreviewChip({ request }) {
+  const hours = parseHours(request?.service_duration);
+  const est = estimateQuote({ vehicleType: request?.vehicle_type, hours });
+  if (!est) return null;
+
+  // If a quote was already sent, color-code based on the actual margin.
+  if (request?.quoted_price) {
+    const margin = computeMargin(request.quoted_price, est.net);
+    const band = margin ? marginBand(margin.margin_pct) : "neutral";
+    const styles = {
+      red: "text-red-300 bg-red-500/10 border-red-500/30",
+      yellow: "text-amber-300 bg-amber-500/10 border-amber-500/30",
+      green: "text-emerald-300 bg-emerald-500/10 border-emerald-500/30",
+      gold: "text-[#D4AF37] bg-[#D4AF37]/10 border-[#D4AF37]/30",
+      neutral: "text-white/55 bg-white/5 border-white/10",
+    };
+    return (
+      <span
+        data-testid={`profit-margin-${request.id}`}
+        title={`Net ~${fmtMoney(est.net)} for ${est.billable_hours}hr @ $${est.hourly}/hr`}
+        className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border ${styles[band]}`}
+      >
+        <TrendingUp className="w-2.5 h-2.5" />
+        {margin ? fmtPct(margin.margin_pct) : "—"} margin
+      </span>
+    );
+  }
+
+  return (
+    <span
+      data-testid={`profit-floor-${request.id}`}
+      title={`Suggested net ${fmtMoney(est.net)} (${est.billable_hours}hr @ $${est.hourly}/hr). Floor ${fmtMoney(est.floor)} = 20% margin · Target ${fmtMoney(est.target)} = 27.5%.`}
+      className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-[#D4AF37] bg-[#D4AF37]/10 border border-[#D4AF37]/20 px-2 py-0.5 rounded"
+    >
+      <TrendingUp className="w-2.5 h-2.5" />
+      Floor {fmtMoney(est.floor)} · Target {fmtMoney(est.target)}
+    </span>
+  );
+}
 
 export default function QuoteRequestsTab() {
   const [items, setItems] = useState([]);
@@ -245,6 +300,7 @@ export default function QuoteRequestsTab() {
                           Quoted {fmtMoney(q.quoted_price)}
                         </span>
                       )}
+                      <ProfitPreviewChip request={q} />
                     </div>
                     {q.risk_flags?.length > 0 && (q.risk_band === "yellow" || q.risk_band === "red" || q.blacklisted) && (
                       <div className="mt-2 flex flex-wrap gap-1">
@@ -432,7 +488,26 @@ function SendQuoteDialog({ state, onClose, onSent }) {
   const numericPrice = Number(price);
   const numericPct = Number(depositPct);
   const deposit = isFinite(numericPrice) && isFinite(numericPct) ? (numericPrice * numericPct) / 100 : 0;
-  const profit = isFinite(numericPrice) && affiliateCost ? numericPrice - Number(affiliateCost) : null;
+
+  // ----- Profit Preview math -----
+  // Pull suggested net cost from the affiliate rate table. Customer-entered
+  // affiliate_cost wins, but if blank we fall back to the suggested net so the
+  // margin chip stays useful as soon as the price is typed.
+  const hoursFromRequest = parseHours(q?.service_duration);
+  const estimate = estimateQuote({ vehicleType: q?.vehicle_type, hours: hoursFromRequest });
+  const effectiveNet = affiliateCost ? Number(affiliateCost) : (estimate ? estimate.net : null);
+  const margin = isFinite(numericPrice) && numericPrice > 0 && effectiveNet != null
+    ? computeMargin(numericPrice, effectiveNet)
+    : null;
+  const band = margin ? marginBand(margin.margin_pct) : "neutral";
+  const bandStyles = {
+    red: { chip: "bg-red-500/15 text-red-300 border-red-500/40", num: "text-red-300" },
+    yellow: { chip: "bg-amber-500/15 text-amber-300 border-amber-500/40", num: "text-amber-300" },
+    green: { chip: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40", num: "text-emerald-300" },
+    gold: { chip: "bg-[#D4AF37]/20 text-[#D4AF37] border-[#D4AF37]/40", num: "text-[#D4AF37]" },
+    neutral: { chip: "bg-white/5 text-white/55 border-white/15", num: "text-white/70" },
+  };
+  const usingSuggestedNet = !affiliateCost && estimate != null;
 
   const send = async () => {
     if (!numericPrice || numericPrice < 1) {
@@ -614,24 +689,119 @@ function SendQuoteDialog({ state, onClose, onSent }) {
                 )}
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-2 block">
-                  Affiliate cost <span className="text-white/35 normal-case tracking-normal">(optional, internal only)</span>
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block">
+                    Affiliate cost <span className="text-white/35 normal-case tracking-normal">(internal · drives profit math)</span>
+                  </label>
+                  {estimate && !affiliateCost && (
+                    <button
+                      type="button"
+                      onClick={() => setAffiliateCost(String(estimate.net))}
+                      data-testid="affiliate-cost-autofill"
+                      className="text-[10px] text-[#D4AF37] hover:text-[#B3922E] uppercase tracking-wider"
+                      title={`${estimate.billable_hours}hr × $${estimate.hourly}/hr = ${fmtMoney(estimate.net)}`}
+                    >
+                      Use suggested {fmtMoney(estimate.net)}
+                    </button>
+                  )}
+                </div>
                 <Input
                   data-testid="quote-affiliate-cost"
                   type="number"
                   inputMode="decimal"
-                  placeholder="What you pay your affiliate (e.g. 480)"
+                  placeholder={estimate ? `Suggested ${fmtMoney(estimate.net)} — ${estimate.billable_hours}hr × $${estimate.hourly}/hr` : "What you pay your affiliate (e.g. 680)"}
                   value={affiliateCost}
                   onChange={(e) => setAffiliateCost(e.target.value)}
                   className="bg-[#0E0E0E] border-[#27272A] text-white"
                 />
-                {profit !== null && (
-                  <div className="text-xs mt-2">
-                    Your profit on this trip: <span className={profit >= 0 ? "text-emerald-400 font-semibold" : "text-red-400 font-semibold"}>{fmtMoney(profit)}</span>
+                {usingSuggestedNet && (
+                  <div className="text-[10px] text-white/40 mt-1.5 leading-relaxed">
+                    Using suggested net of {fmtMoney(estimate.net)} from <code className="text-white/60">PRICING_REFERENCE.md</code> for {q?.vehicle_type}.
+                    Override the field above if your affiliate quoted differently.
                   </div>
                 )}
               </div>
+
+              {/* Live margin preview — always visible once price + net exist */}
+              {margin && (
+                <div
+                  data-testid="profit-preview-panel"
+                  className={`rounded-xl border p-3.5 space-y-2 ${bandStyles[band].chip}`}
+                >
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4" />
+                      <span className="text-[10px] uppercase tracking-[0.18em] font-semibold">Profit preview</span>
+                    </div>
+                    <div className={`text-lg font-bold tabular-nums ${bandStyles[band].num}`}>
+                      {fmtPct(margin.margin_pct)} margin
+                    </div>
+                  </div>
+                  <div className="text-xs text-white/75 leading-relaxed">
+                    Retail <span className="font-semibold">{fmtMoney(numericPrice)}</span> − Net <span className="font-semibold">{fmtMoney(effectiveNet)}</span> = <span className={`font-semibold ${bandStyles[band].num}`}>{fmtMoney(margin.profit)}</span> profit
+                  </div>
+                  {margin.margin_pct < MARGIN_FLOOR && (
+                    <div className="text-xs leading-relaxed border-t border-current/20 pt-2 mt-2 opacity-90">
+                      ⚠ <strong>Below 20% floor.</strong> {estimate
+                        ? <>Raise retail to at least <span className="font-semibold">{fmtMoney(estimate.floor)}</span> for 20% or <span className="font-semibold">{fmtMoney(estimate.target)}</span> for 27.5% target.</>
+                        : <>This trip is razor-thin or losing money. Renegotiate net cost or raise retail.</>}
+                    </div>
+                  )}
+                  {margin.margin_pct >= MARGIN_FLOOR && margin.margin_pct < MARGIN_TARGET && estimate && (
+                    <div className="text-xs leading-relaxed border-t border-current/20 pt-2 mt-2 opacity-90">
+                      Acceptable. Target retail is <span className="font-semibold">{fmtMoney(estimate.target)}</span> (27.5%) if customer isn&apos;t price-shopping.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Recommended retail bands reference card — shows when we know the
+                  vehicle's rates AND the operator hasn't typed a price yet */}
+              {estimate && !numericPrice && (
+                <div
+                  data-testid="retail-bands-card"
+                  className="rounded-xl border border-[#D4AF37]/25 bg-[#D4AF37]/[0.04] p-3.5 space-y-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-[#D4AF37]">
+                      Recommended retail · {estimate.billable_hours}hr × ${estimate.hourly}/hr net
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setPrice(String(estimate.floor))}
+                      data-testid="band-floor"
+                      className="rounded-lg bg-red-500/10 border border-red-500/30 px-2 py-2 hover:bg-red-500/15 transition"
+                    >
+                      <div className="text-[9px] uppercase tracking-wider text-red-300/80">Floor 20%</div>
+                      <div className="text-sm font-semibold text-red-200 tabular-nums">{fmtMoney(estimate.floor)}</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrice(String(estimate.target))}
+                      data-testid="band-target"
+                      className="rounded-lg bg-emerald-500/10 border border-emerald-500/40 px-2 py-2 hover:bg-emerald-500/15 transition"
+                    >
+                      <div className="text-[9px] uppercase tracking-wider text-emerald-300/80">Target 27.5%</div>
+                      <div className="text-sm font-semibold text-emerald-200 tabular-nums">{fmtMoney(estimate.target)}</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrice(String(estimate.premium))}
+                      data-testid="band-premium"
+                      className="rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/40 px-2 py-2 hover:bg-[#D4AF37]/15 transition"
+                    >
+                      <div className="text-[9px] uppercase tracking-wider text-[#D4AF37]/80">Premium 35%</div>
+                      <div className="text-sm font-semibold text-[#D4AF37] tabular-nums">{fmtMoney(estimate.premium)}</div>
+                    </button>
+                  </div>
+                  <div className="text-[10px] text-white/45 leading-relaxed pt-1">
+                    Tap a band to autofill the retail price field.
+                  </div>
+                </div>
+              )}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block">

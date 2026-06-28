@@ -1,6 +1,52 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 26, 2026 — iter 50 (Driver Invite Email feature — P2 task long-pending)
+> Last refreshed: Feb 28, 2026 — iter 51 (Profit Preview Chip + Pricing Reference)
+
+## ✅ Profit Preview Chip + Pricing Reference (Feb 28, 2026 — iter 51)
+
+**Why:** Recurring price-blindness friction. Operator (Adam) was eyeballing margin in his head for every lead, occasionally quoting below 20% floor by accident. The Leticia incident (Feb 27) crystallized it — limo-style Sprinter @ $680 net / 4hr, quoted $900, customer countered $800 (15% margin — below floor, would have been a money-losing trip). Without a visible margin signal in the UI, the operator had to do the math manually under time pressure.
+
+**What shipped:**
+1. **Pricing reference doc** (`/app/memory/PRICING_REFERENCE.md`):
+   - Single source of truth for affiliate net rates per vehicle type
+   - Floor / Target / Premium margin formulas (20% / 27.5% / 35%)
+   - Calibrated retail bands table (Sprinter, Party Bus, Limo, Sedan, SUV)
+   - Real-world calibration notes (Leticia Feb 27 lesson learned)
+   - TODO checklist for Adam to confirm remaining net rates
+
+2. **Pricing reference lib** (`/app/frontend/src/lib/pricingReference.js`):
+   - `AFFILIATE_NET_RATES` table → hourly net + min_hours per vehicle
+   - `lookupNetRate()` / `parseHours()` / `estimateQuote()` / `computeMargin()` / `marginBand()`
+   - `fmtMoney()` / `fmtPct()` shared formatters
+   - All pure functions, node-tested
+
+3. **Profit Preview Chip** on every quote row (Admin → Quote Requests):
+   - Pre-quote: shows `Floor $X · Target $Y` (gold pill) so operator sees the floor BEFORE opening the modal
+   - Post-quote: shows live margin % color-coded (red <20%, yellow 20-27.5%, green 27.5-35%, gold >35%)
+   - data-testid `profit-floor-{id}` / `profit-margin-{id}`
+
+4. **Enhanced SendQuoteDialog**:
+   - Auto-suggest button on Affiliate Cost field → one-click fills with the table's expected net
+   - Live Profit Preview panel: shows margin %, profit $, color-coded
+   - Below-floor warning surfaces target/floor retail to recover
+   - Recommended retail bands card (Floor/Target/Premium) with one-tap autofill buttons
+   - data-testid `profit-preview-panel`, `retail-bands-card`, `band-floor/target/premium`
+
+**Math verification (Node-tested against Leticia scenario):**
+- Net $680 (4hr × $170/hr) → Floor $850 (20%) · Target $938 (27.5%) · Premium $1,046 (35%) ✓
+- $850 retail → 20.0% margin, yellow band ✓
+- $800 (her counter) → 15% margin, RED band ✓ (correctly flags below-floor)
+
+**Testing:** Lint clean. Node math verification passed. Smoke-test confirms app compiles. Full UI testing pending (requires admin OTP — user will verify on next quote).
+
+**Files changed/created:**
+- `/app/memory/PRICING_REFERENCE.md` (NEW)
+- `/app/frontend/src/lib/pricingReference.js` (NEW)
+- `/app/frontend/src/components/admin/QuoteRequestsTab.jsx` (chip + modal upgrade)
+
+**TODO for Adam:** Confirm net rates for non-limo-Sprinter vehicles (Executive Sedan, Luxury SUV, Sprinter Van standard, Stretch Limo, Party Bus, Jet Sprinter). Update both files together.
+
+---
 
 ## ✅ Driver Invite Email (Feb 26, 2026 — iter 50)
 
