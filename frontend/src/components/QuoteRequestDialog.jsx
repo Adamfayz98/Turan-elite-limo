@@ -117,6 +117,12 @@ export default function QuoteRequestDialog({
   const [stops, setStops] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  // ---- Twilio A2P / TCPA consent ----
+  // We text the customer their custom quote, so we need express written
+  // consent for transactional SMS. Required to submit. Promotional SMS is
+  // a separate optional opt-in.
+  const [smsConsent, setSmsConsent] = useState(false);
+  const [smsPromoOptIn, setSmsPromoOptIn] = useState(false);
 
   const addStop = () => setStops((s) => (s.length >= 5 ? s : [...s, ""]));
   const removeStop = (i) => setStops((s) => s.filter((_, idx) => idx !== i));
@@ -140,9 +146,10 @@ export default function QuoteRequestDialog({
       form.pickup_location.trim().length >= 2 &&
       form.dropoff_location.trim().length >= 2 &&
       !!form.passengers &&
-      Number(form.passengers) > 0
+      Number(form.passengers) > 0 &&
+      smsConsent
     );
-  }, [form]);
+  }, [form, smsConsent]);
 
   const submit = async () => {
     if (!isValid) return;
@@ -183,6 +190,8 @@ export default function QuoteRequestDialog({
       passengers: "", notes: "",
     });
     setStops([]);
+    setSmsConsent(false);
+    setSmsPromoOptIn(false);
   };
 
   const tel = (supportPhone || "").replace(/[^\d+]/g, "");
@@ -410,11 +419,60 @@ export default function QuoteRequestDialog({
               />
             </div>
 
+            {/* ---- Twilio A2P 10DLC compliant SMS opt-in (REQUIRED) ----
+                We text the custom quote response, so transactional consent
+                is required to submit. Promotional SMS is a separate optional
+                checkbox. All 7 Twilio-required disclosures included. */}
+            <div
+              data-testid="qr-sms-consent-block"
+              className="mt-2 pt-4 border-t border-white/10 space-y-3"
+            >
+              <label
+                data-testid="qr-sms-consent-label"
+                className="flex items-start gap-3 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  data-testid="qr-sms-consent-checkbox"
+                  checked={smsConsent}
+                  onChange={(e) => setSmsConsent(e.target.checked)}
+                  required
+                  className="mt-1 h-5 w-5 accent-[#D4AF37] cursor-pointer flex-shrink-0"
+                />
+                <span className="text-sm text-white/85 leading-relaxed">
+                  <strong className="text-white">Yes, text me my quote.</strong>{" "}
+                  By checking this box, I agree to receive SMS messages from TuranEliteLimo at the phone number above for{" "}
+                  <strong className="text-white">my custom quote response, booking confirmations, and trip-related updates</strong>.
+                  Message frequency varies (typically 2–5 messages per booking).{" "}
+                  <strong className="text-white">Msg &amp; data rates may apply.</strong>{" "}
+                  Reply <strong className="text-white">STOP</strong> to unsubscribe or <strong className="text-white">HELP</strong> for help.
+                  See our <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-[#D4AF37] underline">Terms</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-[#D4AF37] underline">Privacy Policy</a>.{" "}
+                  <span className="text-[#D4AF37]">*required</span>
+                </span>
+              </label>
+
+              <label
+                data-testid="qr-sms-promo-optin-label"
+                className="flex items-start gap-3 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  data-testid="qr-sms-promo-optin-checkbox"
+                  checked={smsPromoOptIn}
+                  onChange={(e) => setSmsPromoOptIn(e.target.checked)}
+                  className="mt-1 h-5 w-5 accent-[#D4AF37] cursor-pointer flex-shrink-0"
+                />
+                <span className="text-sm text-white/70 leading-relaxed">
+                  Optionally, send me <strong className="text-white">promotional SMS</strong> — exclusive offers, seasonal promos, event packages. Up to 4 messages per month. Msg &amp; data rates may apply. Reply STOP to unsubscribe anytime.
+                </span>
+              </label>
+            </div>
+
             <Button
               onClick={submit}
               disabled={submitting || !isValid}
               data-testid="qr-submit"
-              title={!isValid ? "Please fill in all required (*) fields to send your request" : undefined}
+              title={!isValid ? "Please fill in all required (*) fields and accept SMS notifications to send your request" : undefined}
               className="w-full bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full h-11 font-medium disabled:bg-white/10 disabled:text-white/30 disabled:cursor-not-allowed"
             >
               {submitting

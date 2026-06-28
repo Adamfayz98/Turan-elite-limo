@@ -58,6 +58,16 @@ const SECTIONS = [
     body: <p>Payments are processed by Stripe. By booking, you authorize TuranEliteLimo (via Stripe) to charge the card on file for the booked fare, plus any documented post-trip charges (wait time, mid-trip stops, damages) per these Terms. Disputed charges are reviewed by our admin within 5 business days.</p>,
   },
   {
+    title: "9a. SMS / text messaging",
+    body: (
+      <>
+        <p>By providing your mobile phone number and checking the SMS consent box at booking or quote request, you expressly consent to receive SMS messages from TuranEliteLimo for booking confirmations, trip status updates, driver dispatch and pickup notifications, ETA changes, post-trip receipts, and quote responses. Optionally, you may also opt in to promotional SMS in a separate, non-pre-checked checkbox.</p>
+        <p className="mt-3">Message frequency varies based on your booking activity (typically 2–5 messages per booking). Message and data rates from your wireless carrier may apply. Reply <strong>STOP</strong> to opt out at any time, or <strong>HELP</strong> for support. Full SMS terms, opt-out, frequency, and privacy details are in our <a href="/privacy" className="text-[#D4AF37]">Privacy Policy, Section 3a</a>.</p>
+        <p className="mt-3">Opting out of transactional SMS does not cancel an existing reservation. To change or cancel an active booking, use the management link emailed at booking time or call (650) 410-0687.</p>
+      </>
+    ),
+  },
+  {
     title: "10. Liability",
     body: <p>To the maximum extent permitted by law, TuranEliteLimo&apos;s liability for any claim arising from a ride is limited to the amount paid for that ride. We are not responsible for missed flights, delayed appointments, or indirect/consequential damages caused by traffic, weather, road closures, or other circumstances outside our reasonable control.</p>,
   },

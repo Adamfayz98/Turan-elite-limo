@@ -114,6 +114,12 @@ export default function BookingForm() {
   const [form, setForm] = useState(initialForm);
   const [waitConsent, setWaitConsent] = useState(false);
   const [waitPolicy, setWaitPolicy] = useState(null);
+  // ---- Twilio A2P / TCPA consent (REQUIRED to submit) ----
+  // `smsConsent` is the express written consent for transactional SMS — must
+  // be explicitly checked, not pre-checked. `smsPromoOptIn` is the optional
+  // second checkbox for promotional SMS.
+  const [smsConsent, setSmsConsent] = useState(false);
+  const [smsPromoOptIn, setSmsPromoOptIn] = useState(false);
   const [marketingOptIn, setMarketingOptIn] = useState(false);
   // Promo code state
   const [promoCode, setPromoCode] = useState("");
@@ -408,6 +414,8 @@ export default function BookingForm() {
             : null,
         promo_code: promoApplied ? promoApplied.code : null,
         wait_time_consent: waitConsent,
+        sms_consent: smsConsent,
+        sms_promo_opt_in: smsPromoOptIn,
         marketing_opt_in: marketingOptIn,
         utm: getStoredUtm(),
       };
@@ -1257,7 +1265,61 @@ export default function BookingForm() {
                 </span>
               </label>
 
-              {/* Optional marketing opt-in. Default OFF — CAN-SPAM compliant. */}
+              {/* ---- Twilio A2P 10DLC compliant SMS opt-in (REQUIRED) ----
+                  Two separate, non-pre-checked checkboxes:
+                    1. Transactional SMS (required to submit) — confirmations,
+                       trip updates, driver dispatch, reminders.
+                    2. Promotional SMS (optional) — offers, seasonal promos.
+                  Includes all 7 required disclosures per Twilio's reviewer
+                  checklist: phone capture, consent language, message description,
+                  frequency, msg & data rates, STOP/HELP, T&C + Privacy links. */}
+              <div
+                data-testid="sms-consent-block"
+                className="mt-4 pt-4 border-t border-white/10 space-y-3"
+              >
+                <label
+                  data-testid="sms-consent-label"
+                  className="flex items-start gap-3 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    data-testid="sms-consent-checkbox"
+                    checked={smsConsent}
+                    onChange={(e) => setSmsConsent(e.target.checked)}
+                    required
+                    className="mt-1 h-5 w-5 accent-[#D4AF37] cursor-pointer flex-shrink-0"
+                  />
+                  <span className="text-sm text-white/85 leading-relaxed">
+                    <strong className="text-white">Yes, text me about my trip.</strong>{" "}
+                    By checking this box, I agree to receive SMS messages from TuranEliteLimo at the phone number above for{" "}
+                    <strong className="text-white">booking confirmations, trip status updates, driver dispatch notifications, pickup reminders, and quote responses</strong>.
+                    Message frequency varies (typically 2–5 messages per booking).{" "}
+                    <strong className="text-white">Msg &amp; data rates may apply.</strong>{" "}
+                    Reply <strong className="text-white">STOP</strong> to unsubscribe or <strong className="text-white">HELP</strong> for help.
+                    See our <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-[#D4AF37] underline">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-[#D4AF37] underline">Privacy Policy</a>.{" "}
+                    <span className="text-[#D4AF37]">*required</span>
+                  </span>
+                </label>
+
+                <label
+                  data-testid="sms-promo-optin-label"
+                  className="flex items-start gap-3 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    data-testid="sms-promo-optin-checkbox"
+                    checked={smsPromoOptIn}
+                    onChange={(e) => setSmsPromoOptIn(e.target.checked)}
+                    className="mt-1 h-5 w-5 accent-[#D4AF37] cursor-pointer flex-shrink-0"
+                  />
+                  <span className="text-sm text-white/70 leading-relaxed">
+                    Optionally, send me occasional <strong className="text-white">promotional SMS</strong> from TuranEliteLimo — exclusive offers, seasonal promos, and event packages. Up to 4 messages per month. Msg &amp; data rates may apply. Reply STOP to unsubscribe anytime.
+                  </span>
+                </label>
+              </div>
+
+              {/* Optional marketing EMAIL opt-in. Default OFF — CAN-SPAM compliant.
+                  Separate from SMS so customers control each channel independently. */}
               <label
                 data-testid="marketing-optin-label"
                 className="flex items-start gap-3 mt-3 cursor-pointer"
@@ -1270,7 +1332,7 @@ export default function BookingForm() {
                   className="mt-1 h-5 w-5 accent-[#D4AF37] cursor-pointer flex-shrink-0"
                 />
                 <span className="text-sm text-white/70 leading-relaxed">
-                  Send me occasional offers, seasonal promos, and updates from TuranEliteLimo. I can unsubscribe anytime.
+                  Email me occasional offers, seasonal promos, and updates from TuranEliteLimo. Unsubscribe anytime via any email&apos;s footer link.
                 </span>
               </label>
             </div>
@@ -1293,7 +1355,7 @@ export default function BookingForm() {
             <Button
               type="submit"
               data-testid="booking-submit"
-              disabled={submitting || (form.vehicle_type && waitPolicy && !waitConsent)}
+              disabled={submitting || (form.vehicle_type && waitPolicy && (!waitConsent || !smsConsent))}
               className="bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full px-8 h-12 font-medium disabled:opacity-50"
             >
               {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

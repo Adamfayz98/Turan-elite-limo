@@ -189,9 +189,18 @@ class BookingCreate(BaseModel):
     flight_number: Optional[str] = Field(None, max_length=20)  # required for Airport Transfer
     promo_code: Optional[str] = Field(None, max_length=40)
     wait_time_consent: bool = False  # MUST be true — frontend enforces, backend re-validates
+    # ---- SMS / TCPA consent (Twilio A2P 10DLC compliance) ----
+    # `sms_consent` MUST be true to submit. It's the express written consent
+    # for transactional SMS (booking confirmations, trip updates, driver
+    # dispatch, reminders). Stored alongside the booking with the timestamp
+    # for audit if Twilio or a regulator ever asks for proof of consent.
+    sms_consent: bool = False
+    # `sms_promo_opt_in` is the OPTIONAL second checkbox for promotional SMS
+    # (offers, seasonal promos). Default false, must be explicitly checked.
+    sms_promo_opt_in: bool = False
     marketing_opt_in: bool = False  # CAN-SPAM/TCPA: explicit consent to receive
-                                    # promotional emails. Stored on customer +
-                                    # booking for audit trail.
+                                    # promotional EMAILS only. Stored on
+                                    # customer + booking for audit trail.
     utm: Optional[dict] = None      # First-touch attribution payload from the
                                     # frontend localStorage (utm_source,
                                     # utm_campaign, gclid, source_bucket, etc.).
@@ -221,6 +230,11 @@ class Booking(BaseModel):
     meet_and_greet: bool = False
     flight_number: Optional[str] = None
     marketing_opt_in: bool = False
+    # SMS consent audit trail (Twilio A2P 10DLC compliance — see BookingCreate)
+    sms_consent: bool = False
+    sms_consent_at: Optional[str] = None  # ISO timestamp set when payload arrived
+    sms_consent_ip: Optional[str] = None  # X-Forwarded-For / client.host at submit
+    sms_promo_opt_in: bool = False
     manage_token: Optional[str] = None
     review_request_sent_at: Optional[str] = None
     cancellation_requested: bool = False
@@ -475,6 +489,15 @@ async def create_booking(payload: BookingCreate, request: Request):
             status_code=400,
             detail="Please accept the wait time policy to continue.",
         )
+    # ----- Twilio A2P / TCPA: require explicit SMS consent -----
+    # We text the customer the confirmation + driver/wait-time updates, so we
+    # need an explicit, non-pre-checked opt-in. Frontend gates submit on this
+    # too; backend re-validates to defeat any bypass attempt.
+    if not payload.sms_consent:
+        raise HTTPException(
+            status_code=400,
+            detail="Please accept SMS notifications so we can text your confirmation and trip updates.",
+        )
 
     # ----- Service area guard (defensive) -----
     # The frontend autocomplete already restricts inputs to NorCal, but a
@@ -513,6 +536,12 @@ async def create_booking(payload: BookingCreate, request: Request):
     doc['additional_stops'] = doc.get('additional_stops') or []
     # Manage token issued upfront so the customer can cancel/change even while pending
     doc['manage_token'] = _generate_manage_token()
+    # ----- Twilio A2P audit trail -----
+    # Twilio (and any future regulator) can ask for proof of when + how the
+    # customer opted into SMS. We stash the timestamp + client IP on the
+    # booking itself so the record is co-located with the consent action.
+    doc['sms_consent_at'] = datetime.now(timezone.utc).isoformat()
+    doc['sms_consent_ip'] = (request.client.host if request.client else None)
 
     # Persist marketing opt-in on a per-customer record so we have a single
     # source of truth for "may we email this person promotions?". The booking
@@ -2066,6 +2095,12 @@ class QuoteRequestCreate(BaseModel):
     # Max 5 stops keeps the form sane.
     stops: Optional[List[str]] = Field(None, max_length=5)
     notes: Optional[str] = Field(None, max_length=1000)
+    # ---- SMS / TCPA consent (Twilio A2P 10DLC compliance) ----
+    # Express written consent for transactional SMS — required to receive the
+    # quote (which we deliver primarily via SMS). Captured alongside timestamp
+    # + IP server-side for regulator-proof audit.
+    sms_consent: bool = False
+    sms_promo_opt_in: bool = False
     utm: Optional[dict] = None  # First-touch attribution from the frontend
                                 # localStorage. Stored as-is on the quote_request.
 
@@ -2074,7 +2109,18 @@ class QuoteRequestCreate(BaseModel):
 async def submit_quote_request(payload: QuoteRequestCreate, request: Request):
     """Customer-facing endpoint. Creates a quote_request row + alerts admin via
     email and SMS gateway. Returns the request id so the UI can show success."""
+    # ----- Twilio A2P / TCPA: require explicit SMS consent -----
+    # Quote responses are delivered primarily via SMS — without consent we
+    # can't legally text the quote back.
+    if not payload.sms_consent:
+        raise HTTPException(
+            status_code=400,
+            detail="Please accept SMS notifications so we can text your custom quote.",
+        )
+
     doc = payload.model_dump()
+    # Capture audit trail at the moment of consent
+    doc["sms_consent_at"] = datetime.now(timezone.utc).isoformat()
 
     # ----- Block-by-source guard (Admin → Attribution → block toggle) -----
     # If this submission's first-touch UTM source is on the admin blocklist,
