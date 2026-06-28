@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2, Sparkles, ExternalLink, ClipboardPaste, Tag, TrendingUp } from "lucide-react";
+import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2, Sparkles, ExternalLink, ClipboardPaste, Tag, TrendingUp, Gift } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import {
@@ -206,6 +206,11 @@ export default function QuoteRequestsTab() {
   // "Suggested affiliates" modal state (per-quote)
   const [suggestState, setSuggestState] = useState(null); // { request }
 
+  // "Save with promo code" modal — auto-generates a single-use discount code
+  // we can offer a price-sensitive lead as a sweetener instead of dropping
+  // below the floor on the current trip.
+  const [promoState, setPromoState] = useState(null); // { request }
+
   // "Import Lead" modal — paste raw Yelp / Google / phone-call text and the
   // backend LLM extracts structured fields. See <ImportLeadModal/>.
   const [importOpen, setImportOpen] = useState(false);
@@ -372,6 +377,15 @@ export default function QuoteRequestsTab() {
                     >
                       <Sparkles className="w-3 h-3" /> Suggest affiliates
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setPromoState({ request: q })}
+                      data-testid={`quote-promo-${q.id}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/[0.07] text-emerald-300 text-xs hover:bg-emerald-500/[0.15]"
+                      title="Generate a single-use future-trip promo code to close a price-sensitive lead"
+                    >
+                      <Gift className="w-3 h-3" /> Save with promo
+                    </button>
                     <a
                       href={`tel:${phoneTel}`}
                       data-testid={`quote-call-${q.id}`}
@@ -419,6 +433,11 @@ export default function QuoteRequestsTab() {
       <SuggestAffiliatesDialog
         state={suggestState}
         onClose={() => setSuggestState(null)}
+      />
+
+      <SavePromoDialog
+        state={promoState}
+        onClose={() => setPromoState(null)}
       />
 
       <ImportLeadDialog
@@ -1272,6 +1291,307 @@ function ImportLeadDialog({ open, onClose, onCreated }) {
     </Dialog>
   );
 }
+
+// ------- Modal: "Save with promo" — generates a single-use future-trip
+// discount code when a customer is haggling below your floor. Creates the
+// promo via POST /admin/promos, then drops a ready-to-send SMS draft on the
+// clipboard so the operator pastes & goes.
+//
+// Default policy:
+//   - 10% off, single use, expires 6 months from creation
+//   - Restricted to Executive Sedan / Luxury SUV / First Class (cheap
+//     sedan-tier trips so the discount eats only ~$10-20 of margin)
+//   - Code format: <FIRSTNAME_UPPER><value>  (e.g. LETICIA10)
+
+const PROMO_VEHICLE_DEFAULTS = ["executive sedan", "luxury suv", "first class"];
+
+function buildPromoCode(fullName, value) {
+  const first = String(fullName || "GUEST")
+    .trim()
+    .split(/\s+/)[0]
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
+  const stem = first.slice(0, 10) || "GUEST";
+  const num = String(value || 10).replace(/[^\d]/g, "") || "10";
+  return `${stem}${num}`;
+}
+
+function isoDatePlusMonths(months) {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function SavePromoDialog({ state, onClose }) {
+  const q = state?.request;
+  const [code, setCode] = useState("");
+  const [value, setValue] = useState("10");
+  const [discountType, setDiscountType] = useState("percent");
+  const [expiresAt, setExpiresAt] = useState(isoDatePlusMonths(6));
+  const [allowedTypes, setAllowedTypes] = useState(PROMO_VEHICLE_DEFAULTS);
+  const [saving, setSaving] = useState(false);
+  const [created, setCreated] = useState(null); // Promo doc after create
+
+  useEffect(() => {
+    if (q) {
+      setCode(buildPromoCode(q.full_name, "10"));
+      setValue("10");
+      setDiscountType("percent");
+      setExpiresAt(isoDatePlusMonths(6));
+      setAllowedTypes(PROMO_VEHICLE_DEFAULTS);
+      setCreated(null);
+    }
+  }, [q]);
+
+  // Auto-update the code when value changes (e.g. switching from 10 → 15%)
+  useEffect(() => {
+    if (q && !created) setCode(buildPromoCode(q.full_name, value));
+  }, [value, q, created]);
+
+  if (!state) return null;
+
+  const firstName = String(q?.full_name || "").trim().split(/\s+/)[0] || "there";
+  const expiryHuman = expiresAt
+    ? new Date(expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "—";
+
+  const smsDraft = `Hi ${firstName}, thanks for considering TuranEliteLimo! As a thank-you, here's ${value}% off your next executive Sedan or SUV trip — perfect for airport runs, date nights, or business travel.
+
+Code: ${code.toUpperCase()}
+Valid through: ${expiryHuman}
+
+Book anytime at turanelitelimo.com. Looking forward to riding with you!
+
+— Turan, TuranEliteLimo`;
+
+  const toggleVehicleType = (vt) => {
+    setAllowedTypes((arr) =>
+      arr.includes(vt) ? arr.filter((x) => x !== vt) : [...arr, vt]
+    );
+  };
+
+  const createAndCopy = async () => {
+    if (!code.trim() || code.length < 3) {
+      toast.error("Promo code must be at least 3 chars.");
+      return;
+    }
+    if (!value || Number(value) <= 0) {
+      toast.error("Discount value must be > 0.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        code: code.trim().toUpperCase(),
+        description: `One-time offer extended to ${q.full_name} (${q.id?.slice(0, 8)}) on ${new Date().toLocaleDateString()}.`,
+        discount_type: discountType,
+        value: Number(value),
+        min_ride_amount: 0,
+        max_uses: 1,
+        expires_at: expiresAt || null,
+        first_ride_only: false,
+        active: true,
+        show_on_banner: false,
+        auto_apply: false,
+        allowed_vehicle_types: allowedTypes,
+      };
+      const { data } = await api.post("/admin/promos", payload);
+      setCreated(data);
+      // Attempt clipboard copy — non-fatal if it fails (mobile Safari quirks)
+      try {
+        await navigator.clipboard.writeText(smsDraft);
+        toast.success(`Code ${data.code} created · SMS copied to clipboard`);
+      } catch {
+        toast.success(`Code ${data.code} created — copy the SMS below manually`);
+      }
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't create promo");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copySms = async () => {
+    try {
+      await navigator.clipboard.writeText(smsDraft);
+      toast.success("SMS copied — paste into Messages");
+    } catch {
+      toast.error("Couldn't copy. Long-press the text to copy manually.");
+    }
+  };
+
+  return (
+    <Dialog open={!!state} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        data-testid="save-promo-dialog"
+        className="bg-[#0c0c0c] border-[#1f1f1f] text-white max-w-lg max-h-[90vh] overflow-y-auto"
+      >
+        <DialogHeader>
+          <DialogTitle className="text-white flex items-center gap-2">
+            <Gift className="w-5 h-5 text-emerald-300" /> Save the deal with a promo
+          </DialogTitle>
+          <DialogDescription className="text-white/55 leading-relaxed">
+            Generates a single-use future-trip code (restricted to lower-AOV vehicles by default) so you can close a price-sensitive lead without dropping below your floor. The SMS gets copied to your clipboard on create.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block mb-1.5">Code</label>
+              <Input
+                data-testid="promo-code-input"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                className="bg-[#0E0E0E] border-[#27272A] text-white font-mono uppercase tracking-wider"
+                maxLength={40}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block mb-1.5">
+                Discount {discountType === "percent" ? "(%)" : "($)"}
+              </label>
+              <div className="flex gap-1.5">
+                <Input
+                  data-testid="promo-value-input"
+                  type="number"
+                  inputMode="decimal"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  className="bg-[#0E0E0E] border-[#27272A] text-white"
+                  min="1"
+                />
+                <Select value={discountType} onValueChange={setDiscountType}>
+                  <SelectTrigger
+                    className="bg-[#0E0E0E] border-[#27272A] text-white w-20"
+                    data-testid="promo-type-select"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#0E0E0E] border-[#27272A] text-white">
+                    <SelectItem value="percent">%</SelectItem>
+                    <SelectItem value="fixed">$</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block mb-1.5">Expires</label>
+            <Input
+              data-testid="promo-expires-input"
+              type="date"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+              className="bg-[#0E0E0E] border-[#27272A] text-white"
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block mb-2">
+              Applies to <span className="text-white/35 normal-case tracking-normal">(restrict to lower-AOV vehicles to protect margin)</span>
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                "executive sedan",
+                "first class",
+                "luxury suv",
+                "sprinter van",
+                "executive sprinter",
+                "stretch limousine",
+                "party bus",
+              ].map((vt) => {
+                const on = allowedTypes.includes(vt);
+                return (
+                  <button
+                    key={vt}
+                    type="button"
+                    onClick={() => toggleVehicleType(vt)}
+                    data-testid={`promo-vt-${vt.replace(/\s+/g, "-")}`}
+                    className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border transition ${
+                      on
+                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                        : "bg-white/[0.02] text-white/45 border-white/10 hover:bg-white/5"
+                    }`}
+                  >
+                    {vt}
+                  </button>
+                );
+              })}
+            </div>
+            {allowedTypes.length === 0 && (
+              <div className="text-[10px] text-amber-300/75 mt-1.5">
+                ⚠ No vehicle restriction = applies to ANY trip. Margin risk.
+              </div>
+            )}
+          </div>
+
+          {/* SMS preview — always shown, gets copied on create */}
+          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.04] p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-300 font-semibold flex items-center gap-1.5">
+                <MessageSquare className="w-3 h-3" /> SMS preview · auto-copies on create
+              </div>
+              {created && (
+                <Button
+                  size="sm"
+                  onClick={copySms}
+                  data-testid="promo-copy-sms"
+                  className="h-7 px-2 text-xs bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-500/40"
+                >
+                  <Copy className="w-3 h-3 mr-1" /> Copy again
+                </Button>
+              )}
+            </div>
+            <Textarea
+              data-testid="promo-sms-preview"
+              value={smsDraft}
+              readOnly
+              rows={9}
+              className="bg-[#0A0A0A] border-[#1F1F1F] text-white/85 text-xs leading-relaxed font-mono"
+            />
+          </div>
+
+          {created && (
+            <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-200 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              <span>
+                Promo <span className="font-mono font-semibold">{created.code}</span> is live · single use · expires {expiryHuman}.
+              </span>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 mt-4">
+          <Button
+            onClick={onClose}
+            className="bg-white/10 hover:bg-white/15 text-white"
+            data-testid="promo-close-btn"
+          >
+            {created ? "Done" : "Cancel"}
+          </Button>
+          {!created && (
+            <Button
+              onClick={createAndCopy}
+              disabled={saving}
+              data-testid="promo-create-btn"
+              className="bg-emerald-500 hover:bg-emerald-600 text-black disabled:opacity-60"
+            >
+              {saving ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Gift className="w-4 h-4 mr-2" />
+              )}
+              Create & copy SMS
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 // Small labelled input. Local to the ImportLeadDialog so we don't pollute the
 // global component surface — kept inline because it's truly a one-off use case.
