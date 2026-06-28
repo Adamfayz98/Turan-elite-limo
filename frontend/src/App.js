@@ -25,6 +25,8 @@ import WineTourLanding from "@/pages/WineTourLanding";
 import CorporateLanding from "@/pages/CorporateLanding";
 import PartyBusLanding from "@/pages/PartyBusLanding";
 import QuoteOfferConfirm from "@/pages/QuoteOfferConfirm";
+import BookPage from "@/pages/BookPage";
+import QuotePage from "@/pages/QuotePage";
 import ReferralRedirect from "@/pages/ReferralRedirect";
 import MyReferrals from "@/pages/MyReferrals";
 import GoogleSiteTag from "@/components/GoogleSiteTag";
@@ -94,6 +96,12 @@ function App() {
           <Route path="/party-bus-bay-area" element={<PartyBusLanding />} />
           <Route path="/limo-bus" element={<PartyBusLanding />} />
           <Route path="/quote/:token" element={<QuoteOfferConfirm />} />
+          {/* Dedicated landing pages for Google Business Profile "Book online"
+              and "Request quote" CTAs. Both reuse BookingForm but wrap it in
+              focused copy + a unique <title>. Keep these ABOVE generic catch-
+              alls so the exact-match `/book` and `/quote` don't get swallowed. */}
+          <Route path="/book" element={<BookPage />} />
+          <Route path="/quote" element={<QuotePage />} />
           <Route path="/r/:code" element={<ReferralRedirect />} />
           <Route path="/refer" element={<MyReferrals />} />
           <Route path="/admin/login" element={<AdminLogin />} />
@@ -131,7 +139,10 @@ function ConditionalChatWidget() {
     location.pathname.startsWith("/driver") ||
     location.pathname.startsWith("/pay") ||
     location.pathname.startsWith("/manage") ||
-    location.pathname.startsWith("/quote") ||
+    // Hide on `/quote/:token` confirmation pages (transactional flow) but NOT
+    // on the bare `/quote` landing page where we WANT the widget to help
+    // customers convert. The trailing slash makes the distinction.
+    location.pathname.startsWith("/quote/") ||
     location.pathname.startsWith("/post-trip");
   if (hidden) return null;
   return <FloatingChatWidget />;
