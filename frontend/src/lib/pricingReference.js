@@ -1,35 +1,36 @@
 // pricingReference.js — single source of truth for affiliate net rates &
 // recommended margin bands. Powers the Profit Preview Chip in
-// Admin → Quote Requests. Edit alongside /app/memory/PRICING_REFERENCE.md
-// when rates change.
+// Admin → Quote Requests AND the Vehicle Picker. Edit alongside
+// /app/memory/PRICING_REFERENCE.md when rates change.
 //
-// Margin targets (industry-standard for affiliate brokerage):
-//   FLOOR    20%   — walk away below this, or pivot to a cheaper vehicle
-//   TARGET   27.5% — recommended quote (sweet spot)
-//   PREMIUM  35%   — top of market, use when customer isn't price-shopping
+// Each vehicle entry also carries pax + formality data so the Vehicle Picker
+// can match a customer's needs to the right offering.
 
 export const MARGIN_FLOOR = 0.20;
 export const MARGIN_TARGET = 0.275;
 export const MARGIN_PREMIUM = 0.35;
 
-// Net rates ($/hr) keyed by lowercased vehicle_type. Add or update entries
-// when you confirm new affiliate rates — and update the Markdown doc.
-//
-// `min_hours` = minimum billable hours from the affiliate.
-// `flat_rate_capable` = vehicle commonly does flat-rate transfers (sedan/SUV).
-// Last-rate-confirmed dates help us spot stale numbers.
+// Net rates ($/hr) keyed by lowercased vehicle_type. Each entry includes:
+//   • hourly: affiliate's per-hour net cost
+//   • min_hours: minimum billable hours from the affiliate
+//   • min_pax / max_pax: comfortable seating range
+//   • formality: "formal" | "party" | "both" (drives Vehicle Picker filter)
+//   • tier: "sedan" | "suv" | "sprinter" | "limo" | "coach" | "bus"
+//   • description: short pitch line used in the picker output
 export const AFFILIATE_NET_RATES = {
-  "executive sedan":         { hourly: 75,  min_hours: 1, flat_rate_capable: true,  confirmed: null },
-  "first class":             { hourly: 95,  min_hours: 1, flat_rate_capable: true,  confirmed: null },
-  "luxury suv":              { hourly: 95,  min_hours: 1, flat_rate_capable: true,  confirmed: null },
-  "sprinter van":            { hourly: 110, min_hours: 3, flat_rate_capable: false, confirmed: null },
-  "executive sprinter":      { hourly: 125, min_hours: 3, flat_rate_capable: false, confirmed: null },
-  "jet sprinter":            { hourly: 145, min_hours: 3, flat_rate_capable: false, confirmed: null },
-  "limo style sprinter":     { hourly: 170, min_hours: 4, flat_rate_capable: false, confirmed: "2026-02-27" },
-  "limo-style sprinter":     { hourly: 170, min_hours: 4, flat_rate_capable: false, confirmed: "2026-02-27" },
-  "stretch limousine":       { hourly: 135, min_hours: 3, flat_rate_capable: false, confirmed: null },
-  "stretch limo":            { hourly: 135, min_hours: 3, flat_rate_capable: false, confirmed: null },
-  "party bus":               { hourly: 200, min_hours: 4, flat_rate_capable: false, confirmed: null },
+  "executive sedan":         { hourly: 75,  min_hours: 1, min_pax: 1,  max_pax: 4,  formality: "formal", tier: "sedan",    description: "Cadillac XTS / Lincoln-class executive sedan. Airport, point-to-point, corporate.", flat_rate_capable: true,  confirmed: null },
+  "first class":             { hourly: 95,  min_hours: 1, min_pax: 1,  max_pax: 4,  formality: "formal", tier: "sedan",    description: "Mercedes S-Class / BMW 7-Series. VIP & C-level executive.",                       flat_rate_capable: true,  confirmed: null },
+  "luxury suv":              { hourly: 95,  min_hours: 1, min_pax: 1,  max_pax: 7,  formality: "formal", tier: "suv",      description: "Cadillac Escalade / Suburban / Yukon. Group airport, family, ski trips.",         flat_rate_capable: true,  confirmed: null },
+  "sprinter van":            { hourly: 110, min_hours: 3, min_pax: 8,  max_pax: 15, formality: "formal", tier: "sprinter", description: "Standard Mercedes Sprinter, captain seating. Budget group transport.",            flat_rate_capable: false, confirmed: null },
+  "executive sprinter":      { hourly: 125, min_hours: 3, min_pax: 8,  max_pax: 14, formality: "formal", tier: "sprinter", description: "Premium captain leather, climate, USB. Weddings, corporate, wine tours.",        flat_rate_capable: false, confirmed: null },
+  "jet sprinter":            { hourly: 145, min_hours: 3, min_pax: 6,  max_pax: 10, formality: "formal", tier: "sprinter", description: "First-class recliners, conference table. Long-distance executive trips.",       flat_rate_capable: false, confirmed: null },
+  "limo style sprinter":     { hourly: 170, min_hours: 4, min_pax: 8,  max_pax: 14, formality: "party",  tier: "sprinter", description: "Leather wraparound, club LED, mini-bar, premium sound. Birthdays, bachelorettes.", flat_rate_capable: false, confirmed: "2026-02-27" },
+  "limo-style sprinter":     { hourly: 170, min_hours: 4, min_pax: 8,  max_pax: 14, formality: "party",  tier: "sprinter", description: "Leather wraparound, club LED, mini-bar, premium sound. Birthdays, bachelorettes.", flat_rate_capable: false, confirmed: "2026-02-27" },
+  "stretch limousine":       { hourly: 135, min_hours: 3, min_pax: 6,  max_pax: 10, formality: "party",  tier: "limo",     description: "Classic stretch with bar + mood lighting. Prom, traditional wedding getaway.",   flat_rate_capable: false, confirmed: null },
+  "stretch limo":            { hourly: 135, min_hours: 3, min_pax: 6,  max_pax: 10, formality: "party",  tier: "limo",     description: "Classic stretch with bar + mood lighting. Prom, traditional wedding getaway.",   flat_rate_capable: false, confirmed: null },
+  "party bus":               { hourly: 200, min_hours: 4, min_pax: 14, max_pax: 30, formality: "party",  tier: "bus",      description: "Dance floor, full bar, club lighting, sound. Bachelor/ette, big celebrations.",  flat_rate_capable: false, confirmed: null },
+  "limo coach":              { hourly: 220, min_hours: 4, min_pax: 14, max_pax: 20, formality: "party",  tier: "bus",      description: "Lounge-style seating, premium bar, club lighting. Upscale weddings, premium parties.", flat_rate_capable: false, confirmed: null },
+  "mini coach":              { hourly: 165, min_hours: 3, min_pax: 14, max_pax: 28, formality: "formal", tier: "coach",    description: "High-back coach seats, AC. Wedding guest shuttles, corporate events.",            flat_rate_capable: false, confirmed: null },
 };
 
 // Look up the net rate for a vehicle. Returns null if we don't have data.
@@ -108,3 +109,82 @@ export const fmtPct = (n) => {
   if (n == null || !isFinite(n)) return "—";
   return `${(n * 100).toFixed(1)}%`;
 };
+
+// ----------------------------------------------------------------------
+// Vehicle Picker — given pax + formality preference, returns ranked matches.
+// Used by the in-admin Vehicle Picker tool so the operator doesn't have to
+// keep all the capacity/formality mapping in their head.
+//
+// Inputs:
+//   pax          - integer headcount
+//   formality    - "formal" (wedding/corporate) | "party" (birthday/bachelorette) | "either"
+//   hours        - optional, used for margin math preview
+// Returns array sorted by best fit (snug-not-cramped, formality match):
+//   [{ key, info, retail_floor, retail_target, retail_premium, fit_note }]
+// ----------------------------------------------------------------------
+export function pickVehicles({ pax, formality = "either", hours = null }) {
+  const numPax = Number(pax) || 0;
+  if (!numPax) return [];
+
+  const results = [];
+  // De-dupe synonym keys (limo style / limo-style) by tracking already-seen vehicle descriptions
+  const seenDesc = new Set();
+
+  for (const [key, info] of Object.entries(AFFILIATE_NET_RATES)) {
+    if (seenDesc.has(info.description)) continue;
+    seenDesc.add(info.description);
+
+    // Capacity filter — vehicle must fit pax, with up to 2 over (tight) flagged
+    if (numPax > info.max_pax + 2) continue;       // Far too small
+    if (numPax < info.min_pax) continue;            // Far too large (overkill)
+
+    // Formality filter (relaxed: "either" picks both formal+party)
+    if (formality !== "either" && info.formality !== formality && info.formality !== "both") {
+      continue;
+    }
+
+    // Compute retail bands (using min_hours as the default duration if not supplied)
+    const billable = Math.max(Number(hours) || info.min_hours, info.min_hours);
+    const net = info.hourly * billable;
+    const floor = Math.round(net / (1 - MARGIN_FLOOR));
+    const target = Math.round(net / (1 - MARGIN_TARGET));
+    const premium = Math.round(net / (1 - MARGIN_PREMIUM));
+
+    // Fit note — tells operator if vehicle is snug, ideal, or roomy
+    let fit_note = "";
+    let fit_score = 0;
+    if (numPax > info.max_pax) {
+      fit_note = `Tight — ${numPax} pax in ${info.max_pax}-seat. Consider an upgrade.`;
+      fit_score = 1;
+    } else if (numPax === info.max_pax) {
+      fit_note = `Snug fit · ${numPax} pax in ${info.max_pax}-seat`;
+      fit_score = 2;
+    } else if (numPax >= info.max_pax - 2) {
+      fit_note = `Ideal fit · ${numPax} pax in ${info.max_pax}-seat (room to stretch)`;
+      fit_score = 4;
+    } else if (numPax >= info.min_pax) {
+      fit_note = `Roomy · ${info.max_pax}-seat with ${numPax} pax (lots of space)`;
+      fit_score = 3;
+    }
+
+    // Formality fit (exact match scores higher)
+    const formality_match = formality === info.formality ? 2 : 1;
+
+    results.push({
+      key,
+      info,
+      billable_hours: billable,
+      net,
+      floor,
+      target,
+      premium,
+      fit_note,
+      fit_score,
+      formality_match,
+      // Combined score for ranking — fit dominates, formality is the tiebreaker
+      _score: fit_score * 10 + formality_match,
+    });
+  }
+
+  return results.sort((a, b) => b._score - a._score);
+}

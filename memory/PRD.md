@@ -1,6 +1,45 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 28, 2026 — iter 51 (Profit Preview Chip + Pricing Reference)
+> Last refreshed: Jun 29, 2026 — iter 52 (Vehicle Picker + AI Drafts + 1-tap Dispatch Email)
+
+## ✅ Vehicle Picker, AI Drafts & 1-tap Dispatch Email (Jun 29, 2026 — iter 52)
+
+**Why:** Operator (Adam) regularly hand-rolls (1) which vehicle class fits a lead's headcount & vibe, (2) the warm customer-facing notes that go on quote confirmation + invoice PDF, (3) the ops brief for the affiliate driver. Each is 2–5 min of typing per lead. Goal: collapse all three into one-tap UX while keeping operator final say.
+
+**What shipped:**
+1. **Vehicle Picker dialog** (`/app/frontend/src/components/admin/VehiclePickerDialog.jsx`):
+   - Header button on Quote Requests tab opens a decision-support dialog
+   - Inputs: pax (required), hours (optional), vibe filter (Any / Formal / Party) + occasion shortcuts
+   - Ranks vehicles by fit (IDEAL / ROOMY / SNUG / TIGHT) + formality match
+   - Each row now shows a fleet thumbnail + capacity range + Net rate + Floor (20%) / Target (27.5%) / Premium (35%) bands
+   - Data sourced from `pricingReference.js` so it stays in sync with the Profit Preview Chip
+   - data-testid `vehicle-picker-open`, `vehicle-picker-dialog`, `vp-pax/hours/formality-*`, `vp-result-*`
+
+2. **AI text-draft buttons** (`POST /api/admin/ai/draft-quote-text`):
+   - Backend endpoint accepts `mode: customer_notes | dispatch_instructions` + a free-form `context` dict
+   - Uses Emergent LLM Key + `gemini-2.5-flash` for low-cost, fast drafts
+   - Two strict system prompts: customer-facing (warm prose, 50%/50% deposit policy baked in, 21+ tact for alcohol-occasion) and dispatch (terse bullets, PII-stripped tone)
+   - Frontend: "Draft with AI" inline button next to "Reset to template" in SendQuoteDialog → fills `quote-notes` textarea
+   - Frontend: "Draft with AI" inline button next to special-requests label in DispatchPdfDialog → fills extra-notes textarea
+   - data-testid `ai-draft-customer-notes`, `ai-draft-dispatch`
+
+3. **1-tap "Email dispatch PDF to affiliate"** (`POST /api/admin/quote-requests/{id}/dispatch-pdf/email`):
+   - Inside `Suggest affiliates` modal, each affiliate row with an email on file now shows an "Email dispatch PDF" button
+   - Backend generates the PII-stripped PDF (re-uses `pdf_service.generate_dispatch_pdf`), composes a plain ops email, attaches the PDF, sends via Resend, and BCCs `support@` for our records
+   - Audit trail: each send appends to `quote_requests.dispatch_emails[]` (recipient, name, rate, message_id, sent_at)
+   - Replaces "download PDF → open Gmail → compose → drag PDF → type message → send" with one click
+   - data-testid `email-dispatch-{affiliate.id}`
+
+4. **Pre-existing SuggestAffiliatesDialog crash fix:** `data.affiliates.map()` crashed when `data === null` during the brief initial render before the API resolved. Now gated behind `loading || !data`.
+
+**Testing:** Curl verification on both new endpoints (200 OK with valid output, 400 on missing `affiliate_email`, 404 on missing quote). Frontend smoke screenshot confirmed: Vehicle Picker dialog opens with thumbnails + ranked results, AI Draft button in SendQuoteDialog produces context-aware text (e.g. for a "Sprinter Van wedding" the AI wrote "Your Sprinter van offers luxurious seating, generous legroom..." plus the standard 50/50 policy). Suggest Affiliates dialog opens cleanly post-crash-fix.
+
+**Files touched:**
+- backend/routes/admin.py — added `/admin/ai/draft-quote-text` + `/admin/quote-requests/{rid}/dispatch-pdf/email`
+- frontend/src/components/admin/VehiclePickerDialog.jsx — added fleet thumbnails
+- frontend/src/components/admin/QuoteRequestsTab.jsx — wired VehiclePicker into header, added AIDraftButton + EmailDispatchPdfButton shared components, hardened SuggestAffiliatesDialog against null data
+
+---
 
 ## ✅ Profit Preview Chip + Pricing Reference (Feb 28, 2026 — iter 51)
 

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2, Sparkles, ExternalLink, ClipboardPaste, Tag, TrendingUp, Gift, FileText, Download } from "lucide-react";
+import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2, Sparkles, ExternalLink, ClipboardPaste, Tag, TrendingUp, Gift, FileText, Download, Truck, Wand2 } from "lucide-react";
+
+import VehiclePickerDialog from "@/components/admin/VehiclePickerDialog";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import {
@@ -220,6 +222,10 @@ export default function QuoteRequestsTab() {
   // backend LLM extracts structured fields. See <ImportLeadModal/>.
   const [importOpen, setImportOpen] = useState(false);
 
+  // "Vehicle Picker" — decision-support tool: pax + occasion → ranked
+  // vehicle recommendations + margin bands. Pulled from PRICING_REFERENCE.
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   return (
     <div className="space-y-6" data-testid="quote-requests-tab">
       <div className="flex items-start justify-between gap-4">
@@ -236,6 +242,16 @@ export default function QuoteRequestsTab() {
               {newCount} new
             </Badge>
           )}
+          <Button
+            onClick={() => setPickerOpen(true)}
+            data-testid="vehicle-picker-open"
+            variant="outline"
+            size="sm"
+            className="bg-transparent border-white/15 text-white/75 hover:bg-white/5 hover:text-white"
+          >
+            <Truck className="w-4 h-4 mr-1.5" />
+            Vehicle picker
+          </Button>
           <Button
             onClick={() => setImportOpen(true)}
             data-testid="import-lead-open"
@@ -467,6 +483,11 @@ export default function QuoteRequestsTab() {
           setItems((arr) => [qr, ...arr]);
           setImportOpen(false);
         }}
+      />
+
+      <VehiclePickerDialog
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
       />
     </div>
   );
@@ -902,18 +923,38 @@ function SendQuoteDialog({ state, onClose, onSent }) {
                 </div>
               )}
               <div>
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                   <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block">
                     Notes for customer <span className="text-white/35 normal-case tracking-normal">(shown on the confirm page · auto-filled from template)</span>
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setNotes(getDefaultNotesForVehicle(q?.vehicle_type))}
-                    data-testid="quote-notes-reset"
-                    className="text-[10px] text-[#D4AF37] hover:text-[#B3922E] uppercase tracking-wider"
-                  >
-                    Reset to template
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <AIDraftButton
+                      data-testid="ai-draft-customer-notes"
+                      mode="customer_notes"
+                      context={{
+                        vehicle_type: q?.vehicle_type,
+                        occasion: q?.trip_type || q?.occasion,
+                        passengers: tripFields.passengers || q?.passengers,
+                        pickup_date: tripFields.pickup_date || q?.pickup_date,
+                        pickup_time: tripFields.pickup_time || q?.pickup_time,
+                        pickup_location: tripFields.pickup_location || q?.pickup_location,
+                        dropoff_location: tripFields.dropoff_location || q?.dropoff_location,
+                        stops: stops.filter(Boolean),
+                        service_duration: q?.service_duration,
+                        special_notes: q?.notes,
+                      }}
+                      onDraft={(text) => setNotes(text)}
+                      label="Draft with AI"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setNotes(getDefaultNotesForVehicle(q?.vehicle_type))}
+                      data-testid="quote-notes-reset"
+                      className="text-[10px] text-[#D4AF37] hover:text-[#B3922E] uppercase tracking-wider"
+                    >
+                      Reset to template
+                    </button>
+                  </div>
                 </div>
                 <Textarea
                   data-testid="quote-notes"
@@ -1056,7 +1097,7 @@ function SuggestAffiliatesDialog({ state, onClose }) {
           </DialogDescription>
         </DialogHeader>
 
-        {loading ? (
+        {loading || !data ? (
           <div className="py-12 flex justify-center">
             <Loader2 className="w-5 h-5 animate-spin text-[#D4AF37]" />
           </div>
@@ -1117,18 +1158,26 @@ function SuggestAffiliatesDialog({ state, onClose }) {
                       )}
                     </div>
                   </div>
-                  <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between gap-3">
+                  <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between gap-3 flex-wrap">
                     <div className="text-[11px] text-white/45">
                       {(a.vehicle_types || []).join(" · ") || "Vehicle types not set"}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => copyAffiliateOutreachText(a)}
-                      data-testid={`copy-outreach-${a.id}`}
-                      className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#D4AF37] text-black text-xs font-semibold hover:bg-[#B3922E]"
-                    >
-                      <Copy className="w-3 h-3" /> Copy outreach text
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {a.email && (
+                        <EmailDispatchPdfButton
+                          affiliate={a}
+                          quoteId={q?.id}
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => copyAffiliateOutreachText(a)}
+                        data-testid={`copy-outreach-${a.id}`}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#D4AF37] text-black text-xs font-semibold hover:bg-[#B3922E]"
+                      >
+                        <Copy className="w-3 h-3" /> Copy outreach text
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -1547,9 +1596,29 @@ function DispatchPdfDialog({ state, onClose }) {
           </div>
 
           <div>
-            <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block mb-1.5">
-              Special requests / driver instructions <span className="text-white/35 normal-case tracking-normal">(optional)</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+              <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block">
+                Special requests / driver instructions <span className="text-white/35 normal-case tracking-normal">(optional)</span>
+              </label>
+              <AIDraftButton
+                data-testid="ai-draft-dispatch"
+                mode="dispatch_instructions"
+                context={{
+                  vehicle_type: q?.vehicle_type,
+                  occasion: q?.trip_type || q?.occasion,
+                  passengers: q?.passengers,
+                  pickup_date: q?.pickup_date,
+                  pickup_time: q?.pickup_time,
+                  pickup_area: q?.pickup_location,
+                  dropoff_area: q?.dropoff_location,
+                  stops: q?.stops || [],
+                  service_duration: q?.service_duration,
+                  customer_notes: q?.notes,
+                }}
+                onDraft={(text) => setExtraNotes(text)}
+                label="Draft with AI"
+              />
+            </div>
             <Textarea
               data-testid="dispatch-extra-notes"
               rows={5}
@@ -1918,5 +1987,100 @@ function Field({ label, value, onChange, placeholder, testid }) {
         className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm"
       />
     </div>
+  );
+}
+
+
+// ------- Shared: "Email PDF to affiliate" 1-tap button -------
+// Lives inside SuggestAffiliatesDialog. Generates the PII-stripped dispatch
+// PDF on the backend, emails it to the affiliate's saved address, and BCCs
+// support@ for our records. Saves the operator from downloading + composing.
+function EmailDispatchPdfButton({ affiliate, quoteId }) {
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const send = async () => {
+    if (!affiliate?.email || !quoteId) return;
+    setBusy(true);
+    try {
+      await api.post(`/admin/quote-requests/${quoteId}/dispatch-pdf/email`, {
+        affiliate_email: affiliate.email,
+        affiliate_name: affiliate.name || "",
+        // Rate is left blank here — operator can stamp via the DispatchPdfDialog
+        // if they want to lock the agreed net. This 1-tap path is for "send the
+        // sourcing sheet now, we'll confirm rate on reply."
+        cc_admin: true,
+      });
+      toast.success(`Dispatch PDF emailed to ${affiliate.name}`);
+      setSent(true);
+      // Reset the "sent" state after 4s so the operator can re-send if needed
+      setTimeout(() => setSent(false), 4000);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't email dispatch PDF");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={send}
+      disabled={busy || !affiliate?.email}
+      data-testid={`email-dispatch-${affiliate.id}`}
+      title={affiliate?.email ? `Email PII-stripped dispatch PDF to ${affiliate.email}` : "No email on file for this affiliate"}
+      className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-sky-500/15 text-sky-300 text-xs border border-sky-500/40 hover:bg-sky-500/25 disabled:opacity-40"
+    >
+      {busy ? <Loader2 className="w-3 h-3 animate-spin" />
+        : sent ? <CheckCircle2 className="w-3 h-3" />
+        : <FileText className="w-3 h-3" />}
+      {busy ? "Sending…" : sent ? "Sent!" : "Email dispatch PDF"}
+    </button>
+  );
+}
+
+
+// ------- Shared: "Draft with AI" inline button -------
+// Used by both SendQuoteDialog (customer-facing notes) and DispatchPdfDialog
+// (affiliate driver instructions). Calls /admin/ai/draft-quote-text with the
+// trip context; on success, drops the returned plain text into the parent's
+// Textarea via the onDraft callback. The mode param selects the prompt the
+// backend uses.
+function AIDraftButton({ mode, context, onDraft, label = "Draft with AI", "data-testid": testid }) {
+  const [busy, setBusy] = useState(false);
+
+  const draft = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/admin/ai/draft-quote-text", {
+        mode,
+        context: context || {},
+      });
+      const text = (data && data.text) || "";
+      if (!text.trim()) {
+        toast.error("AI returned empty text — try filling in more trip details first.");
+        return;
+      }
+      onDraft(text);
+      toast.success("Draft inserted — edit before sending.");
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "AI drafting failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={draft}
+      disabled={busy}
+      data-testid={testid || `ai-draft-${mode}`}
+      className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-purple-300 hover:text-purple-200 disabled:opacity-50"
+      title="Generate a context-aware draft from trip details. Always edit before sending."
+    >
+      {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+      {busy ? "Drafting…" : label}
+    </button>
   );
 }

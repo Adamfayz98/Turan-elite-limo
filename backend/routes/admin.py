@@ -571,6 +571,108 @@ async def admin_import_lead_commit(payload: dict, _: dict = Depends(require_admi
     return {"ok": True, "id": doc["id"], "quote_request": doc}
 
 
+# ----------------------------------------------------------------------
+# AI text-draft endpoints
+# ----------------------------------------------------------------------
+# Saves operator hand-typing on every lead. Two flavors:
+#   1) "customer_notes" — warm, customer-facing language that ends up on the
+#      Confirm-and-Pay page and inside the auto-generated PDF invoice.
+#   2) "dispatch_instructions" — terse, ops-style brief written for the
+#      affiliate driver. PII-stripped tone, focuses on logistics + vibe.
+#
+# Both flavors share one endpoint and one Gemini call to keep latency low.
+# The operator picks the flavor with the `mode` field. Output is plain
+# text (no markdown / no JSON wrapper) so the UI can paste it directly
+# into the corresponding Textarea.
+
+_DRAFT_CUSTOMER_NOTES_SYSTEM = """You are an executive copywriter for Turan Elite Limo, a Bay Area luxury chauffeur company. Draft the "Notes for customer" section that appears on the customer's quote confirmation page and on their PDF invoice.
+
+Rules:
+- Write 4–8 short lines of natural, warm prose. No bullet lists, no headings, no markdown.
+- ALWAYS open with what's INCLUDED in the trip (vehicle features relevant to the occasion).
+- ALWAYS mention the minimum-hour rule and the per-hour overage rate ONLY IF the operator passed `hourly_overage` in the context; otherwise omit pricing specifics.
+- Mention the standard payment policy in one tight line: "50% deposit confirms · remaining 50% charged day-before · Free cancel 7+ days out · 50% fee inside 7 days · Non-refundable inside 48 hrs."
+- Mention chauffeur gratuity is not included (20% suggested).
+- If the occasion involves alcohol (birthday / bachelorette / prom / club), add a single tactful line about 21+ ID required and BYOB allowed.
+- Match the tone to the occasion: weddings/corporate = elegant; birthday/bachelorette = warm and excited; airport = brisk and professional.
+- Never invent vehicle features that aren't standard for that vehicle class.
+- Never write a salutation ("Hi Sarah") — this text is embedded inside an email, not a standalone message.
+- Sign-off is NOT needed — the email template handles that."""
+
+_DRAFT_DISPATCH_SYSTEM = """You are dispatch coordinator at Turan Elite Limo writing instructions for an affiliate driver who will execute this trip. Write a tight ops brief.
+
+Rules:
+- 3–6 short bullets, each starting with a verb. Plain text bullets ("• ").
+- Cover (in order, only if relevant): vibe expectation, pre-trip setup tasks (e.g. stock ice, test club lights), pickup posture (curbside, lobby, driveway access), known group quirks, special stops, post-trip behavior.
+- NEVER include the customer's last name, full phone number, full address, or email. Use first name and last-initial only if you reference them at all.
+- NO retail price, deposit %, or commercial info — affiliate only sees the agreed NET rate which the operator stamps separately on the PDF.
+- Keep it under 90 words total."""
+
+
+@router.post("/admin/ai/draft-quote-text")
+async def admin_ai_draft_quote_text(payload: dict, _: dict = Depends(require_admin)):
+    """Draft customer-facing notes OR affiliate dispatch instructions for a quote.
+
+    Body:
+        mode: "customer_notes" | "dispatch_instructions"
+        context: free-form dict containing whatever the operator wants the
+                 model to consider. Typical fields:
+                   - vehicle_type, occasion, passengers, pickup_date,
+                     pickup_time, pickup_location, dropoff_location,
+                     stops (list[str]), service_duration, special_notes,
+                     hourly_overage (float, optional)
+    Returns:
+        { mode, text }   # plain text, ready to paste into Textarea
+    """
+    mode = (payload or {}).get("mode", "").strip().lower()
+    if mode not in ("customer_notes", "dispatch_instructions"):
+        raise HTTPException(status_code=400, detail="mode must be 'customer_notes' or 'dispatch_instructions'.")
+    context = (payload or {}).get("context") or {}
+    if not isinstance(context, dict):
+        raise HTTPException(status_code=400, detail="context must be an object.")
+
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+    emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not emergent_key:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not configured.")
+
+    system_prompt = _DRAFT_CUSTOMER_NOTES_SYSTEM if mode == "customer_notes" else _DRAFT_DISPATCH_SYSTEM
+    chat = LlmChat(
+        api_key=emergent_key,
+        session_id=f"draft-{mode}-{uuid.uuid4()}",
+        system_message=system_prompt,
+    ).with_model("gemini", "gemini-2.5-flash")
+
+    # Strip empties and stringify so the prompt stays short + token-cheap.
+    lines = []
+    for k, v in context.items():
+        if v in (None, "", [], {}):
+            continue
+        if isinstance(v, list):
+            v = " → ".join(str(x) for x in v if x)
+        lines.append(f"{k}: {v}")
+    framed = "Trip context:\n" + ("\n".join(lines) if lines else "(no details supplied)")
+
+    try:
+        llm_response = await chat.send_message(UserMessage(text=framed))
+    except Exception as e:
+        logger.warning(f"AI draft ({mode}) call failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Drafting failed: {e}")
+
+    text = (llm_response or "").strip()
+    # Defensive: strip any markdown fences the model may have added despite
+    # the system prompt asking for plain text.
+    if text.startswith("```"):
+        text = text.strip("`")
+        # drop any leading language hint
+        text = text.lstrip("\n")
+        if text.lower().startswith("text"):
+            text = text[4:].lstrip()
+
+    return {"mode": mode, "text": text}
+
+
 @router.get("/admin/email-list")
 async def admin_email_list(_: dict = Depends(require_admin)):
     """
@@ -1407,6 +1509,97 @@ async def admin_dispatch_pdf(
             "Content-Disposition": f'attachment; filename="{dispatch_id}.pdf"',
         },
     )
+
+
+@router.post("/admin/quote-requests/{rid}/dispatch-pdf/email")
+async def admin_email_dispatch_pdf(
+    rid: str,
+    payload: dict,
+    _: dict = Depends(require_admin),
+):
+    """Generate the PII-stripped affiliate dispatch PDF and email it.
+
+    Body:
+        affiliate_email     str   required - recipient email
+        affiliate_name      str   optional - stamped on PDF
+        affiliate_rate      float optional - stamped on PDF
+        extra_notes         str   optional - stamped on PDF
+        cc_admin            bool  optional - BCC support@ for our records (default True)
+
+    Saves the operator from downloading the PDF + manually composing an email
+    every time they hand off a trip. Reuses the same PDF generator as the
+    download endpoint so the affiliate sees the exact same sheet.
+    """
+    affiliate_email = (payload or {}).get("affiliate_email", "").strip().lower()
+    if not affiliate_email or "@" not in affiliate_email:
+        raise HTTPException(status_code=400, detail="affiliate_email is required.")
+    affiliate_name = ((payload or {}).get("affiliate_name") or "").strip()
+    extra_notes = ((payload or {}).get("extra_notes") or "").strip()
+    cc_admin = (payload or {}).get("cc_admin", True)
+    try:
+        affiliate_rate = float((payload or {}).get("affiliate_rate")) if (payload or {}).get("affiliate_rate") else None
+    except (TypeError, ValueError):
+        affiliate_rate = None
+
+    q = await db.quote_requests.find_one({"id": rid}, {"_id": 0})
+    if not q:
+        raise HTTPException(status_code=404, detail="Quote request not found.")
+
+    from pdf_service import generate_dispatch_pdf
+    from email_service import _format_time_12h
+    pdf_bytes = generate_dispatch_pdf(
+        q,
+        affiliate_name=affiliate_name,
+        affiliate_rate=affiliate_rate,
+        extra_notes=extra_notes,
+    )
+    dispatch_id = f"TEL-DISPATCH-{(q.get('id') or '')[:8].upper()}"
+
+    # Plain, ops-friendly HTML — no marketing chrome. The PDF carries the brand.
+    customer_first = (q.get("full_name") or "").strip().split(" ")[0] or "Guest"
+    pickup_date = q.get("pickup_date") or "TBD"
+    pickup_time = q.get("pickup_time") or ""
+    vehicle = q.get("vehicle_type") or ""
+    greeting = f"Hi{(' ' + affiliate_name) if affiliate_name else ''},"
+    rate_line = f"<p style=\"margin:0 0 8px 0;\">Agreed net rate: <strong>${affiliate_rate:,.0f}</strong></p>" if affiliate_rate else ""
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; color:#222; line-height:1.55;">
+      <p>{greeting}</p>
+      <p style="margin:0 0 12px 0;">Confirming a {vehicle} job for {pickup_date}{(' at ' + _format_time_12h(pickup_time)) if pickup_time else ''}.
+      Lead pax: <strong>{customer_first}</strong>. Full dispatch sheet attached (PII-stripped per our policy).</p>
+      {rate_line}
+      <p style="margin:0 0 12px 0;">Please confirm receipt and that the vehicle is locked. Reply to this email with any
+      questions or driver contact, and we'll loop you back.</p>
+      <p style="margin-top:18px;">Thanks,<br/>Adam · Turan Elite Limo · (650) 410-0687</p>
+    </div>
+    """
+
+    bcc = ["support@turanelitelimo.com"] if cc_admin else None
+    msg_id = await send_email(
+        to=affiliate_email,
+        subject=f"Dispatch: {vehicle} · {pickup_date} · {dispatch_id}",
+        html=html,
+        bcc=bcc,
+        reply_to="support@turanelitelimo.com",
+        attachments=[{"filename": f"{dispatch_id}.pdf", "content": pdf_bytes}],
+    )
+
+    if not msg_id:
+        raise HTTPException(status_code=502, detail="Email send failed — check Resend logs.")
+
+    # Audit log on the quote so we have an operational trail of who got dispatched
+    await db.quote_requests.update_one(
+        {"id": rid},
+        {"$push": {"dispatch_emails": {
+            "to": affiliate_email,
+            "name": affiliate_name,
+            "rate": affiliate_rate,
+            "message_id": msg_id,
+            "sent_at": datetime.now(timezone.utc).isoformat(),
+        }}},
+    )
+
+    return {"ok": True, "sent_to": affiliate_email, "message_id": msg_id, "dispatch_id": dispatch_id}
 
 
 @router.get("/admin/promos", response_model=List[Promo])
