@@ -52,7 +52,14 @@ async def send_email(
     html: str,
     bcc: Optional[list] = None,
     reply_to: Optional[str] = None,
+    attachments: Optional[list] = None,
 ) -> Optional[str]:
+    """Send branded email via Resend.
+
+    `attachments` is an optional list of dicts shaped like:
+        {"filename": "Invoice.pdf", "content": <bytes>}
+    Bytes are base64-encoded here so callers can hand us raw PDFs.
+    """
     if not resend.api_key:
         logger.warning("RESEND_API_KEY missing — skipping email send.")
         return None
@@ -66,6 +73,16 @@ async def send_email(
         params["bcc"] = bcc
     if reply_to:
         params["reply_to"] = reply_to
+    if attachments:
+        import base64
+        params["attachments"] = [
+            {
+                "filename": a["filename"],
+                "content": base64.b64encode(a["content"]).decode("ascii") if isinstance(a.get("content"), (bytes, bytearray)) else a["content"],
+            }
+            for a in attachments
+            if a.get("filename") and a.get("content")
+        ]
     try:
         r = await asyncio.to_thread(resend.Emails.send, params)
         return r.get("id") if isinstance(r, dict) else None

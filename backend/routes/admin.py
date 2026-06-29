@@ -783,6 +783,13 @@ async def admin_update_quote_request(rid: str, payload: dict, request: Request, 
     if "quoted_notes" in payload:
         update["quoted_notes"] = (payload.get("quoted_notes") or "")[:1000]
 
+    # Optional invoice_notes — trip-specific free text the operator wants
+    # rendered on the customer's PDF invoice (e.g. "Pickup at hotel lobby door 5").
+    # The standard 10 policies are ALWAYS baked into the invoice; this field is
+    # just for one-off details that vary per trip.
+    if "invoice_notes" in payload:
+        update["invoice_notes"] = (payload.get("invoice_notes") or "")[:2000]
+
     if "affiliate_id" in payload:
         update["affiliate_id"] = payload.get("affiliate_id") or None
     if "affiliate_cost" in payload and payload["affiliate_cost"] is not None:
@@ -837,7 +844,29 @@ async def admin_update_quote_request(rid: str, payload: dict, request: Request, 
             if q.get("email"):
                 html = _render_quote_offer_email(q, confirm_url)
                 subj = f"Your TuranEliteLimo quote · ${q['quoted_price']:.2f}"
-                await send_email(to=q["email"], subject=subj, html=html)
+                # ----- Auto-generate the branded invoice PDF and attach it.
+                # Bake in operator's trip-specific notes + the standard policies.
+                attachments = []
+                try:
+                    from pdf_service import generate_invoice_pdf
+                    pdf_bytes = generate_invoice_pdf(
+                        q,
+                        custom_notes=q.get("invoice_notes") or "",
+                        deposit_pct=float(q.get("deposit_pct") or 25),
+                    )
+                    inv_id = f"TEL-{(q.get('id') or '')[:8].upper()}"
+                    attachments = [{
+                        "filename": f"TuranEliteLimo-Invoice-{inv_id}.pdf",
+                        "content": pdf_bytes,
+                    }]
+                except Exception as pdf_err:
+                    logger.warning(f"Invoice PDF generation failed: {pdf_err}")
+                await send_email(
+                    to=q["email"],
+                    subject=subj,
+                    html=html,
+                    attachments=attachments or None,
+                )
                 sent_to = q["email"]
         except Exception as e:
             logger.warning(f"Quote-offer email send failed: {e}")
@@ -1315,6 +1344,69 @@ async def admin_delete_quote_request(rid: str, _: dict = Depends(require_admin))
     if not r.deleted_count:
         raise HTTPException(status_code=404, detail="Not found")
     return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# PDF downloads — branded customer invoice + PII-stripped affiliate dispatch.
+# Both use shared generators in /app/backend/pdf_service.py so layout stays
+# consistent whether the PDF is auto-attached to an email (invoice) or pulled
+# down via this endpoint (dispatch).
+# ---------------------------------------------------------------------------
+@router.get("/admin/quote-requests/{rid}/invoice-pdf")
+async def admin_invoice_pdf(rid: str, _: dict = Depends(require_admin)):
+    """Download the customer-facing invoice PDF for preview / manual resend.
+    Same content as the auto-attached PDF on send-quote, so the operator can
+    sanity-check before pulling the trigger."""
+    q = await db.quote_requests.find_one({"id": rid}, {"_id": 0})
+    if not q:
+        raise HTTPException(status_code=404, detail="Not found")
+    from pdf_service import generate_invoice_pdf
+    pdf_bytes = generate_invoice_pdf(
+        q,
+        custom_notes=q.get("invoice_notes") or "",
+        deposit_pct=float(q.get("deposit_pct") or 25),
+    )
+    inv_id = f"TEL-{(q.get('id') or '')[:8].upper()}"
+    from fastapi.responses import Response
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="TuranEliteLimo-Invoice-{inv_id}.pdf"',
+        },
+    )
+
+
+@router.get("/admin/quote-requests/{rid}/dispatch-pdf")
+async def admin_dispatch_pdf(
+    rid: str,
+    affiliate_name: str = "",
+    affiliate_rate: Optional[float] = None,
+    extra_notes: str = "",
+    _: dict = Depends(require_admin),
+):
+    """Download the PII-stripped affiliate dispatch sheet. Optional query
+    params let the operator stamp the affiliate name + agreed rate + custom
+    instructions onto the PDF without persisting them on the quote record."""
+    q = await db.quote_requests.find_one({"id": rid}, {"_id": 0})
+    if not q:
+        raise HTTPException(status_code=404, detail="Not found")
+    from pdf_service import generate_dispatch_pdf
+    pdf_bytes = generate_dispatch_pdf(
+        q,
+        affiliate_name=affiliate_name or "",
+        affiliate_rate=affiliate_rate,
+        extra_notes=extra_notes or "",
+    )
+    dispatch_id = f"TEL-DISPATCH-{(q.get('id') or '')[:8].upper()}"
+    from fastapi.responses import Response
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{dispatch_id}.pdf"',
+        },
+    )
 
 
 @router.get("/admin/promos", response_model=List[Promo])

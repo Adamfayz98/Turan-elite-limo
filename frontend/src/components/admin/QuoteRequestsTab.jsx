@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2, Sparkles, ExternalLink, ClipboardPaste, Tag, TrendingUp, Gift } from "lucide-react";
+import { Loader2, MessageSquare, Phone, Mail, Trash2, DollarSign, Send, Copy, CheckCircle2, Sparkles, ExternalLink, ClipboardPaste, Tag, TrendingUp, Gift, FileText, Download } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import {
@@ -211,6 +211,11 @@ export default function QuoteRequestsTab() {
   // below the floor on the current trip.
   const [promoState, setPromoState] = useState(null); // { request }
 
+  // "Dispatch PDF" modal — lets the operator stamp the affiliate name + agreed
+  // rate + custom instructions onto the PII-stripped dispatch sheet before
+  // downloading. Avoids round-trips to retype operator info each time.
+  const [dispatchState, setDispatchState] = useState(null); // { request }
+
   // "Import Lead" modal — paste raw Yelp / Google / phone-call text and the
   // backend LLM extracts structured fields. See <ImportLeadModal/>.
   const [importOpen, setImportOpen] = useState(false);
@@ -386,6 +391,15 @@ export default function QuoteRequestsTab() {
                     >
                       <Gift className="w-3 h-3" /> Save with promo
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setDispatchState({ request: q })}
+                      data-testid={`quote-dispatch-${q.id}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-sky-500/40 bg-sky-500/[0.07] text-sky-300 text-xs hover:bg-sky-500/[0.15]"
+                      title="Generate PII-stripped affiliate dispatch PDF (last-name initial only, no phone, no full address)"
+                    >
+                      <FileText className="w-3 h-3" /> Affiliate dispatch PDF
+                    </button>
                     <a
                       href={`tel:${phoneTel}`}
                       data-testid={`quote-call-${q.id}`}
@@ -440,6 +454,11 @@ export default function QuoteRequestsTab() {
         onClose={() => setPromoState(null)}
       />
 
+      <DispatchPdfDialog
+        state={dispatchState}
+        onClose={() => setDispatchState(null)}
+      />
+
       <ImportLeadDialog
         open={importOpen}
         onClose={() => setImportOpen(false)}
@@ -461,6 +480,10 @@ function SendQuoteDialog({ state, onClose, onSent }) {
   const [price, setPrice] = useState("");
   const [depositPct, setDepositPct] = useState("50");
   const [notes, setNotes] = useState("");
+  // `invoiceNotes` = trip-specific text rendered ABOVE the policies on the
+  // auto-generated PDF invoice. The 10 standard policies are baked in by the
+  // backend; this textarea is just for one-off details per booking.
+  const [invoiceNotes, setInvoiceNotes] = useState("");
   const [affiliateCost, setAffiliateCost] = useState("");
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -487,6 +510,7 @@ function SendQuoteDialog({ state, onClose, onSent }) {
       // Auto-fill notes from the vehicle-specific template when the field
       // is empty. Admin can edit or wipe; we never clobber existing notes.
       setNotes(q.quoted_notes || getDefaultNotesForVehicle(q.vehicle_type));
+      setInvoiceNotes(q.invoice_notes || "");
       setAffiliateCost(q.affiliate_cost ? String(q.affiliate_cost) : "");
       setTripFields({
         full_name: q.full_name || "",
@@ -550,6 +574,7 @@ function SendQuoteDialog({ state, onClose, onSent }) {
         quoted_price: numericPrice,
         deposit_pct: numericPct,
         quoted_notes: notes || null,
+        invoice_notes: invoiceNotes || null,
         affiliate_cost: affiliateCost ? Number(affiliateCost) : null,
         status: "quoted",
         send_to_customer: true,
@@ -843,6 +868,57 @@ function SendQuoteDialog({ state, onClose, onSent }) {
                   onChange={(e) => setNotes(e.target.value)}
                   className="bg-[#0E0E0E] border-[#27272A] text-white text-sm font-mono leading-relaxed"
                 />
+              </div>
+
+              {/* Trip-specific notes for the PDF invoice. Rendered ABOVE the
+                  standard policies — the 10 policies are baked in automatically
+                  by the backend, so this field is purely for one-off details
+                  per booking. */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block">
+                    Trip-specific notes for invoice PDF <span className="text-white/35 normal-case tracking-normal">(appears on the attached PDF · standard policies are baked in automatically)</span>
+                  </label>
+                </div>
+                <Textarea
+                  data-testid="quote-invoice-notes"
+                  rows={4}
+                  placeholder={`Examples:\n• Pickup at hotel lobby door 5\n• Stop at Safeway for cake — group will direct\n• Lead pax has wheelchair — please bring ramp`}
+                  value={invoiceNotes}
+                  onChange={(e) => setInvoiceNotes(e.target.value)}
+                  className="bg-[#0E0E0E] border-[#27272A] text-white text-sm leading-relaxed"
+                />
+                <div className="text-[10px] text-white/40 mt-1.5 leading-relaxed flex items-center gap-2">
+                  <FileText className="w-3 h-3 text-[#D4AF37]" />
+                  On send, a branded PDF invoice is auto-attached to the customer email.
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        // Persist invoice_notes first so the preview matches
+                        // what would be emailed. Best-effort — non-blocking.
+                        if (invoiceNotes && invoiceNotes !== (q?.invoice_notes || "")) {
+                          await api.patch(`/admin/quote-requests/${q.id}`, {
+                            invoice_notes: invoiceNotes,
+                          });
+                        }
+                        // Stream the PDF into a new tab via the admin endpoint.
+                        const { data } = await api.get(
+                          `/admin/quote-requests/${q.id}/invoice-pdf`,
+                          { responseType: "blob" }
+                        );
+                        const url = window.URL.createObjectURL(new Blob([data], { type: "application/pdf" }));
+                        window.open(url, "_blank");
+                      } catch {
+                        toast.error("Couldn't open invoice preview.");
+                      }
+                    }}
+                    data-testid="invoice-preview-btn"
+                    className="ml-auto text-[#D4AF37] hover:text-[#B3922E] uppercase tracking-wider text-[10px]"
+                  >
+                    Preview PDF
+                  </button>
+                </div>
               </div>
             </div>
             <DialogFooter className="gap-2">
@@ -1291,6 +1367,186 @@ function ImportLeadDialog({ open, onClose, onCreated }) {
     </Dialog>
   );
 }
+
+// ------- Modal: "Affiliate Dispatch PDF" — lets the operator stamp affiliate
+// name, agreed net rate, and optional driver instructions onto the PII-stripped
+// dispatch sheet, then downloads the PDF. Default behavior pulls the affiliate
+// rate from the quote's `affiliate_cost` if set, so most trips are one-click.
+
+function DispatchPdfDialog({ state, onClose }) {
+  const q = state?.request;
+  const [affiliateName, setAffiliateName] = useState("");
+  const [affiliateRate, setAffiliateRate] = useState("");
+  const [extraNotes, setExtraNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (q) {
+      setAffiliateName("");
+      // Pre-fill from the quote's affiliate_cost if the operator already set it
+      setAffiliateRate(q.affiliate_cost ? String(q.affiliate_cost) : "");
+      setExtraNotes("");
+    }
+  }, [q]);
+
+  if (!state) return null;
+
+  const downloadPdf = async () => {
+    setBusy(true);
+    try {
+      const params = new URLSearchParams();
+      if (affiliateName.trim()) params.set("affiliate_name", affiliateName.trim());
+      if (affiliateRate && Number(affiliateRate) > 0) params.set("affiliate_rate", String(Number(affiliateRate)));
+      if (extraNotes.trim()) params.set("extra_notes", extraNotes.trim());
+
+      const { data } = await api.get(
+        `/admin/quote-requests/${q.id}/dispatch-pdf?${params.toString()}`,
+        { responseType: "blob" }
+      );
+      const blob = new Blob([data], { type: "application/pdf" });
+      const dispatchId = `TEL-DISPATCH-${(q.id || "").slice(0, 8).toUpperCase()}`;
+
+      // Trigger browser download
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${dispatchId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast.success("Dispatch PDF downloaded");
+      onClose();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't generate dispatch PDF");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const previewPdf = async () => {
+    setBusy(true);
+    try {
+      const params = new URLSearchParams();
+      if (affiliateName.trim()) params.set("affiliate_name", affiliateName.trim());
+      if (affiliateRate && Number(affiliateRate) > 0) params.set("affiliate_rate", String(Number(affiliateRate)));
+      if (extraNotes.trim()) params.set("extra_notes", extraNotes.trim());
+      const { data } = await api.get(
+        `/admin/quote-requests/${q.id}/dispatch-pdf?${params.toString()}`,
+        { responseType: "blob" }
+      );
+      const url = window.URL.createObjectURL(new Blob([data], { type: "application/pdf" }));
+      window.open(url, "_blank");
+    } catch {
+      toast.error("Couldn't open dispatch preview");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!state} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        data-testid="dispatch-pdf-dialog"
+        className="bg-[#0c0c0c] border-[#1f1f1f] text-white max-w-lg max-h-[90vh] overflow-y-auto"
+      >
+        <DialogHeader>
+          <DialogTitle className="text-white flex items-center gap-2">
+            <FileText className="w-5 h-5 text-sky-300" /> Affiliate Dispatch PDF
+          </DialogTitle>
+          <DialogDescription className="text-white/55 leading-relaxed">
+            Generates a branded, PII-stripped dispatch sheet for the assigned affiliate operator.
+            Last-name initial only · no phone, email, or full address · operational standards + pre/post-trip checklists baked in.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block mb-1.5">
+              Affiliate operator name <span className="text-white/35 normal-case tracking-normal">(printed on the PDF)</span>
+            </label>
+            <Input
+              data-testid="dispatch-affiliate-name"
+              placeholder="e.g. Napa Premium Transport LLC"
+              value={affiliateName}
+              onChange={(e) => setAffiliateName(e.target.value)}
+              className="bg-[#0E0E0E] border-[#27272A] text-white"
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block mb-1.5">
+              Agreed net rate ($)
+              <span className="text-white/35 normal-case tracking-normal"> (optional · prefilled from quote)</span>
+            </label>
+            <Input
+              data-testid="dispatch-affiliate-rate"
+              type="number"
+              inputMode="decimal"
+              placeholder="e.g. 680"
+              value={affiliateRate}
+              onChange={(e) => setAffiliateRate(e.target.value)}
+              className="bg-[#0E0E0E] border-[#27272A] text-white"
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block mb-1.5">
+              Special requests / driver instructions <span className="text-white/35 normal-case tracking-normal">(optional)</span>
+            </label>
+            <Textarea
+              data-testid="dispatch-extra-notes"
+              rows={5}
+              placeholder={`Examples:\nBirthday party — group expects party vibe\nConfirm club lights + sound system tested before pickup\nMini-bar cooler stocked with ice + water`}
+              value={extraNotes}
+              onChange={(e) => setExtraNotes(e.target.value)}
+              className="bg-[#0E0E0E] border-[#27272A] text-white text-sm leading-relaxed"
+            />
+          </div>
+
+          <div className="rounded-lg border border-sky-500/30 bg-sky-500/[0.04] p-3 text-xs text-sky-200/90 leading-relaxed">
+            <div className="flex items-center gap-1.5 mb-1">
+              <CheckCircle2 className="w-3 h-3" />
+              <span className="text-[10px] uppercase tracking-wider font-semibold">PII-stripped automatically</span>
+            </div>
+            Last name reduced to initial · phone, email, and full address withheld · pickup shown as city/area only.
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2 mt-4">
+          <Button
+            onClick={onClose}
+            disabled={busy}
+            className="bg-white/10 hover:bg-white/15 text-white"
+            data-testid="dispatch-close-btn"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={previewPdf}
+            disabled={busy}
+            data-testid="dispatch-preview-btn"
+            className="bg-white/10 hover:bg-white/15 text-white border border-white/15"
+          >
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ExternalLink className="w-4 h-4 mr-2" />}
+            Preview
+          </Button>
+          <Button
+            onClick={downloadPdf}
+            disabled={busy}
+            data-testid="dispatch-download-btn"
+            className="bg-sky-500 hover:bg-sky-600 text-black disabled:opacity-60"
+          >
+            {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+            Download PDF
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 // ------- Modal: "Save with promo" — generates a single-use future-trip
 // discount code when a customer is haggling below your floor. Creates the
