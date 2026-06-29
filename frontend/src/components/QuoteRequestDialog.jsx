@@ -164,6 +164,9 @@ export default function QuoteRequestDialog({
         occasion: form.trip_type,
         // Filter empty stop inputs out before sending.
         stops: stops.map((s) => s.trim()).filter(Boolean),
+        // ---- Twilio A2P / TCPA consent (required by backend to accept) ----
+        sms_consent: smsConsent,
+        sms_promo_opt_in: smsPromoOptIn,
         utm: getStoredUtm(),
       });
       try {

@@ -500,6 +500,10 @@ function SendQuoteDialog({ state, onClose, onSent }) {
     dropoff_location: "",
     passengers: "",
   });
+  // Stops are stored as an array (not a flat input). Customer often forgets
+  // to enter them at request time; we learn them on the phone/SMS. Editing
+  // them here flows into both the invoice PDF and the affiliate dispatch PDF.
+  const [stops, setStops] = useState([]);
   const updateTrip = (k) => (e) =>
     setTripFields((s) => ({ ...s, [k]: e.target.value }));
 
@@ -522,6 +526,7 @@ function SendQuoteDialog({ state, onClose, onSent }) {
         dropoff_location: q.dropoff_location || "",
         passengers: q.passengers != null ? String(q.passengers) : "",
       });
+      setStops(Array.isArray(q.stops) ? q.stops.filter(Boolean) : []);
       setCopied(false);
     }
   }, [q, phase]);
@@ -576,6 +581,9 @@ function SendQuoteDialog({ state, onClose, onSent }) {
         quoted_notes: notes || null,
         invoice_notes: invoiceNotes || null,
         affiliate_cost: affiliateCost ? Number(affiliateCost) : null,
+        // Stops are stored as an array. Empty values are filtered so a customer
+        // who never had stops doesn't get an awkward "[]" on their PDF.
+        stops: stops.map((s) => (s || "").trim()).filter(Boolean),
         status: "quoted",
         send_to_customer: true,
         ...tripPatch,
@@ -701,6 +709,53 @@ function SendQuoteDialog({ state, onClose, onSent }) {
                     <label className="text-[10px] uppercase tracking-[0.16em] text-white/45 block mb-1">Drop-off</label>
                     <Input data-testid="qe-dropoff" value={tripFields.dropoff_location} onChange={updateTrip("dropoff_location")} className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm" />
                   </div>
+                </div>
+
+                {/* Stops editor — customers often forget to list these at
+                    request time and we hear about them on the call. Adding
+                    them here flows them into BOTH the customer invoice PDF
+                    AND the affiliate dispatch PDF automatically. */}
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] uppercase tracking-[0.16em] text-white/45 block">
+                      Additional stops <span className="text-white/35 normal-case tracking-normal">({stops.length} added — appears on both PDFs)</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setStops((s) => [...s, ""])}
+                      data-testid="qe-add-stop"
+                      className="text-[10px] text-[#D4AF37] hover:text-[#B3922E] uppercase tracking-wider"
+                    >
+                      + Add stop
+                    </button>
+                  </div>
+                  {stops.length === 0 ? (
+                    <div className="text-[11px] text-white/35 italic px-1">No stops yet — customer route is direct pickup → drop-off.</div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {stops.map((s, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-[10px] text-white/30 font-mono w-6 text-right">{i + 1}.</span>
+                          <Input
+                            data-testid={`qe-stop-${i}`}
+                            value={s}
+                            placeholder={`Stop ${i + 1} — e.g. "Safeway, Palo Alto" or "Stanford Memorial Church"`}
+                            onChange={(e) => setStops((arr) => arr.map((v, idx) => idx === i ? e.target.value : v))}
+                            className="bg-[#0A0A0A] border-[#27272A] text-white h-9 text-sm flex-1"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setStops((arr) => arr.filter((_, idx) => idx !== i))}
+                            data-testid={`qe-remove-stop-${i}`}
+                            className="text-white/35 hover:text-red-300 px-2"
+                            title="Remove this stop"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </details>
 
