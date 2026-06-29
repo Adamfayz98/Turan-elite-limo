@@ -11,15 +11,15 @@
 
 ---
 
-## 2. Campaign Description (paste exactly)
+## 2. Campaign Description (850 characters — within Twilio's 1024 limit, paste exactly)
 
-> TuranEliteLimo is a chauffeured ground transportation company serving the San Francisco Bay Area. Through our Mixed-use campaign, we send two categories of SMS to customers who have explicitly opted in via a non-pre-checked checkbox on our booking and quote-request forms at turanelitelimo.com:
+> TuranEliteLimo is a chauffeur transportation company in the San Francisco Bay Area. We send two SMS categories to customers who explicitly opt in via a non-pre-checked checkbox on our booking and quote forms (turanelitelimo.com/book, turanelitelimo.com/quote):
 >
-> (1) Transactional: booking confirmations, payment receipts, driver dispatch and ETA notifications, pickup reminders, post-trip receipts, and custom quote responses to inbound inquiries. Frequency: typically 2–5 messages per booking.
+> (1) Transactional: booking confirmations, payment receipts, driver dispatch and ETA notifications, pickup reminders, and custom quote responses. Frequency: 2-5 msgs per booking.
 >
-> (2) Promotional (separate optional opt-in): occasional discount offers, seasonal promos, and event packages. Frequency: up to 4 messages per calendar month.
+> (2) Promotional (separate optional opt-in): discount offers, seasonal promos, event packages. Frequency: up to 4 msgs per month.
 >
-> Consent is captured at the point of phone collection with all required disclosures (message types, frequency, msg & data rates, STOP/HELP, links to Terms and Privacy Policy). Server-side timestamp + IP recorded for audit. See live form: turanelitelimo.com/book — and SMS program details in our Privacy Policy section 3a: turanelitelimo.com/privacy.
+> The checkbox includes all required disclosures: message types, frequency, msg & data rates, STOP/HELP, links to Terms and Privacy Policy. Consent, timestamp, and IP captured server-side for audit. Full SMS program details in Privacy Policy section 3a: turanelitelimo.com/privacy.
 
 ---
 
@@ -47,8 +47,13 @@
 
 ---
 
-## 5. Opt-In Confirmation Message
-> Welcome to TuranEliteLimo SMS alerts. You're opted in for booking confirmations, trip updates & driver dispatch. Up to 5 msgs per booking. Msg & data rates may apply. Reply STOP to opt out, HELP for help.
+## 5. Opt-In Confirmation Message (covers Mixed use case — submit this in Twilio campaign)
+> Welcome to TuranEliteLimo SMS. You're opted in for trip updates & booking confirmations (up to 5 msgs/booking). If you also opted in to promotional offers, you'll receive up to 4 promo msgs/month separately. Msg & data rates may apply. Reply STOP to opt out, HELP for help.
+
+### 5a. Secondary Promotional Welcome (backend sends ONLY when sms_promo_opt_in=true, ~5s after primary)
+> Thanks for joining TuranEliteLimo offers. You'll receive up to 4 promotional msgs/month — discounts, seasonal packages, event specials. Msg & data rates may apply. Reply STOP to unsubscribe.
+
+> **Implementation note:** Twilio campaign form has ONE opt-in confirmation field — submit the combined message above (#5). The promo-specific welcome (#5a) is sent automatically by the backend immediately after the primary, ONLY to customers who explicitly opted in via the second checkbox. This matches the CTIA best-practice pattern used by Uber, Lyft, DoorDash.
 
 ## 6. HELP Reply Message
 > TuranEliteLimo support: support@turanelitelimo.com or (650) 410-0687, 24/7 for active trips. Reply STOP to unsubscribe. Msg & data rates may apply.
