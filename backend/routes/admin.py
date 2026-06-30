@@ -1527,6 +1527,47 @@ async def public_quote_offer_finalize(token: str, session_id: str, request: Requ
     except Exception as e:
         logger.warning(f"Quote-won admin SMS failed: {e}")
 
+    # Admin email — sent regardless of Twilio A2P status so the operator
+    # always knows a customer paid (e.g., Adam discovered post-pay he had
+    # no in-app signal beyond a small "Confirmed →" line). We pack the
+    # essentials in the subject so the inbox preview is enough to act.
+    try:
+        from email_service import SUPPORT_EMAIL
+        admin_email = SUPPORT_EMAIL or "support@turanelitelimo.com"
+        pickup_when = f"{q.get('pickup_date','')} {q.get('pickup_time','')}".strip()
+        admin_subject = (
+            f"💰 PAID · ${total_amt:.0f} · {q.get('full_name','?')} · "
+            f"{q.get('vehicle_type','?')} · #{confirmation_number}"
+        )
+        admin_html = f"""
+        <div style="font-family:-apple-system,Segoe UI,sans-serif;color:#111;line-height:1.55;max-width:560px;">
+          <h2 style="color:#0a7a3f;margin:0 0 14px 0;">💰 Customer paid deposit</h2>
+          <table cellpadding="6" style="font-size:14px;border-collapse:collapse;width:100%;">
+            <tr><td style="color:#666;">Customer</td><td><strong>{q.get('full_name','?')}</strong> · {q.get('phone','')} · {q.get('email','')}</td></tr>
+            <tr><td style="color:#666;">Vehicle</td><td>{q.get('vehicle_type','?')}</td></tr>
+            <tr><td style="color:#666;">Trip</td><td>{pickup_when} · {q.get('pickup_location','')} → {q.get('dropoff_location','')}</td></tr>
+            <tr><td style="color:#666;">Total quoted</td><td>${total_amt:,.2f}</td></tr>
+            <tr><td style="color:#666;">Deposit PAID</td><td><strong style="color:#0a7a3f;">${deposit_amt:,.2f}</strong></td></tr>
+            <tr><td style="color:#666;">Balance</td><td>${(total_amt - deposit_amt):,.2f} (charged day-before)</td></tr>
+            <tr><td style="color:#666;">Confirmation #</td><td><strong>#{confirmation_number}</strong></td></tr>
+            <tr><td style="color:#666;">Saved card</td><td>{card_brand or '?'} ····{card_last4 or '????'}</td></tr>
+          </table>
+          <p style="margin-top:18px;font-size:13px;color:#444;">
+            Open admin → <strong>Quote Requests</strong> tab → look for the PAID badge.
+            Use "Edit trip details" to update pickup time / stops, then "Affiliate dispatch PDF"
+            with the <em>Include full itinerary</em> toggle ON to brief your operator.
+          </p>
+        </div>
+        """
+        await send_email(
+            to=admin_email,
+            subject=admin_subject,
+            html=admin_html,
+            reply_to=q.get("email") or None,
+        )
+    except Exception as e:
+        logger.warning(f"Quote-won admin EMAIL failed: {e}")
+
     # Customer confirmation email — simple inline
     try:
         if q.get("email"):

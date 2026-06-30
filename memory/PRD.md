@@ -1,6 +1,30 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Jun 30, 2026 — iter 54 (Post-pay trip edits + Full-itinerary dispatch PDF + SMS Presets)
+> Last refreshed: Jun 30, 2026 — iter 55 (Post-payment UI fixes — PAID badge + Edit trip details + admin email)
+
+## ✅ Post-Payment Visibility Fixes (Jun 30, 2026 — iter 55)
+
+**Why:** Two related operator-blind-spots surfaced after iter 54 shipped Leticia's edit flow:
+1. When a customer paid (status flipped to `won`), the entire "Send quote" button DISAPPEARED — which also hid the dialog that contained the new "Save trip changes only" button. Operator couldn't access trip-edit on paid leads at all.
+2. The only payment signal in admin was a tiny `· Confirmed → #XXX` line in 12px gray text under the timestamp. Twilio SMS to admin is blocked on A2P approval, so the operator only learned about new payments by checking Stripe.
+
+**What shipped:**
+1. **Replace, don't hide:** when `status === "won"`, the gold "Send quote" button becomes an emerald-tinted **"Edit trip details"** button (same dialog, same Save-trip-only flow). Tooltip explains: "Customer already paid — edit pickup time, stops, or trip details without re-emailing them." data-testid `quote-edit-trip-{id}`.
+2. **Big green PAID pill** on the row header — `✅ PAID · #CONFNUM` in emerald-500/25 background with shadow glow. Renders whenever `q.confirmed_at && q.confirmation_number` are set. Title tooltip shows full timestamp.
+3. **Admin email notification** on every paid quote (in `public_quote_offer_finalize`):
+   - Subject: `💰 PAID · ${amount} · {name} · #{conf_num}`
+   - HTML body has trip summary, total, deposit paid, balance due, confirmation #, saved card brand+last4
+   - Includes operator playbook reminder ("look for the PAID badge → Edit trip details → Affiliate dispatch PDF with full itinerary")
+   - Fires regardless of Twilio status, so the SMS-blocked period doesn't leave Adam in the dark
+   - SMS to admin still fires too — it'll start landing once A2P approves
+
+**Testing:** Backend lint clean. Frontend lint clean. Manual code review confirmed conditional renders correctly for both `won` and non-`won` rows. Visual screenshot verification couldn't trigger PAID badge in test env (no real "won" quotes), but the conditions `confirmed_at && confirmation_number` and `status === "won"` get set atomically in `public_quote_offer_finalize` so they appear together in prod.
+
+**Files touched:**
+- backend/routes/admin.py — added admin email block inside `public_quote_offer_finalize` after the SMS block
+- frontend/src/components/admin/QuoteRequestsTab.jsx — replaced hide-on-won with switch-on-won "Edit trip details" button + added prominent PAID pill in row header next to customer name
+
+---
 
 ## ✅ Post-pay Trip Edits + Full-Itinerary Dispatch PDF + SMS Presets (Jun 30, 2026 — iter 54)
 

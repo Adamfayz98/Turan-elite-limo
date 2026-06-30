@@ -298,6 +298,19 @@ export default function QuoteRequestsTab() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-white font-medium">{q.full_name}</span>
+                      {/* Big green PAID pill — primary signal that the
+                          customer ran the deposit. Operator MUST see this
+                          first because it changes everything downstream
+                          (no more "send quote", switch to "edit trip"). */}
+                      {q.confirmed_at && q.confirmation_number && (
+                        <span
+                          data-testid={`quote-paid-badge-${q.id}`}
+                          className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.16em] font-bold text-emerald-100 bg-emerald-500/25 border border-emerald-400/60 px-2.5 py-0.5 rounded-full shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+                          title={`Customer paid deposit at ${new Date(q.confirmed_at).toLocaleString()}`}
+                        >
+                          <CheckCircle2 className="w-3 h-3" /> PAID · #{q.confirmation_number}
+                        </span>
+                      )}
                       <Badge className={`${badge.className} text-[10px] uppercase tracking-wider border`}>{badge.label}</Badge>
                       <span className="text-[10px] uppercase tracking-[0.2em] text-[#D4AF37] bg-[#D4AF37]/10 px-2 py-0.5 rounded">{q.vehicle_type}</span>
                       {q.source && q.source !== "website" && (
@@ -385,7 +398,23 @@ export default function QuoteRequestsTab() {
                   </div>
 
                   <div className="flex flex-col gap-2 items-end flex-shrink-0">
-                    {status !== "won" && (
+                    {status === "won" ? (
+                      // Customer already paid — the "Send quote" path is gone,
+                      // but the operator STILL needs the same dialog to edit
+                      // trip details (pickup time, stops, etc.) via the
+                      // "Save trip changes only" button inside. Replacing the
+                      // button with an "Edit trip" label keeps the workflow
+                      // discoverable.
+                      <button
+                        type="button"
+                        onClick={() => setQuoteModal({ request: q, phase: "edit" })}
+                        data-testid={`quote-edit-trip-${q.id}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/15 text-emerald-200 border border-emerald-500/40 text-xs font-semibold hover:bg-emerald-500/25"
+                        title="Customer already paid — edit pickup time, stops, or trip details without re-emailing them"
+                      >
+                        <CheckCircle2 className="w-3 h-3" /> Edit trip details
+                      </button>
+                    ) : (
                       <button
                         type="button"
                         onClick={() => setQuoteModal({ request: q, phase: "edit" })}
