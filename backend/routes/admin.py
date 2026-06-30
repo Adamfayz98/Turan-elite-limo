@@ -702,6 +702,50 @@ async def admin_ai_draft_sms(payload: dict, _: dict = Depends(require_admin)):
     return {"intent": intent, "text": text, "char_count": len(text)}
 
 
+# -----------------------------------------------------------------
+# SMS Presets — operator-saved custom-mode prompts for re-use
+# -----------------------------------------------------------------
+# Adam wanted "save my own phrasing for wine-tour replies / airport replies /
+# etc" so he stops re-typing the same custom instruction. Each preset stores
+# a short label + the instruction text. Loaded into the Draft SMS dialog as
+# extra chips below the 5 built-in scenarios.
+@router.get("/admin/sms-presets")
+async def admin_list_sms_presets(_: dict = Depends(require_admin)):
+    rows = await db.sms_presets.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return rows
+
+
+@router.post("/admin/sms-presets")
+async def admin_create_sms_preset(payload: dict, _: dict = Depends(require_admin)):
+    name = (payload or {}).get("name", "").strip()
+    instruction = (payload or {}).get("instruction", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required.")
+    if not instruction:
+        raise HTTPException(status_code=400, detail="instruction is required.")
+    if len(name) > 60:
+        raise HTTPException(status_code=400, detail="name must be ≤ 60 chars.")
+    if len(instruction) > 800:
+        raise HTTPException(status_code=400, detail="instruction must be ≤ 800 chars.")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "instruction": instruction,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.sms_presets.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@router.delete("/admin/sms-presets/{preset_id}")
+async def admin_delete_sms_preset(preset_id: str, _: dict = Depends(require_admin)):
+    r = await db.sms_presets.delete_one({"id": preset_id})
+    if r.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Preset not found.")
+    return {"ok": True}
+
+
 @router.post("/admin/ai/draft-quote-text")
 async def admin_ai_draft_quote_text(payload: dict, _: dict = Depends(require_admin)):
     """Draft customer-facing notes OR affiliate dispatch instructions for a quote.
@@ -1578,11 +1622,16 @@ async def admin_dispatch_pdf(
     affiliate_name: str = "",
     affiliate_rate: Optional[float] = None,
     extra_notes: str = "",
+    include_full_itinerary: bool = False,
     _: dict = Depends(require_admin),
 ):
     """Download the PII-stripped affiliate dispatch sheet. Optional query
     params let the operator stamp the affiliate name + agreed rate + custom
-    instructions onto the PDF without persisting them on the quote record."""
+    instructions onto the PDF without persisting them on the quote record.
+
+    `include_full_itinerary=true` prints the actual pickup/drop-off addresses
+    and stop list — use only when the trip has a known multi-stop itinerary
+    the affiliate needs ahead of time (e.g. paid wine-country day trips)."""
     q = await db.quote_requests.find_one({"id": rid}, {"_id": 0})
     if not q:
         raise HTTPException(status_code=404, detail="Not found")
@@ -1592,6 +1641,7 @@ async def admin_dispatch_pdf(
         affiliate_name=affiliate_name or "",
         affiliate_rate=affiliate_rate,
         extra_notes=extra_notes or "",
+        include_full_itinerary=bool(include_full_itinerary),
     )
     dispatch_id = f"TEL-DISPATCH-{(q.get('id') or '')[:8].upper()}"
     from fastapi.responses import Response
@@ -1645,6 +1695,7 @@ async def admin_email_dispatch_pdf(
         affiliate_name=affiliate_name,
         affiliate_rate=affiliate_rate,
         extra_notes=extra_notes,
+        include_full_itinerary=bool((payload or {}).get("include_full_itinerary", False)),
     )
     dispatch_id = f"TEL-DISPATCH-{(q.get('id') or '')[:8].upper()}"
 

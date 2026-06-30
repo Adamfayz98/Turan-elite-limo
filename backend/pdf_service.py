@@ -455,6 +455,7 @@ def generate_dispatch_pdf(
     affiliate_rate: Optional[float] = None,
     vehicle_features: Optional[list] = None,
     extra_notes: str = "",
+    include_full_itinerary: bool = False,
 ) -> bytes:
     """
     Returns the dispatch sheet PDF as bytes. Strips customer PII:
@@ -466,6 +467,12 @@ def generate_dispatch_pdf(
     Driver/affiliate operational policies are baked in: vehicle standards,
     driver attire, communication protocol, damage reporting, payment terms,
     confidentiality.
+
+    `include_full_itinerary=True` opts-in to printing the FULL pickup +
+    drop-off addresses and the actual stop addresses. Use only when the
+    customer's trip has a pre-planned multi-stop itinerary the affiliate
+    needs ahead of time (e.g. wine-country day trips, weddings with
+    multiple venues). Off by default to preserve PII.
     """
     styles = _styles()
     buf = BytesIO()
@@ -540,23 +547,35 @@ def generate_dispatch_pdf(
     story.append(_details_table(styles, pax_rows))
     story.append(Spacer(1, 8))
 
-    # ---- Location (PII-STRIPPED — city + cross-streets only)
+    # ---- Location  (PII default = city+cross-street; opt-in = full address)
     story.append(Paragraph("PICKUP & ROUTING", styles["label"]))
     story.append(HRFlowable(width="100%", thickness=0.5, color=LINE, spaceBefore=2, spaceAfter=4))
-    loc_rows = [
-        (("Pickup Area", _strip_to_city(quote.get("pickup_location") or "")),
-         ("Drop-off Area", _strip_to_city(quote.get("dropoff_location") or ""))),
-    ]
+    if include_full_itinerary:
+        loc_rows = [
+            (("Pickup Address", _safe(quote.get("pickup_location"))),
+             ("Drop-off Address", _safe(quote.get("dropoff_location")))),
+        ]
+    else:
+        loc_rows = [
+            (("Pickup Area", _strip_to_city(quote.get("pickup_location") or "")),
+             ("Drop-off Area", _strip_to_city(quote.get("dropoff_location") or ""))),
+        ]
     story.append(_details_table(styles, loc_rows))
-    story.append(Paragraph(
-        "Full pickup address released to assigned driver 2 hours before scheduled pickup time.",
-        styles["small"],
-    ))
+    if not include_full_itinerary:
+        story.append(Paragraph(
+            "Full pickup address released to assigned driver 2 hours before scheduled pickup time.",
+            styles["small"],
+        ))
     stops = [s for s in (quote.get("stops") or []) if s]
     if stops:
         story.append(Spacer(1, 4))
-        story.append(Paragraph(f"<b>Multi-stop route ({len(stops)} stops planned)</b> · "
-                               "specific stops directed by lead passenger during trip.", styles["small"]))
+        if include_full_itinerary:
+            story.append(Paragraph(f"<b>Itinerary — {len(stops)} planned stop{'s' if len(stops) != 1 else ''}:</b>", styles["body"]))
+            for i, s in enumerate(stops, 1):
+                story.append(Paragraph(f"&nbsp;&nbsp;{i}.&nbsp;&nbsp;{_safe(s)}", styles["body"]))
+        else:
+            story.append(Paragraph(f"<b>Multi-stop route ({len(stops)} stops planned)</b> · "
+                                   "specific stops directed by lead passenger during trip.", styles["small"]))
     story.append(Spacer(1, 8))
 
     # ---- Special requests / notes

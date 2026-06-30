@@ -1,6 +1,47 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Jun 30, 2026 — iter 53 (AI SMS Drafts + Apple Business Connect post-approval checklist)
+> Last refreshed: Jun 30, 2026 — iter 54 (Post-pay trip edits + Full-itinerary dispatch PDF + SMS Presets)
+
+## ✅ Post-pay Trip Edits + Full-Itinerary Dispatch PDF + SMS Presets (Jun 30, 2026 — iter 54)
+
+**Why:** Operator hits 3 recurring gaps:
+1. Customer pays, then texts in a change ("noon, not 1pm" / "add a stop at the country club") — old UI forced a re-send of the entire quote, which would confuse a customer who already paid.
+2. Default dispatch PDF strips all addresses (PII-safe by default), but on paid trips with a pre-planned multi-stop itinerary, the affiliate driver needs the actual addresses ahead of time.
+3. Operator's recurring custom SMS prompts ("Wine tour reply", "Airport reply") had to be re-typed every time.
+
+**What shipped:**
+1. **"Save trip changes only" button** in `SendQuoteDialog`:
+   - Sits between Cancel and Send-quote-to-customer
+   - Patches `pickup_time`, `pickup_date`, `pickup_location`, `dropoff_location`, `stops`, `passengers`, `service_duration`, `notes`, `affiliate_cost` etc. via existing `PATCH /admin/quote-requests/{id}` (no backend change needed — endpoint already accepted these fields)
+   - Skips re-sending email + skips price validation (no need to re-quote on a paid trip)
+   - Toast confirms: "Trip details updated · customer NOT emailed"
+   - data-testid `quote-save-only-button`
+
+2. **"Include full itinerary (addresses visible)" checkbox** in `DispatchPdfDialog`:
+   - Off by default → maintains the default PII-stripped sheet (last-name initial, city/area only)
+   - ON by default if the quote already has stops (assumption: operator wants the full route)
+   - When ON: PDF prints actual pickup + drop-off + numbered stop addresses; removes the "address released 2 hrs pre-pickup" line
+   - Wired through `GET /admin/quote-requests/{rid}/dispatch-pdf?include_full_itinerary=true` + the email-PDF flow's `include_full_itinerary` body field
+   - `pdf_service.generate_dispatch_pdf()` got a new `include_full_itinerary` kwarg
+   - data-testid `dispatch-full-itinerary`
+
+3. **SMS Presets** — operator-saved custom-mode prompts re-usable across leads:
+   - New MongoDB collection `sms_presets` with `{ id, name, instruction, created_at }`
+   - Backend: `GET/POST/DELETE /admin/sms-presets`
+   - Frontend: appear as cyan chips under "Your saved presets" in the Draft SMS dialog
+   - Click chip → switches to Custom intent + loads the instruction text
+   - "+ Save as preset" button appears next to the Custom textarea once it has content
+   - × button on each chip deletes the preset
+   - data-testid `sms-preset-{id}`, `sms-preset-save-btn`, `sms-preset-save-confirm`, `sms-preset-name-input`, `sms-preset-delete-{id}`
+
+**Testing:** Curl verified all CRUD endpoints (POST creates with valid UUID, GET returns list, DELETE removes). Frontend smoke screenshots confirmed all 3 new UI surfaces render and function: Save-trip-only button visible in SendQuoteDialog footer, Include-full-itinerary checkbox visible + unchecked by default in DispatchPdfDialog with clear PII-handling explanation, "Wine tour reply" preset chip loads instruction text on click with confirmation toast.
+
+**Files touched:**
+- backend/pdf_service.py — added `include_full_itinerary` kwarg + branching logic for address printing
+- backend/routes/admin.py — added `include_full_itinerary` query param to GET dispatch-pdf + body field to POST email-dispatch-pdf + 3 new SMS preset CRUD endpoints
+- frontend/src/components/admin/QuoteRequestsTab.jsx — refactored SendQuoteDialog `send()` into shared `_submit(sendEmail)` + added `saveTripOnly()` + "Save trip changes only" button + full-itinerary checkbox in DispatchPdfDialog + preset chip row, save/delete actions, name-input flow in DraftSmsDialog
+
+---
 
 ## ✅ AI SMS Draft Mode (Jun 30, 2026 — iter 53)
 

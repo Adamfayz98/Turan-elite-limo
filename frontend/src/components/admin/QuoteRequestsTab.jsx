@@ -602,6 +602,18 @@ function SendQuoteDialog({ state, onClose, onSent }) {
       toast.error("Enter a valid price.");
       return;
     }
+    await _submit(true);
+  };
+
+  // "Save trip changes only" — same patch endpoint, but skips the customer
+  // email. Use this when the customer has already paid (booking is locked)
+  // and just texts in changes: noon instead of 1pm, added a stop, etc.
+  // Skips price validation since we're not (re-)quoting.
+  const saveTripOnly = async () => {
+    await _submit(false);
+  };
+
+  const _submit = async (sendEmail) => {
     setSending(true);
     try {
       // Strip blanks so we don't blow away unrelated fields. Number-cast
@@ -615,8 +627,7 @@ function SendQuoteDialog({ state, onClose, onSent }) {
           tripPatch[k] = t || null;
         }
       });
-      const { data } = await api.patch(`/admin/quote-requests/${q.id}`, {
-        quoted_price: numericPrice,
+      const body = {
         deposit_pct: numericPct,
         quoted_notes: notes || null,
         invoice_notes: invoiceNotes || null,
@@ -624,14 +635,28 @@ function SendQuoteDialog({ state, onClose, onSent }) {
         // Stops are stored as an array. Empty values are filtered so a customer
         // who never had stops doesn't get an awkward "[]" on their PDF.
         stops: stops.map((s) => (s || "").trim()).filter(Boolean),
-        status: "quoted",
-        send_to_customer: true,
         ...tripPatch,
-      });
-      toast.success(data.sent_to ? `Quote emailed to ${data.sent_to}` : "Quote saved");
-      onSent(data.quote, data.confirm_url, data.sent_to);
+      };
+      // Price + status + email-send only on the "send to customer" path.
+      // Save-only never re-prices and never re-emails (avoids confusing a
+      // customer who's already paid the deposit).
+      if (sendEmail) {
+        body.quoted_price = numericPrice;
+        body.status = "quoted";
+        body.send_to_customer = true;
+      } else if (numericPrice) {
+        body.quoted_price = numericPrice;
+      }
+      const { data } = await api.patch(`/admin/quote-requests/${q.id}`, body);
+      if (sendEmail) {
+        toast.success(data.sent_to ? `Quote emailed to ${data.sent_to}` : "Quote saved");
+        onSent(data.quote, data.confirm_url, data.sent_to);
+      } else {
+        toast.success("Trip details updated · customer NOT emailed");
+        onSent(data.quote, null, null);
+      }
     } catch (err) {
-      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't send quote");
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Save failed");
     } finally {
       setSending(false);
     }
@@ -1036,8 +1061,18 @@ function SendQuoteDialog({ state, onClose, onSent }) {
                 </div>
               </div>
             </div>
-            <DialogFooter className="gap-2">
+            <DialogFooter className="gap-2 flex-wrap">
               <Button onClick={onClose} disabled={sending} className="bg-white/10 hover:bg-white/15 text-white">Cancel</Button>
+              <Button
+                onClick={saveTripOnly}
+                disabled={sending}
+                data-testid="quote-save-only-button"
+                title="Update pickup time / stops / details WITHOUT emailing the customer. Use after they've already paid."
+                className="bg-transparent border border-white/20 text-white/80 hover:bg-white/5"
+              >
+                {sending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                Save trip changes only
+              </Button>
               <Button
                 onClick={send}
                 disabled={sending || !numericPrice}
@@ -1501,6 +1536,11 @@ function DispatchPdfDialog({ state, onClose }) {
   const [affiliateName, setAffiliateName] = useState("");
   const [affiliateRate, setAffiliateRate] = useState("");
   const [extraNotes, setExtraNotes] = useState("");
+  // When true, the dispatch PDF will show real pickup/drop-off addresses
+  // and every planned stop. Off by default to keep PII stripping intact.
+  // Useful for paid trips where the customer has a defined multi-stop
+  // itinerary the affiliate must follow (e.g. wine-country day trips).
+  const [includeFullItinerary, setIncludeFullItinerary] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -1509,6 +1549,9 @@ function DispatchPdfDialog({ state, onClose }) {
       // Pre-fill from the quote's affiliate_cost if the operator already set it
       setAffiliateRate(q.affiliate_cost ? String(q.affiliate_cost) : "");
       setExtraNotes("");
+      // Default ON when the trip already has planned stops — odds are the
+      // operator wants the affiliate to see them.
+      setIncludeFullItinerary(Array.isArray(q.stops) && q.stops.filter(Boolean).length > 0);
     }
   }, [q]);
 
@@ -1521,6 +1564,7 @@ function DispatchPdfDialog({ state, onClose }) {
       if (affiliateName.trim()) params.set("affiliate_name", affiliateName.trim());
       if (affiliateRate && Number(affiliateRate) > 0) params.set("affiliate_rate", String(Number(affiliateRate)));
       if (extraNotes.trim()) params.set("extra_notes", extraNotes.trim());
+      if (includeFullItinerary) params.set("include_full_itinerary", "true");
 
       const { data } = await api.get(
         `/admin/quote-requests/${q.id}/dispatch-pdf?${params.toString()}`,
@@ -1555,6 +1599,7 @@ function DispatchPdfDialog({ state, onClose }) {
       if (affiliateName.trim()) params.set("affiliate_name", affiliateName.trim());
       if (affiliateRate && Number(affiliateRate) > 0) params.set("affiliate_rate", String(Number(affiliateRate)));
       if (extraNotes.trim()) params.set("extra_notes", extraNotes.trim());
+      if (includeFullItinerary) params.set("include_full_itinerary", "true");
       const { data } = await api.get(
         `/admin/quote-requests/${q.id}/dispatch-pdf?${params.toString()}`,
         { responseType: "blob" }
@@ -1649,11 +1694,30 @@ function DispatchPdfDialog({ state, onClose }) {
           </div>
 
           <div className="rounded-lg border border-sky-500/30 bg-sky-500/[0.04] p-3 text-xs text-sky-200/90 leading-relaxed">
-            <div className="flex items-center gap-1.5 mb-1">
+            <div className="flex items-center gap-1.5 mb-2">
               <CheckCircle2 className="w-3 h-3" />
-              <span className="text-[10px] uppercase tracking-wider font-semibold">PII-stripped automatically</span>
+              <span className="text-[10px] uppercase tracking-wider font-semibold">PII handling</span>
             </div>
-            Last name reduced to initial · phone, email, and full address withheld · pickup shown as city/area only.
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                data-testid="dispatch-full-itinerary"
+                checked={includeFullItinerary}
+                onChange={(e) => setIncludeFullItinerary(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-sky-500/40 bg-transparent accent-sky-400"
+              />
+              <div className="flex-1">
+                <div className="text-white text-[12px] font-medium leading-tight">
+                  Include full itinerary (addresses visible)
+                </div>
+                <div className="text-sky-200/70 text-[11px] mt-0.5 leading-relaxed">
+                  Prints actual pickup + drop-off addresses and every stop. Use when the
+                  customer has a paid, pre-planned multi-stop trip the affiliate must follow
+                  (wine tour, wedding venues, concert routes). Otherwise leave OFF for default
+                  PII-stripped sheet (last-name initial only, phone/email withheld, city/area only).
+                </div>
+              </div>
+            </label>
           </div>
         </div>
 
@@ -2152,6 +2216,22 @@ function DraftSmsDialog({ state, onClose }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Operator-saved custom prompts. Loaded on dialog open, refreshed after
+  // save / delete so the chip list reflects the latest set without a hard
+  // page reload.
+  const [presets, setPresets] = useState([]);
+  const [savePresetName, setSavePresetName] = useState("");
+  const [showSaveInput, setShowSaveInput] = useState(false);
+
+  const loadPresets = async () => {
+    try {
+      const { data } = await api.get("/admin/sms-presets");
+      setPresets(Array.isArray(data) ? data : []);
+    } catch {
+      // Non-fatal — just hide the preset row
+      setPresets([]);
+    }
+  };
 
   // Reset state on each open so a stale draft from one lead doesn't bleed
   // into the next.
@@ -2162,12 +2242,58 @@ function DraftSmsDialog({ state, onClose }) {
       setCustomInstruction("");
       setText("");
       setCopied(false);
+      setShowSaveInput(false);
+      setSavePresetName("");
+      loadPresets();
     }
   }, [q]);
 
   if (!state) return null;
 
   const phoneTel = (q?.phone || "").replace(/[^\d+]/g, "");
+
+  // Click a saved preset → switch to "custom" intent and pre-fill the
+  // instruction. Operator can then tweak before hitting Generate.
+  const applyPreset = (preset) => {
+    setIntent("custom");
+    setCustomInstruction(preset.instruction);
+    toast.success(`Loaded "${preset.name}" — edit then generate`);
+  };
+
+  const savePreset = async () => {
+    const name = savePresetName.trim();
+    if (!name) {
+      toast.error("Give your preset a short name (e.g. \"Wine tour reply\")");
+      return;
+    }
+    if (!customInstruction.trim()) {
+      toast.error("Write a custom instruction first.");
+      return;
+    }
+    try {
+      await api.post("/admin/sms-presets", {
+        name,
+        instruction: customInstruction.trim(),
+      });
+      toast.success(`Preset "${name}" saved`);
+      setShowSaveInput(false);
+      setSavePresetName("");
+      loadPresets();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Save failed");
+    }
+  };
+
+  const deletePreset = async (preset) => {
+    if (!window.confirm(`Delete preset "${preset.name}"?`)) return;
+    try {
+      await api.delete(`/admin/sms-presets/${preset.id}`);
+      toast.success("Preset deleted");
+      loadPresets();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Delete failed");
+    }
+  };
 
   const buildContext = () => {
     const firstName = (q?.full_name || "").trim().split(" ")[0] || "";
@@ -2260,6 +2386,42 @@ function DraftSmsDialog({ state, onClose }) {
             ))}
           </div>
           <p className="text-[10px] text-white/40 mt-2 leading-relaxed">{activePreset.hint}</p>
+
+          {/* Saved presets — operator's own custom phrasings, persisted in DB */}
+          {presets.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-white/[0.06]">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-1.5">
+                Your saved presets
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {presets.map((p) => (
+                  <span
+                    key={p.id}
+                    className="inline-flex items-center gap-1 rounded-full bg-cyan-500/[0.08] border border-cyan-500/30 text-cyan-200 text-[11px] pl-3 pr-1 py-0.5"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => applyPreset(p)}
+                      data-testid={`sms-preset-${p.id}`}
+                      className="hover:text-cyan-100"
+                      title={p.instruction}
+                    >
+                      {p.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deletePreset(p)}
+                      data-testid={`sms-preset-delete-${p.id}`}
+                      className="ml-1 w-4 h-4 inline-flex items-center justify-center rounded-full hover:bg-red-500/30 text-cyan-300/60 hover:text-red-300"
+                      title="Delete preset"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Quote-followup gets an optional hold-release hint */}
@@ -2281,9 +2443,21 @@ function DraftSmsDialog({ state, onClose }) {
         {/* Custom intent gets a free-form instruction box */}
         {intent === "custom" && (
           <div>
-            <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block mb-1.5">
-              Tell the AI what to write
-            </label>
+            <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+              <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block">
+                Tell the AI what to write
+              </label>
+              {customInstruction.trim().length > 0 && !showSaveInput && (
+                <button
+                  type="button"
+                  onClick={() => setShowSaveInput(true)}
+                  data-testid="sms-preset-save-btn"
+                  className="text-[10px] uppercase tracking-wider text-cyan-300 hover:text-cyan-200"
+                >
+                  + Save as preset
+                </button>
+              )}
+            </div>
             <Textarea
               data-testid="sms-custom-instruction"
               rows={3}
@@ -2292,6 +2466,31 @@ function DraftSmsDialog({ state, onClose }) {
               onChange={(e) => setCustomInstruction(e.target.value)}
               className="bg-[#0E0E0E] border-[#27272A] text-white text-sm"
             />
+            {showSaveInput && (
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <Input
+                  data-testid="sms-preset-name-input"
+                  placeholder="Preset name (e.g. Wine tour reply)"
+                  value={savePresetName}
+                  onChange={(e) => setSavePresetName(e.target.value)}
+                  className="flex-1 min-w-[180px] bg-[#0E0E0E] border-[#27272A] text-white text-sm h-8"
+                />
+                <Button
+                  onClick={savePreset}
+                  data-testid="sms-preset-save-confirm"
+                  className="h-8 px-3 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-100 border border-cyan-500/40 text-xs"
+                >
+                  Save preset
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => { setShowSaveInput(false); setSavePresetName(""); }}
+                  className="text-[11px] text-white/50 hover:text-white/80"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         )}
 
