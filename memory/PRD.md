@@ -1,6 +1,34 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Jun 29, 2026 — iter 52 (Vehicle Picker + AI Drafts + 1-tap Dispatch Email)
+> Last refreshed: Jun 30, 2026 — iter 53 (AI SMS Drafts + Apple Business Connect post-approval checklist)
+
+## ✅ AI SMS Draft Mode (Jun 30, 2026 — iter 53)
+
+**Why:** Operator (Adam) spends 2–5 minutes hand-crafting every SMS reply to a lead — initial outreach, follow-up nudges, final closes, thank-you-after-deposit. With 15+ new leads per week, that's ~1 hour/week of repetitive typing. Goal: generate the SMS in 2 seconds with full context (name, vehicle, date, price, scarcity), one-tap copy-to-clipboard.
+
+**What shipped:**
+1. **Backend endpoint** `POST /api/admin/ai/draft-sms` (in `routes/admin.py`):
+   - Body: `sms_intent` (one of `initial_outreach`, `quote_followup`, `final_nudge`, `thank_you_confirm`, `custom`) + free-form `context` dict
+   - Single shared system prompt with per-intent style rules (warm, ≤480 chars, signed "— Adam · (650) 410-0687", no markdown, plain text)
+   - Uses Emergent LLM Key + Gemini 2.5 Flash for ~$0.0003/call and 1–2s latency
+   - Returns `{ intent, text, char_count }`
+
+2. **Frontend "Draft SMS" button** on every quote-request row (purple Wand2 icon next to "Affiliate dispatch PDF")
+   - Opens `DraftSmsDialog` — scenario chips (5 presets) + dynamic context fields:
+     - `quote_followup`: optional "Affiliate hold release" input for real scarcity
+     - `custom`: free-form instruction box
+   - "Generate" button → AI returns text in <2s → editable Textarea
+   - "Copy to clipboard" + "Open in iMessage" (uses `sms:` URI with body pre-filled)
+   - Character counter with amber warning if exceeds 480 chars
+   - data-testid `quote-sms-{id}`, `draft-sms-dialog`, `sms-intent-*`, `sms-generate-btn`, `sms-output`, `sms-copy-btn`, `sms-open-imessage`, `sms-hold-release`, `sms-custom-instruction`
+
+**Testing:** Curl verified all 3 SMS modes return valid output (315 chars initial outreach, 255 chars follow-up with hold release injected, all signed correctly). Frontend smoke screenshots confirmed dialog opens cleanly, chips toggle the dynamic fields correctly, AI text populates the editable textarea, scarcity line appears when hold_release filled in, copy + iMessage actions wired.
+
+**Files touched:**
+- backend/routes/admin.py — added `_DRAFT_SMS_SYSTEM` prompt + `/admin/ai/draft-sms` endpoint
+- frontend/src/components/admin/QuoteRequestsTab.jsx — added `setSmsState` state, "Draft SMS" button on each row, full `DraftSmsDialog` component (~200 lines), wired render
+
+---
 
 ## ✅ Vehicle Picker, AI Drafts & 1-tap Dispatch Email (Jun 29, 2026 — iter 52)
 

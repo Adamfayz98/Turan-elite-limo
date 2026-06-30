@@ -218,6 +218,11 @@ export default function QuoteRequestsTab() {
   // downloading. Avoids round-trips to retype operator info each time.
   const [dispatchState, setDispatchState] = useState(null); // { request }
 
+  // "Draft SMS" modal — AI-generates a context-aware SMS for any of the
+  // common scenarios (initial outreach, follow-up nudge, final close,
+  // thank-you-after-deposit). One-tap copy-to-clipboard.
+  const [smsState, setSmsState] = useState(null); // { request }
+
   // "Import Lead" modal — paste raw Yelp / Google / phone-call text and the
   // backend LLM extracts structured fields. See <ImportLeadModal/>.
   const [importOpen, setImportOpen] = useState(false);
@@ -416,6 +421,15 @@ export default function QuoteRequestsTab() {
                     >
                       <FileText className="w-3 h-3" /> Affiliate dispatch PDF
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setSmsState({ request: q })}
+                      data-testid={`quote-sms-${q.id}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-purple-500/40 bg-purple-500/[0.07] text-purple-300 text-xs hover:bg-purple-500/[0.15]"
+                      title="AI-draft an SMS reply (initial outreach, follow-up, final nudge, or thank-you)"
+                    >
+                      <Wand2 className="w-3 h-3" /> Draft SMS
+                    </button>
                     <a
                       href={`tel:${phoneTel}`}
                       data-testid={`quote-call-${q.id}`}
@@ -473,6 +487,11 @@ export default function QuoteRequestsTab() {
       <DispatchPdfDialog
         state={dispatchState}
         onClose={() => setDispatchState(null)}
+      />
+
+      <DraftSmsDialog
+        state={smsState}
+        onClose={() => setSmsState(null)}
       />
 
       <ImportLeadDialog
@@ -2082,5 +2101,254 @@ function AIDraftButton({ mode, context, onDraft, label = "Draft with AI", "data-
       {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
       {busy ? "Drafting…" : label}
     </button>
+  );
+}
+
+
+// ------- Modal: AI-drafted SMS reply (initial outreach / followup / etc) -------
+// Opens from each quote row's "Draft SMS" button. Operator picks a scenario,
+// AI generates an SMS using the lead's context (name, vehicle, occasion,
+// price, etc), then one-tap copy puts it on the clipboard ready for iMessage.
+//
+// Backend: POST /admin/ai/draft-sms with sms_intent + context.
+const SMS_INTENT_PRESETS = [
+  {
+    value: "initial_outreach",
+    label: "Initial outreach",
+    hint: "Warm opener after they first submit. Acknowledge occasion + ask 1–2 clarifying questions.",
+    emoji: "👋",
+  },
+  {
+    value: "quote_followup",
+    label: "Quote follow-up",
+    hint: "Polite nudge after quote sent. Re-anchors price + scarcity if hold release time set.",
+    emoji: "⏳",
+  },
+  {
+    value: "final_nudge",
+    label: "Final nudge",
+    hint: "Last polite check before marking lost. One line, no guilt-trip.",
+    emoji: "🎯",
+  },
+  {
+    value: "thank_you_confirm",
+    label: "Thank-you confirm",
+    hint: "After deposit lands. Confirms the booking + sets expectations.",
+    emoji: "🎉",
+  },
+  {
+    value: "custom",
+    label: "Custom",
+    hint: "Tell the AI exactly what to write below.",
+    emoji: "✍️",
+  },
+];
+
+function DraftSmsDialog({ state, onClose }) {
+  const q = state?.request;
+  const [intent, setIntent] = useState("initial_outreach");
+  const [holdRelease, setHoldRelease] = useState("");
+  const [customInstruction, setCustomInstruction] = useState("");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Reset state on each open so a stale draft from one lead doesn't bleed
+  // into the next.
+  useEffect(() => {
+    if (q) {
+      setIntent(q.quoted_price ? "quote_followup" : "initial_outreach");
+      setHoldRelease("");
+      setCustomInstruction("");
+      setText("");
+      setCopied(false);
+    }
+  }, [q]);
+
+  if (!state) return null;
+
+  const phoneTel = (q?.phone || "").replace(/[^\d+]/g, "");
+
+  const buildContext = () => {
+    const firstName = (q?.full_name || "").trim().split(" ")[0] || "";
+    const ctx = {
+      first_name: firstName,
+      vehicle_type: q?.vehicle_type || "",
+      occasion: q?.trip_type || q?.occasion || "",
+      passengers: q?.passengers,
+      pickup_date: q?.pickup_date || "",
+      pickup_time: q?.pickup_time || "",
+      pickup_location: q?.pickup_location || "",
+      dropoff_location: q?.dropoff_location || "",
+      service_duration: q?.service_duration || "",
+    };
+    if (q?.quoted_price) ctx.quoted_price = `$${Number(q.quoted_price).toLocaleString()}`;
+    if (q?.deposit_pct) ctx.deposit_pct = q.deposit_pct;
+    if (holdRelease.trim()) ctx.hold_release_time = holdRelease.trim();
+    if (intent === "custom" && customInstruction.trim()) {
+      ctx.custom_instruction = customInstruction.trim();
+    }
+    return ctx;
+  };
+
+  const generate = async () => {
+    setBusy(true);
+    setCopied(false);
+    try {
+      const { data } = await api.post("/admin/ai/draft-sms", {
+        sms_intent: intent,
+        context: buildContext(),
+      });
+      setText((data && data.text) || "");
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "SMS drafting failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async () => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      toast.success("SMS copied — paste into iMessage.");
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      toast.error("Copy failed — long-press the text to copy manually.");
+    }
+  };
+
+  const activePreset = SMS_INTENT_PRESETS.find((p) => p.value === intent) || SMS_INTENT_PRESETS[0];
+
+  return (
+    <Dialog open={!!state} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        data-testid="draft-sms-dialog"
+        className="bg-[#0c0c0c] border-[#1f1f1f] text-white max-w-xl max-h-[90vh] overflow-y-auto"
+      >
+        <DialogHeader>
+          <DialogTitle className="text-white flex items-center gap-2">
+            <Wand2 className="w-5 h-5 text-purple-300" /> Draft SMS — {q?.full_name}
+          </DialogTitle>
+          <DialogDescription className="text-white/55 leading-relaxed">
+            AI-generates a warm, on-brand SMS using this lead&apos;s context. Always
+            review before pasting into iMessage. Stays under 480 chars.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Intent picker — chips so operator can swap scenario fast */}
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-2">
+            Scenario
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {SMS_INTENT_PRESETS.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => setIntent(p.value)}
+                data-testid={`sms-intent-${p.value}`}
+                className={`text-[11px] px-3 py-1.5 rounded-full border transition ${
+                  intent === p.value
+                    ? "bg-purple-500/20 text-purple-200 border-purple-500/50 font-semibold"
+                    : "bg-white/[0.02] text-white/55 border-white/10 hover:bg-white/5"
+                }`}
+              >
+                <span className="mr-1">{p.emoji}</span>{p.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-white/40 mt-2 leading-relaxed">{activePreset.hint}</p>
+        </div>
+
+        {/* Quote-followup gets an optional hold-release hint */}
+        {intent === "quote_followup" && (
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block mb-1.5">
+              Affiliate hold release <span className="text-white/35 normal-case tracking-normal">(optional · creates real scarcity if set)</span>
+            </label>
+            <Input
+              data-testid="sms-hold-release"
+              placeholder="e.g. end of day today"
+              value={holdRelease}
+              onChange={(e) => setHoldRelease(e.target.value)}
+              className="bg-[#0E0E0E] border-[#27272A] text-white text-sm"
+            />
+          </div>
+        )}
+
+        {/* Custom intent gets a free-form instruction box */}
+        {intent === "custom" && (
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block mb-1.5">
+              Tell the AI what to write
+            </label>
+            <Textarea
+              data-testid="sms-custom-instruction"
+              rows={3}
+              placeholder="e.g. Apologize for the delay and offer them a 10% future-trip promo code"
+              value={customInstruction}
+              onChange={(e) => setCustomInstruction(e.target.value)}
+              className="bg-[#0E0E0E] border-[#27272A] text-white text-sm"
+            />
+          </div>
+        )}
+
+        <Button
+          onClick={generate}
+          disabled={busy || (intent === "custom" && !customInstruction.trim())}
+          data-testid="sms-generate-btn"
+          className="bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/40 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wand2 className="w-4 h-4 mr-2" />}
+          {text ? "Regenerate" : "Generate SMS"}
+        </Button>
+
+        {/* Output — appears once generated */}
+        {text && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-white/45">
+                Draft <span className="text-white/35 normal-case tracking-normal">({text.length} chars · edit freely)</span>
+              </div>
+              {text.length > 480 && (
+                <span className="text-[10px] text-amber-300 uppercase tracking-wider">⚠ Over 480 chars — trim before sending</span>
+              )}
+            </div>
+            <Textarea
+              data-testid="sms-output"
+              rows={9}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              className="bg-[#0E0E0E] border-[#27272A] text-white text-sm leading-relaxed font-mono"
+            />
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                onClick={copy}
+                data-testid="sms-copy-btn"
+                className="bg-[#D4AF37] text-black hover:bg-[#B3922E]"
+              >
+                {copied ? <CheckCircle2 className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />}
+                {copied ? "Copied!" : "Copy to clipboard"}
+              </Button>
+              {phoneTel && (
+                <a
+                  href={`sms:${phoneTel}&body=${encodeURIComponent(text)}`}
+                  data-testid="sms-open-imessage"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-white/10 hover:bg-white/15 text-white text-sm"
+                >
+                  <MessageSquare className="w-4 h-4" /> Open in iMessage
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button onClick={onClose} className="bg-white/10 hover:bg-white/15 text-white">Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

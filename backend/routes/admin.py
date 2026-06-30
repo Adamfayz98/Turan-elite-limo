@@ -609,6 +609,99 @@ Rules:
 - Keep it under 90 words total."""
 
 
+# ----- SMS variants -----
+# All SMS drafts share a single style guide: warm, first-person Adam voice,
+# short, mobile-friendly. The `sms_intent` field in the context tells the
+# model which scenario to write for (initial outreach, follow-up, etc.) so
+# we don't have to maintain 4 separate system prompts.
+_DRAFT_SMS_SYSTEM = """You write SMS replies for Adam, owner of Turan Elite Limo (Bay Area luxury chauffeur). The recipient is a real customer — be warm, professional, and concise.
+
+Hard rules:
+- Output 1–4 short paragraphs. NO headings, NO bullet points, NO emoji-heavy formatting (one tasteful emoji max, only if it fits the occasion).
+- Target ≤ 320 characters total when possible. NEVER exceed 480 characters.
+- First-person voice as "Adam" — never refer to "we at Turan Elite" in third person.
+- Always end with the signature line: "— Adam · (650) 410-0687"
+- Plain text only. No markdown.
+
+Tone by `sms_intent` field:
+- "initial_outreach": warm opener after the customer first submitted a quote request. Confirm receipt, acknowledge their occasion, ask 1–2 clarifying questions if relevant, mention you'll have a price soon.
+- "quote_followup": they got a quote but haven't replied in a few hours. Friendly nudge, re-anchor the price, offer to answer questions or send the deposit link. Use scarcity ONLY if the operator passed `hold_release_time` in context (e.g. "affiliate releases the date at end of day").
+- "final_nudge": last polite check before marking lost. One line: are they still in? Offer to send the link or hop on a call. Do not guilt-trip.
+- "thank_you_confirm": deposit just landed. Confirm the booking, share what happens next (confirmation email, dispatch sheet day-before), express genuine appreciation.
+- "custom": follow the `custom_instruction` field literally.
+
+Inject the customer's first name naturally when given. Never invent details not in the context (e.g. don't make up pickup addresses, prices, or vehicle types). If a critical fact is missing, write around it gracefully."""
+
+
+@router.post("/admin/ai/draft-sms")
+async def admin_ai_draft_sms(payload: dict, _: dict = Depends(require_admin)):
+    """Draft an SMS reply for a quote-request lead.
+
+    Body:
+        sms_intent: one of "initial_outreach", "quote_followup",
+                    "final_nudge", "thank_you_confirm", "custom"
+        context: free-form dict with whatever the model should consider.
+                 Common fields:
+                   - first_name, vehicle_type, occasion, passengers,
+                     pickup_date, pickup_time, pickup_location,
+                     dropoff_location, quoted_price (str), deposit_pct,
+                     hold_release_time (e.g. "end of day today"),
+                     custom_instruction (used only when intent=custom)
+    Returns:
+        { intent, text }   # plain SMS text, ≤ 480 chars, ready to copy
+
+    Stays inside the existing AI-draft endpoint pattern so we don't need a
+    new SDK setup. Uses Gemini 2.5 Flash for ~$0.0003/call and ~1-2s latency.
+    """
+    intent = (payload or {}).get("sms_intent", "").strip().lower()
+    valid_intents = ("initial_outreach", "quote_followup", "final_nudge", "thank_you_confirm", "custom")
+    if intent not in valid_intents:
+        raise HTTPException(status_code=400, detail=f"sms_intent must be one of: {', '.join(valid_intents)}.")
+    context = (payload or {}).get("context") or {}
+    if not isinstance(context, dict):
+        raise HTTPException(status_code=400, detail="context must be an object.")
+
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+    emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not emergent_key:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not configured.")
+
+    chat = LlmChat(
+        api_key=emergent_key,
+        session_id=f"sms-{intent}-{uuid.uuid4()}",
+        system_message=_DRAFT_SMS_SYSTEM,
+    ).with_model("gemini", "gemini-2.5-flash")
+
+    # Compact context so we don't burn tokens on empty fields
+    lines = [f"sms_intent: {intent}"]
+    for k, v in context.items():
+        if v in (None, "", [], {}):
+            continue
+        if isinstance(v, list):
+            v = " → ".join(str(x) for x in v if x)
+        lines.append(f"{k}: {v}")
+    framed = "\n".join(lines)
+
+    try:
+        llm_response = await chat.send_message(UserMessage(text=framed))
+    except Exception as e:
+        logger.warning(f"AI SMS draft ({intent}) call failed: {e}")
+        raise HTTPException(status_code=502, detail=f"SMS drafting failed: {e}")
+
+    text = (llm_response or "").strip()
+    # Strip markdown fences if the model added them
+    if text.startswith("```"):
+        text = text.strip("`").lstrip("\n")
+        if text.lower().startswith("text"):
+            text = text[4:].lstrip()
+    # Trim accidental wrapping quotes
+    if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
+        text = text[1:-1].strip()
+
+    return {"intent": intent, "text": text, "char_count": len(text)}
+
+
 @router.post("/admin/ai/draft-quote-text")
 async def admin_ai_draft_quote_text(payload: dict, _: dict = Depends(require_admin)):
     """Draft customer-facing notes OR affiliate dispatch instructions for a quote.
