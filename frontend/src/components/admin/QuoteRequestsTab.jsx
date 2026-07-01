@@ -501,6 +501,13 @@ export default function QuoteRequestsTab() {
         state={quoteModal}
         onClose={() => setQuoteModal(null)}
         onSent={onQuoteSent}
+        onSavedOnly={(updatedRequest) => {
+          // Save-only path: update the row in the list, close the dialog,
+          // don't flip to the "Quote sent" success screen. This is the
+          // post-payment edit flow — customer was NOT re-contacted.
+          setItems((arr) => arr.map((x) => (x.id === updatedRequest.id ? { ...x, ...updatedRequest } : x)));
+          setQuoteModal(null);
+        }}
       />
 
       <SuggestAffiliatesDialog
@@ -543,7 +550,7 @@ export default function QuoteRequestsTab() {
 
 // ------- Modal: enter price/deposit/notes, optionally affiliate, then email + SMS -------
 
-function SendQuoteDialog({ state, onClose, onSent }) {
+function SendQuoteDialog({ state, onClose, onSent, onSavedOnly }) {
   const q = state?.request;
   const phase = state?.phase || "edit";
   const [price, setPrice] = useState("");
@@ -681,8 +688,11 @@ function SendQuoteDialog({ state, onClose, onSent }) {
         toast.success(data.sent_to ? `Quote emailed to ${data.sent_to}` : "Quote saved");
         onSent(data.quote, data.confirm_url, data.sent_to);
       } else {
-        toast.success("Trip details updated · customer NOT emailed");
-        onSent(data.quote, null, null);
+        // Save-only path: nothing was emailed or texted. DON'T flip the dialog
+        // to the "sent" success screen (that screen says "SMS was sent to ..."
+        // which would be a lie). Just refresh the row + close the dialog.
+        toast.success("Trip details saved · customer was NOT emailed or texted");
+        onSavedOnly(data.quote);
       }
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Save failed");
