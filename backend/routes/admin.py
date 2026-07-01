@@ -1553,17 +1553,43 @@ async def public_quote_offer_finalize(token: str, session_id: str, request: Requ
             <tr><td style="color:#666;">Saved card</td><td>{card_brand or '?'} ····{card_last4 or '????'}</td></tr>
           </table>
           <p style="margin-top:18px;font-size:13px;color:#444;">
-            Open admin → <strong>Quote Requests</strong> tab → look for the PAID badge.
-            Use "Edit trip details" to update pickup time / stops, then "Affiliate dispatch PDF"
-            with the <em>Include full itinerary</em> toggle ON to brief your operator.
+            📎 <strong>Attached:</strong> PII-stripped affiliate dispatch PDF, ready to forward to your operator.
+            Just hit Forward → type the affiliate's email → send. Or open admin → <strong>Quote Requests</strong> tab
+            → "Edit trip details" if you need to change pickup time / stops first, then re-generate from the row.
           </p>
         </div>
         """
+        # Auto-attach the PII-stripped affiliate dispatch PDF so the operator
+        # can wake up, hit Forward on this email, drop in the affiliate's
+        # address, and have the whole handoff done in 15 seconds. If the trip
+        # has planned stops we assume the operator wants the full-itinerary
+        # variant (address-visible) since paid multi-stop trips are exactly
+        # when affiliates need pre-briefed on the route.
+        admin_attachments = []
+        try:
+            from pdf_service import generate_dispatch_pdf as _gen_dispatch_pdf
+            has_stops = bool([s for s in (q.get("stops") or []) if s])
+            dispatch_bytes = _gen_dispatch_pdf(
+                q,
+                affiliate_name="",       # operator stamps this before forwarding
+                affiliate_rate=None,     # operator stamps rate before forwarding
+                extra_notes="",          # operator adds trip-specific notes
+                include_full_itinerary=has_stops,
+            )
+            dispatch_filename = f"TEL-DISPATCH-{(q.get('id') or '')[:8].upper()}.pdf"
+            admin_attachments.append({
+                "filename": dispatch_filename,
+                "content": dispatch_bytes,
+            })
+        except Exception as pdf_err:
+            logger.warning(f"Dispatch PDF auto-attach failed: {pdf_err}")
+
         await send_email(
             to=admin_email,
             subject=admin_subject,
             html=admin_html,
             reply_to=q.get("email") or None,
+            attachments=admin_attachments or None,
         )
     except Exception as e:
         logger.warning(f"Quote-won admin EMAIL failed: {e}")

@@ -1,6 +1,28 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Jun 30, 2026 — iter 55 (Post-payment UI fixes — PAID badge + Edit trip details + admin email)
+> Last refreshed: Jul 1, 2026 — iter 56 (Save-only UX fix + Dispatch PDF auto-attach on PAID email)
+
+## ✅ Save-only cosmetic bug fix + Dispatch PDF auto-attach on PAID email (Jul 1, 2026 — iter 56)
+
+**Bug fix — Save-only was showing "Quote sent" success screen:**
+The Save-trip-changes-only path called `onSent()` which flipped the dialog to the shared "sent" phase — that screen displayed "SMS was sent to {phone}. No email on file." even though nothing was actually sent. Backend was correct (no email/SMS fired because `send_to_customer` was never true in the body), but the frontend UX misled the operator.
+
+Fix: added a separate `onSavedOnly(updatedRequest)` callback that (1) refreshes the row in-place and (2) closes the dialog immediately. Toast now reads "Trip details saved · customer was NOT emailed or texted." Zero customer impact — this was purely UI cosmetics.
+
+**Feature — Dispatch PDF auto-attach on PAID admin email:**
+The iter-55 admin PAID email became the anchor for a new "wake up and forward" workflow. Now `public_quote_offer_finalize` also generates the PII-stripped affiliate dispatch PDF on the fly and attaches it (`TEL-DISPATCH-{id}.pdf`) so the operator can hit Forward → drop the affiliate's email → send. 15 seconds total instead of the previous 3-minute round trip through admin.
+
+Smart default: if the quote has planned stops, we auto-generate the full-itinerary variant (address-visible) since paid multi-stop trips are exactly when the affiliate needs pre-briefed. No stops → default PII-stripped sheet.
+
+Email body updated with 📎 attachment reminder + fallback instructions (open admin → Edit trip details → regenerate from the row) for cases where the operator needs to change pickup time / stops before forwarding.
+
+**Testing:** Backend lint clean. PDF generator verified: PII-stripped 7,125 bytes, full-itinerary variant 7,217 bytes. Frontend Save-only smoke test: dialog closes cleanly, toast reads correctly, row updates in list, no "Quote sent" fake success screen.
+
+**Files touched:**
+- backend/routes/admin.py — added `admin_attachments` block generating dispatch PDF, passing to `send_email(...attachments=)`, updated email HTML body to reference attachment
+- frontend/src/components/admin/QuoteRequestsTab.jsx — added `onSavedOnly` prop to SendQuoteDialog, wired parent handler that refreshes row + closes dialog, updated toast wording
+
+---
 
 ## ✅ Post-Payment Visibility Fixes (Jun 30, 2026 — iter 55)
 
