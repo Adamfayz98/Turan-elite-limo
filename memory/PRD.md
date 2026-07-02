@@ -1,6 +1,55 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 2026 — iter 59 (Real Motor Coach + Mini Coach photos + FleetPicker split-card redesign)
+> Last refreshed: Feb 2026 — iter 60 (Ken-Burns hero + CAI campaign instructions doc + pre-deploy QA)
+
+## ✅ Ken-Burns hero + CAI instructions + pre-deploy QA (Feb 2026 — iter 60)
+
+**Why:** Owner is ready to deploy the new pages to production and hand off Google Ads campaign setup to CAI (his ads automation partner). Needed three things:
+1. A cinematic hero background on Motor Coach + Mini Coach + Casino landing pages (since the vehicle photos are striking)
+2. Full pre-deploy regression check
+3. A copy-paste CAI instructions doc so ad group setup isn't guesswork
+
+**What shipped:**
+
+### 1. Ken-Burns hero backdrop
+- Added `heroImage` optional prop to `LandingPage.jsx`. When set, layers the image under the existing radial-gradient + gold overlay + adds a left-to-right dark gradient so text remains legible.
+- Added `hero-ken-burns` CSS animation in `index.css` — 30s ease-in-out infinite alternate pan/zoom (`scale 1.08→1.16` + `translateX -2%→+2%`). Respects `prefers-reduced-motion`.
+- Wired `heroImage={MOTOR_COACH_IMG}` on `/motor-coach-rental`, `heroImage={MINI_COACH_IMG}` on `/mini-coach-rental`, `heroImage={MOTOR_COACH_IMG}` on `/casino-transportation`.
+- Prop is optional → existing Party Bus / Wine Tour / Wedding / Airport / Corporate landings unaffected (regression-verified via screenshot).
+
+### 2. CAI Google Ads campaign instructions doc
+- Created `/app/memory/CAI_INSTRUCTIONS_MOTOR_MINI_CASINO_CAMPAIGN.md` — ~450 lines of copy-paste-ready instructions covering:
+  - Campaign name (`TEL - Group Charter & Casino (Search)`), settings, geo targeting, budget ($60/day), bidding strategy
+  - Master negative keyword list (pastes into a shared list, attaches to campaign)
+  - 3 ad groups (Motor Coach, Mini Coach, Casino Charter) with exact keyword lists (exact + phrase match), ad-group-level negatives, RSA copy (15 headlines + 4 descriptions each), Final URLs, UTM suffixes
+  - Shared ad extensions (callouts, sitelinks, call, structured snippet)
+  - 30-day bidding schedule (learning phase → Target CPA transition thresholds)
+  - Expected performance benchmarks (CPC/CVR/CPA per ad group)
+  - Critical gambling-policy compliance notes for the Casino ad group
+  - Do-NOT-do list (no PMax yet, no Broad match, don't touch existing campaigns)
+  - Weekly reporting cadence for CAI to send owner
+  - Final pre-launch checklist
+
+### 3. Pre-deploy QA
+- Backend `/api/options` returns 10 vehicle types including Motor Coach + Mini Coach ✅
+- All 9 landing page URLs return HTTP 200: `/`, `/motor-coach-rental`, `/mini-coach-rental`, `/casino-transportation`, `/party-bus`, `/wine-tour`, `/wedding`, `/airport`, `/corporate` ✅
+- All fleet images return HTTP 200: `motor-coach.jpg`, `mini-coach.jpg`, `party-bus.jpg`, `sprinter.jpg` ✅
+- Supervisor: backend + frontend both RUNNING ✅
+- Party Bus regression-tested (renders identically to before, no `heroImage` prop) ✅
+- Casino + Motor Coach + Mini Coach all render with new Ken-Burns hero ✅
+- Lint clean on all new/modified files. Pre-existing warnings in other files are cosmetic (unescaped apostrophes in copy) — not deploy blockers.
+
+**Files touched:**
+- frontend/src/index.css — added `@keyframes hero-ken-burns` + `.hero-ken-burns` class + reduced-motion fallback
+- frontend/src/components/LandingPage.jsx — added `heroImage` prop and image layer under gradient
+- frontend/src/pages/MotorCoachLanding.jsx — wired heroImage
+- frontend/src/pages/MiniCoachLanding.jsx — wired heroImage
+- frontend/src/pages/CasinoLanding.jsx — wired heroImage
+- /app/memory/CAI_INSTRUCTIONS_MOTOR_MINI_CASINO_CAMPAIGN.md (NEW)
+
+**Deploy status:** Ready. Nothing else needed from the owner before hitting Deploy.
+
+---
 
 ## ✅ Fleet Imagery + FleetPicker Redesign (Feb 2026 — iter 59)
 

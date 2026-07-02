@@ -11,6 +11,7 @@ export default function MiniCoachLanding() {
       testId="mini-coach-landing"
       pageTitle="Bay Area Mini Coach Rental · 24–35 Passenger Mini Bus — TuranEliteLimo"
       metaDescription="San Francisco Bay Area mini coach and mini bus rental for 24, 28, and 35 passenger groups. The right-size charter for wedding guest shuttles, corporate teams, sports groups, and mid-size events. Reclining seats, AC, luggage bay, professional driver. Flat rate, TCP licensed."
+      heroImage={MINI_COACH_IMG}
       eyebrow="San Francisco · Bay Area · Sacramento · Monterey"
       titleA="Between a Sprinter"
       titleAccent="and a full-size coach —"

@@ -118,3 +118,19 @@ html, body {
         border-bottom-color: inherit;
     }
 }
+
+/* Ken-Burns slow pan/zoom for landing-page hero background photos.
+   Applied via the `.hero-ken-burns` class on the <img> inside LandingPage.jsx.
+   30s cycle, alternates direction so it never snaps back. */
+@keyframes hero-ken-burns {
+  0%   { transform: scale(1.08) translate3d(-2%, 0, 0); }
+  100% { transform: scale(1.16) translate3d(2%, -1%, 0); }
+}
+.hero-ken-burns {
+  animation: hero-ken-burns 30s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-ken-burns { animation: none; transform: scale(1.06); }
+}
+

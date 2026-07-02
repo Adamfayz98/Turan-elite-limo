@@ -72,6 +72,9 @@ export default function LandingPage({
   socialProof,
   // Optional pricing transparency strip ("From $750 / all-day").
   priceFrom,
+  // Optional hero background photo (with slow Ken-Burns pan/zoom).
+  // Used on Motor Coach / Mini Coach pages to make the vehicle a cinematic backdrop.
+  heroImage, // string URL, e.g. "/fleet/motor-coach.jpg"
 }) {
   useEffect(() => {
     if (pageTitle) document.title = pageTitle;
@@ -91,8 +94,22 @@ export default function LandingPage({
     <div className="min-h-screen bg-black text-white" data-testid={testId}>
       {/* Hero */}
       <section className="relative overflow-hidden border-b border-white/5">
+        {/* Optional cinematic hero photo backdrop with slow Ken-Burns pan.
+            Layered under the gradients so the text remains legible. */}
+        {heroImage && (
+          <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+            <img
+              src={heroImage}
+              alt=""
+              className="hero-ken-burns absolute inset-0 w-full h-full object-cover opacity-45"
+            />
+          </div>
+        )}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(212,175,55,0.12),transparent_55%)]" />
-        <div className="absolute inset-0 bg-gradient-to-br from-[#1a1305] via-black to-black opacity-95" />
+        <div className={`absolute inset-0 bg-gradient-to-br from-[#1a1305] via-black to-black ${heroImage ? "opacity-70" : "opacity-95"}`} />
+        {heroImage && (
+          <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/40 to-transparent pointer-events-none" />
+        )}
         <div className="relative max-w-6xl mx-auto px-6 pt-12 pb-20 sm:pt-16 sm:pb-28">
           <a href="/" className="flex items-center gap-3 mb-14 opacity-90 hover:opacity-100 transition w-fit" data-testid={`${testId}-logo-home`}>
             <Logo size={40} />
