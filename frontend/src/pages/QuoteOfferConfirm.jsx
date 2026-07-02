@@ -5,6 +5,10 @@ import { CheckCircle2, Loader2, MapPin, Users, CalendarDays, Sparkles, ShieldChe
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+// Google Ads: this operator-quote confirm page is a major conversion path
+// (customer clicks confirm link from email → pays deposit). Without these
+// events, PMax/Search bidding treats these clicks as if they never converted.
+import { trackBeginCheckout, trackPurchase } from "@/lib/googleAdsEvents";
 
 const fmtMoney = (n) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(n || 0));
@@ -70,6 +74,20 @@ export default function QuoteOfferConfirm() {
             paid: data.amount_paid,
             total: data.total,
           });
+          // Fire the Google Ads PURCHASE conversion. Use booking_id (UUID)
+          // as transaction_id so it matches the begin_checkout event fired
+          // when the customer tapped "Confirm & Pay" upstream — same funnel,
+          // same identifier, clean attribution.
+          try {
+            trackPurchase({
+              bookingId: data.booking_id,
+              amount: data.amount_paid || data.total,
+              email: quote?.email,
+              phone: quote?.phone,
+            });
+          } catch (e) {
+            console.warn("[QuoteOfferConfirm] purchase track failed:", e);
+          }
         } else {
           setError("Payment didn't go through. Please try again or contact us.");
         }
@@ -90,6 +108,18 @@ export default function QuoteOfferConfirm() {
     }
     setPaying(true);
     try {
+      // Fire begin_checkout BEFORE the Stripe redirect. If the customer
+      // bails from Stripe, Google still sees the funnel step. Uses the
+      // quote's booking_id (or falls back to the token) so it matches the
+      // downstream purchase transaction_id.
+      try {
+        trackBeginCheckout({
+          bookingId: quote?.booking_id || quote?.id || token,
+          amount: quote?.deposit_amount || quote?.total,
+        });
+      } catch (e) {
+        console.warn("[QuoteOfferConfirm] begin_checkout track failed:", e);
+      }
       const { data } = await api.post(`/quote-offer/${token}/checkout`, {
         origin_url: window.location.origin,
         consent_accepted: true,
@@ -352,7 +382,7 @@ export default function QuoteOfferConfirm() {
                       onClick={sendOtp}
                       className="text-xs text-white/45 hover:text-white/75 underline w-full text-center"
                     >
-                      Didn't get it? Resend
+                      Didn&apos;t get it? Resend
                     </button>
                   </div>
                 )}

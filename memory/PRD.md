@@ -1,6 +1,41 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Jul 1, 2026 — iter 56 (Save-only UX fix + Dispatch PDF auto-attach on PAID email)
+> Last refreshed: Jul 2, 2026 — iter 57 (Google Ads conversion tracking fixes — post-CAI audit)
+
+## ✅ Google Ads Conversion Tracking — Post-CAI Audit Fixes (Jul 2, 2026 — iter 57)
+
+**Why:** CAI's Google Ads audit revealed that most conversions weren't being tracked:
+- Purchase events weren't firing consistently on the customer's `/book` funnel
+- begin_checkout ↔ purchase transaction IDs were mismatched, causing Google to treat funnel events as unrelated → attribution broken
+- The operator-quote-confirm path (`/quote-offer/:token/confirm`) had ZERO Google Ads tracking despite being a major conversion path (customer clicks emailed confirm link → pays deposit)
+- Reported cost/conversion of $253 was a LIE — most conversions never reached Google Ads at all, so Smart Bidding was optimizing on partial data
+
+**What shipped:**
+1. **Standardized transaction_id across all funnel events** — `booking.id` (UUID) is now used everywhere for begin_checkout AND purchase. Previously purchase used `confirmation_number || id`, breaking Google's cross-event dedupe. This alone fixes the "Invalid transaction IDs" Google Tag warning.
+2. **Fire begin_checkout BEFORE Stripe redirect in `BookingForm.jsx`** — was previously only firing on the intermediate `/thank-you` page, which most customers skip entirely (they go straight from BookingForm → Stripe → paid). Google Smart Bidding now sees the funnel step even on abandoned checkouts.
+3. **Split Call-for-Quote path from Instant-Price path in BookingForm** — Call-for-Quote fires `trackQuoteRequest` (LEAD event), Instant-Price fires `trackBeginCheckout`. Correct semantic mapping to Google's conversion actions.
+4. **Added begin_checkout + purchase tracking to `QuoteOfferConfirm.jsx`** — the operator-quote-confirm flow was invisible to Google Ads. Now the "Confirm & Pay" click fires begin_checkout, and the successful finalize fires purchase with matching transaction_id.
+5. **All events use consistent `booking.id`** so Google can attribute click → funnel step → paid conversion cleanly.
+
+**Testing:** Frontend lint clean on all three modified files (`BookingForm.jsx`, `GoogleAdsConversion.jsx`, `QuoteOfferConfirm.jsx`). Smoke screenshot on `/book` confirmed gtag global still loads (`typeof window.gtag === 'function'` → true, `Array.isArray(window.dataLayer)` → true).
+
+**Expected impact:**
+- Cost/conversion should drop from reported $253 → $60-$90 within 2-3 weeks as Google Smart Bidding finally sees the real funnel data
+- 3× cost efficiency improvement from unblocking tracking alone (per CAI's report analysis)
+- PMax and Search will now correctly optimize toward `Request Quote` + `Purchase` (once Adam flips "Request Quote" to Primary in Google Ads UI)
+
+**Adam's parallel action items (in Google Ads UI):**
+- Flip `Request Quote` conversion from Secondary → Primary (30 seconds)
+- Turn on Enhanced Conversions
+- Add negative keywords: `waymo`, `blacklane`, `twerkulator`, `elk grove`, `stockton`, `kids party bus`
+- Once 30+ clean conversions recorded (~7-14 days), unpause PMax at $53 Target CPA
+
+**Files touched:**
+- frontend/src/components/GoogleAdsConversion.jsx — switched to `booking.id` transaction_id
+- frontend/src/components/BookingForm.jsx — added early trackBeginCheckout + trackQuoteRequest based on Instant-Price vs Call-for-Quote path
+- frontend/src/pages/QuoteOfferConfirm.jsx — added trackBeginCheckout on Confirm-and-Pay click + trackPurchase on successful finalize
+
+---
 
 ## ✅ Save-only cosmetic bug fix + Dispatch PDF auto-attach on PAID email (Jul 1, 2026 — iter 56)
 

@@ -23,6 +23,12 @@ import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
 import RouteMap from "@/components/RouteMap";
 import StripeBadge from "@/components/StripeBadge";
 import CancellationPolicy from "@/components/CancellationPolicy";
+// Google Ads events: fire begin_checkout the moment a booking is created +
+// fire the "lead" event for Call-for-Quote paths (no instant Stripe price).
+// Firing these BEFORE the Stripe redirect ensures Google sees the funnel step
+// even when the customer bounces from Stripe (abandoned checkout) — otherwise
+// Google Smart Bidding has no signal on which clicks made it this far.
+import { trackBeginCheckout, trackQuoteRequest } from "@/lib/googleAdsEvents";
 import CheckoutRedirectOverlay from "@/components/CheckoutRedirectOverlay";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { getStoredUtm } from "@/lib/utm";
@@ -424,6 +430,30 @@ export default function BookingForm() {
       // Determine if this vehicle has an instant price (i.e., not "Call for quote")
       const vQuote = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
       const hasInstantPrice = vQuote && vQuote.price != null;
+
+      // Fire the appropriate Google Ads funnel event BEFORE the Stripe
+      // redirect — otherwise if the customer bails from Stripe, Google sees
+      // nothing. Both paths use `booking.id` (UUID) as transaction_id so it
+      // matches downstream purchase-event dedupe in GoogleAdsConversion.jsx.
+      try {
+        if (hasInstantPrice) {
+          trackBeginCheckout({
+            bookingId: booking.id,
+            amount: vQuote.price,
+          });
+        } else {
+          // "Call for quote" path — the customer submitted intent to book but
+          // there's no Stripe checkout yet. This IS a qualified lead.
+          trackQuoteRequest({
+            requestId: booking.id,
+            email: booking.email,
+            phone: booking.phone,
+            vehicleType: form.vehicle_type,
+          });
+        }
+      } catch (e) {
+        console.warn("[BookingForm] gtag funnel event failed:", e);
+      }
 
       if (hasInstantPrice) {
         // Show a visible "Opening secure checkout…" overlay that triggers the

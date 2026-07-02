@@ -6,6 +6,14 @@ import { trackPurchase } from "@/lib/googleAdsEvents";
  * This is the highest-value signal we send to Google Ads — it tells PMax
  * "this click earned us real revenue, find more like them".
  *
+ * IMPORTANT: uses `booking.id` (UUID) as transaction_id — NOT the human
+ * confirmation number. Google Ads dedupes conversions across events
+ * (begin_checkout, purchase) using transaction_id, so every event in
+ * the funnel MUST use the same identifier. begin_checkout upstream in
+ * PayBooking.jsx already uses booking.id — matching that here prevents
+ * Google's tag audit from flagging "invalid transaction IDs" for
+ * mismatched attribution across the funnel.
+ *
  * For Lead / Phone Call / Begin Checkout conversions see lib/googleAdsEvents.js.
  */
 export default function GoogleAdsConversion({ booking }) {
@@ -13,8 +21,9 @@ export default function GoogleAdsConversion({ booking }) {
   useEffect(() => {
     if (fired.current) return;
     if (!booking || booking.payment_status !== "paid") return;
+    if (!booking.id) return;
     trackPurchase({
-      bookingId: booking.confirmation_number || booking.id,
+      bookingId: booking.id,
       amount: booking.quote_amount,
       email: booking.email,
       phone: booking.phone,
