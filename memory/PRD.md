@@ -1,6 +1,26 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 2026 — iter 60 (Ken-Burns hero + CAI campaign instructions doc + pre-deploy QA)
+> Last refreshed: Feb 2026 — iter 61 (Quote Requests badge count bug fix — dual-state sync)
+
+## ✅ Bug fix: Quote Requests tab badge stuck (Feb 2026 — iter 61)
+
+**Bug reported:** The Quote Requests tab badge kept showing "9" even after every quote had been moved out of "new" status (Contacted/Quoted/Won/Lost).
+
+**Root cause:** Dual-state architecture. `AdminDashboard.jsx` fetched `/admin/quote-requests` on page load and stored the result in its own `quoteRequests` state (used for the tab badge count). `QuoteRequestsTab.jsx` independently fetched the same endpoint into its own `items` state. When the user changed status in the tab, only the child's state updated — the parent's snapshot stayed frozen at page-load values, so the badge count never updated.
+
+**Fix:** Added an `onQuoteChange(id, patch)` callback prop:
+- `AdminDashboard.jsx` passes it to `<QuoteRequestsTab>` and uses it to keep its `quoteRequests` state in sync (patch on update, filter on deletion).
+- `QuoteRequestsTab.jsx` accepts the prop (optional, safe default) and invokes it on ALL state-change paths: `setStatus`, `remove`, `onQuoteSent`, `onSavedOnly`, `onCreated`.
+
+**Result:** Badge count updates in real-time — no page refresh required. Lint clean, no regression.
+
+**Files touched:**
+- frontend/src/pages/AdminDashboard.jsx (passes callback to child)
+- frontend/src/components/admin/QuoteRequestsTab.jsx (invokes callback on all mutations)
+
+**Bookings tab audit:** Not affected — bookings live directly inside `AdminDashboard.jsx` and share the same state store.
+
+---
 
 ## ✅ Ken-Burns hero + CAI instructions + pre-deploy QA (Feb 2026 — iter 60)
 

@@ -1050,7 +1050,19 @@ export default function AdminDashboard() {
           </TabsContent>
 
           <TabsContent value="quotes" className="mt-6">
-            <QuoteRequestsTab />
+            <QuoteRequestsTab
+              onQuoteChange={(id, patch) => {
+                // Keep the parent's quoteRequests state in sync so the tab
+                // badge count reflects real-time status changes instead of
+                // stale data from the initial page load.
+                if (patch === null) {
+                  // Deletion
+                  setQuoteRequests((arr) => arr.filter((q) => q.id !== id));
+                } else {
+                  setQuoteRequests((arr) => arr.map((q) => (q.id === id ? { ...q, ...patch } : q)));
+                }
+              }}
+            />
           </TabsContent>
 
           <TabsContent value="safety" className="mt-6">

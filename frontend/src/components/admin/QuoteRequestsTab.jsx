@@ -157,7 +157,7 @@ function ProfitPreviewChip({ request }) {
   );
 }
 
-export default function QuoteRequestsTab() {
+export default function QuoteRequestsTab({ onQuoteChange } = {}) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [quoteModal, setQuoteModal] = useState(null); // { request, ... }
@@ -181,6 +181,7 @@ export default function QuoteRequestsTab() {
       .patch(`/admin/quote-requests/${id}`, { status })
       .then(() => {
         setItems((arr) => arr.map((q) => (q.id === id ? { ...q, status } : q)));
+        onQuoteChange?.(id, { status });
       })
       .catch((err) => {
         toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Update failed");
@@ -192,6 +193,7 @@ export default function QuoteRequestsTab() {
     try {
       await api.delete(`/admin/quote-requests/${q.id}`);
       setItems((arr) => arr.filter((x) => x.id !== q.id));
+      onQuoteChange?.(q.id, null);
       toast.success("Removed");
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Delete failed");
@@ -200,6 +202,7 @@ export default function QuoteRequestsTab() {
 
   const onQuoteSent = (updatedRequest, confirmUrl, sentTo) => {
     setItems((arr) => arr.map((x) => (x.id === updatedRequest.id ? { ...x, ...updatedRequest } : x)));
+    onQuoteChange?.(updatedRequest.id, updatedRequest);
     setQuoteModal({ request: updatedRequest, confirm_url: confirmUrl, sent_to: sentTo, phase: "sent" });
   };
 
@@ -506,6 +509,7 @@ export default function QuoteRequestsTab() {
           // don't flip to the "Quote sent" success screen. This is the
           // post-payment edit flow — customer was NOT re-contacted.
           setItems((arr) => arr.map((x) => (x.id === updatedRequest.id ? { ...x, ...updatedRequest } : x)));
+          onQuoteChange?.(updatedRequest.id, updatedRequest);
           setQuoteModal(null);
         }}
       />
@@ -536,6 +540,7 @@ export default function QuoteRequestsTab() {
         onCreated={(qr) => {
           // Prepend the freshly created lead so the operator sees it at the top
           setItems((arr) => [qr, ...arr]);
+          onQuoteChange?.(qr.id, qr);
           setImportOpen(false);
         }}
       />
