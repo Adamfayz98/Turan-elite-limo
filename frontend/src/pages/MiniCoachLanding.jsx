@@ -1,6 +1,7 @@
 import LandingPage from "@/components/LandingPage";
 
-const PARTY_BUS_IMG = "/fleet/party-bus.jpg";
+const MINI_COACH_IMG = "/fleet/mini-coach.jpg";
+const MOTOR_COACH_IMG = "/fleet/motor-coach.jpg";
 const SPRINTER_IMG = "/fleet/sprinter.jpg";
 const SUV_IMG = "/fleet/luxury-suv.jpg";
 
@@ -44,12 +45,12 @@ export default function MiniCoachLanding() {
       fleetTitleA="Sized from 24 to 35 —"
       fleetTitleAccent="pick the right seat count"
       fleet={[
-        { name: "Mini Coach 35", seats: "30-35 passengers", desc: "The largest mini coach. Reclining high-back seats, AC, luggage bay, tinted windows. Perfect for full wedding parties and mid-size corporate teams.", img: PARTY_BUS_IMG },
-        { name: "Mini Coach 28", seats: "24-28 passengers", desc: "The versatile mid-size. Fits most weddings, corporate offsites, and Napa wine tours where a Sprinter is too small and a motor coach is too much.", img: PARTY_BUS_IMG },
+        { name: "Mini Coach 35", seats: "30-35 passengers", desc: "The largest mini coach. Reclining high-back seats, AC, luggage bay, tinted windows. Perfect for full wedding parties and mid-size corporate teams.", img: MINI_COACH_IMG },
+        { name: "Mini Coach 28", seats: "24-28 passengers", desc: "The versatile mid-size. Fits most weddings, corporate offsites, and Napa wine tours where a Sprinter is too small and a motor coach is too much.", img: MINI_COACH_IMG },
         { name: "Executive Sprinter", seats: "8-14 passengers", desc: "The step-down when your headcount is under 15. Captain leather chairs, wood trim, USB. Corporate roadshows and airport groups.", img: SPRINTER_IMG },
         { name: "Chase SUV", seats: "1-6 passengers", desc: "Cadillac Escalade for the VIP party — bride & groom, keynote speaker — while the mini coach carries the group.", img: SUV_IMG },
       ]}
-      gallery={[PARTY_BUS_IMG, SPRINTER_IMG, SUV_IMG, PARTY_BUS_IMG, SPRINTER_IMG]}
+      gallery={[MINI_COACH_IMG, MOTOR_COACH_IMG, SPRINTER_IMG, SUV_IMG, MINI_COACH_IMG]}
       ctaEyebrow="Plan the group ride"
       ctaTitleA="Get your mini coach quote in"
       ctaTitleAccent="under 60 seconds"

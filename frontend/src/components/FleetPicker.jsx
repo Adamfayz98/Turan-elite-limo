@@ -45,49 +45,54 @@ export default function FleetPicker({ quote, selected, onSelect, supportPhone = 
             key={v.name}
             data-testid={`vehicle-card-${v.name}`}
             className={cn(
-              "group relative overflow-hidden rounded-2xl border bg-[#0A0A0A] text-left transition-all duration-300",
-              "h-72 flex flex-col justify-end",
+              "group relative overflow-hidden rounded-2xl border bg-[#0A0A0A] text-left transition-all duration-300 flex flex-col",
               isSelected
                 ? "border-[#D4AF37] ring-2 ring-[#D4AF37]/40 shadow-[0_0_30px_rgba(212,175,55,0.15)]"
                 : "border-[#1F1F1F] hover:border-[#D4AF37]/40",
               !callOnly && "cursor-pointer",
             )}
           >
-            <img
-              src={v.img}
-              alt={v.name}
-              loading="lazy"
-              className="absolute inset-0 w-full h-full object-cover opacity-85 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700 pointer-events-none"
-            />
-            {/* Subtle top gradient (light) so the vehicle's roofline stays visible.
-                Bottom gradient stronger so the Quote/Call buttons text stays readable. */}
-            <div className="absolute inset-x-0 top-0 h-1/5 bg-gradient-to-b from-black/40 to-transparent pointer-events-none" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/55 to-transparent pointer-events-none" />
-
-            {isSelected && !callOnly && (
-              <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-full bg-[#D4AF37] text-black text-[10px] font-semibold uppercase tracking-[0.2em] flex items-center gap-1">
-                <Check className="w-3 h-3" /> Selected
+            {/* Image half — fixed height, vehicle sits fully visible with a soft
+                bottom fade only, no text overlay. */}
+            <div className="relative h-40 overflow-hidden bg-black">
+              <img
+                src={v.img}
+                alt={v.name}
+                loading="lazy"
+                className="absolute inset-0 w-full h-full object-cover object-center opacity-95 group-hover:scale-105 transition-transform duration-700 pointer-events-none"
+              />
+              <div className="absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
+              {isSelected && !callOnly && (
+                <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-full bg-[#D4AF37] text-black text-[10px] font-semibold uppercase tracking-[0.2em] flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Selected
+                </div>
+              )}
+              {/* Compact name label overlaid on image (bottom-left) so the card
+                  is scannable even before you read the info panel. */}
+              <div className="absolute left-4 bottom-3 right-4 z-[1]">
+                <h3 className="font-serif text-xl leading-tight text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">{v.name}</h3>
               </div>
-            )}
+            </div>
 
-            <div className="relative z-[1] p-5">
-              <div className="flex items-center gap-2 text-[#D4AF37]/90 text-[10px]">
-                <Sparkles className="w-3 h-3 flex-shrink-0" />
-                <span className="uppercase tracking-[0.2em] line-clamp-1">{v.model}</span>
+            {/* Info panel — separate opaque section below the image, all text
+                lives here so the vehicle is never obscured. */}
+            <div className="relative z-[1] p-4 flex-1 flex flex-col">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-1.5 text-[#D4AF37]/90 text-[9px] min-w-0">
+                  <Sparkles className="w-3 h-3 flex-shrink-0" />
+                  <span className="uppercase tracking-[0.18em] line-clamp-1">{v.model}</span>
+                </div>
+                <div className="flex items-center gap-3 text-[10px] text-white/60 flex-shrink-0">
+                  <span className="flex items-center gap-1">
+                    <Users className="w-3 h-3 text-[#D4AF37]" /> {v.pax}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Briefcase className="w-3 h-3 text-[#D4AF37]" /> {v.bags}
+                  </span>
+                </div>
               </div>
-              <h3 className="font-serif text-2xl mt-1.5 leading-tight">{v.name}</h3>
-              <p className="text-xs text-white/60 mt-1.5 line-clamp-2">{v.note}</p>
 
-              <div className="mt-3 flex items-center gap-4 text-[11px] text-white/70">
-                <span className="flex items-center gap-1.5">
-                  <Users className="w-3 h-3 text-[#D4AF37]" /> {v.pax}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Briefcase className="w-3 h-3 text-[#D4AF37]" /> {v.bags}
-                </span>
-              </div>
-
-              <div className="mt-3 pt-3 border-t border-white/10">
+              <div className="mt-auto">
                 {hasPrice && (
                   <div className="flex items-baseline justify-between">
                     <div>

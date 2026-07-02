@@ -80,7 +80,7 @@ export const FLEET = [
     bags: "20",
     callOnly: true,
     note: "The mid-size charter. High-back reclining seats, AC, luggage bay. Wedding guest shuttles, sports teams, mid-size corporate groups.",
-    img: "/fleet/party-bus.jpg",
+    img: "/fleet/mini-coach.jpg",
   },
   {
     name: "Motor Coach",
@@ -89,6 +89,6 @@ export const FLEET = [
     bags: "56",
     callOnly: true,
     note: "Full-size touring coach. Reclining seats, restroom onboard, PA system, luggage bay, WiFi option. Corporate roadshows, large weddings, tours, sports teams.",
-    img: "/fleet/party-bus.jpg",
+    img: "/fleet/motor-coach.jpg",
   },
 ];

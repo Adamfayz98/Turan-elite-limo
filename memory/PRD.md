@@ -1,6 +1,34 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 2026 — iter 58 (Motor Coach + Mini Coach + Casino Charter service expansion)
+> Last refreshed: Feb 2026 — iter 59 (Real Motor Coach + Mini Coach photos + FleetPicker split-card redesign)
+
+## ✅ Fleet Imagery + FleetPicker Redesign (Feb 2026 — iter 59)
+
+**Why:** Two things landed together:
+1. Owner supplied real black-glass Motor Coach and Mini Coach photography — previously we were reusing party-bus.jpg as a placeholder for both new vehicles.
+2. On the homepage `FleetPicker`, the vehicle info was overlaying the lower half of the vehicle silhouette (dark gradient + name/model/description/pax/bags all stacked on top of the image), which was obscuring the vehicle body itself.
+
+**What shipped:**
+1. **`/public/fleet/motor-coach.jpg`** — new full-size tri-axle touring motor coach photo, 1536×1024, ~180 KB (JPEG q88, optimized).
+2. **`/public/fleet/mini-coach.jpg`** — new Ford E-450 style mini coach photo, 1536×1024, ~156 KB.
+3. Wired the new images into: `lib/fleet.js` (FleetPicker + Fleet.jsx source of truth), `VehiclePickerDialog.jsx` thumbnail map, `MotorCoachLanding.jsx`, `MiniCoachLanding.jsx`, `CasinoLanding.jsx` (fleet options + venue cards + gallery).
+4. **`FleetPicker.jsx` redesigned as a split card** — image occupies the top 160px of the card with a soft bottom fade only (no full-height dark overlay), vehicle name overlaid in a compact bottom-left position with drop shadow. All model text, pax/bags, price, promo badge, and Quote/Call buttons moved to a separate opaque `.p-4` info panel below the image so the vehicle body is never obscured. Card height now flexes naturally instead of the fixed 288px.
+5. **`Fleet.jsx` (marketing showcase)** — hover-reveal design: only the vehicle name + pax/bags visible at rest (compact bottom label), the model + description slide up on hover. Vehicle stays fully visible normally.
+
+**Testing:** Screenshot-verified on homepage `/`. All 10 vehicles now render cleanly with fully visible silhouettes — no text overlap. New Motor Coach + Mini Coach photos load correctly. Lint clean.
+
+**Files touched:**
+- frontend/public/fleet/motor-coach.jpg (NEW, 180 KB)
+- frontend/public/fleet/mini-coach.jpg (NEW, 156 KB)
+- frontend/src/lib/fleet.js
+- frontend/src/components/FleetPicker.jsx (redesigned card layout)
+- frontend/src/components/Fleet.jsx (hover-reveal detail)
+- frontend/src/components/admin/VehiclePickerDialog.jsx
+- frontend/src/pages/MotorCoachLanding.jsx
+- frontend/src/pages/MiniCoachLanding.jsx
+- frontend/src/pages/CasinoLanding.jsx
+
+---
 
 ## ✅ New Service Types: Motor Coach, Mini Coach & Casino Charter (Feb 2026 — iter 58)
 

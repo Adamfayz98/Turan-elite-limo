@@ -42,28 +42,34 @@ export default function Fleet() {
               <img
                 src={v.img}
                 alt={v.name}
-                className="absolute inset-0 w-full h-full object-cover opacity-85 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
+                className="absolute inset-0 w-full h-full object-cover object-center opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700"
               />
-              {/* Top + bottom gradient: kills the studio halo on the new fleet shots
-                  so the card sits flush on the dark page background. */}
-              <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/70 via-black/25 to-transparent pointer-events-none" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
-              <div className="relative h-full flex flex-col justify-end p-6 md:p-7">
-                <div className="flex items-center gap-2 text-[#D4AF37]/90 text-xs">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span className="uppercase tracking-[0.2em]">{v.model}</span>
-                </div>
-                <h3 className="font-serif text-2xl md:text-3xl mt-2">{v.name}</h3>
-                <p className="text-sm text-white/65 mt-2 leading-relaxed max-w-md">{v.note}</p>
-                <div className="mt-4 flex items-center gap-5 text-xs text-white/70">
-                  <div className="flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5 text-[#D4AF37]" />
+              {/* Subtle bottom fade only — keeps the vehicle body visible.
+                  A deeper fade appears on hover to reveal the detail text. */}
+              <div className="absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none transition-all duration-500 group-hover:h-2/3 group-hover:from-black group-hover:via-black/70" />
+
+              {/* Always-visible label — compact bar pinned to bottom-left. */}
+              <div className="relative h-full flex flex-col justify-end p-4 md:p-5">
+                <h3 className="font-serif text-xl md:text-2xl leading-tight">{v.name}</h3>
+                <div className="mt-1.5 flex items-center gap-4 text-[11px] text-white/75">
+                  <div className="flex items-center gap-1">
+                    <Users className="w-3 h-3 text-[#D4AF37]" />
                     <span>{v.pax} pax</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <Briefcase className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <div className="flex items-center gap-1">
+                    <Briefcase className="w-3 h-3 text-[#D4AF37]" />
                     <span>{v.bags} bags</span>
                   </div>
+                </div>
+
+                {/* Hover-revealed detail — model + description slide up.
+                    Hidden by default so the vehicle stays visible. */}
+                <div className="max-h-0 opacity-0 overflow-hidden group-hover:max-h-40 group-hover:opacity-100 group-hover:mt-3 transition-all duration-500">
+                  <div className="flex items-center gap-1.5 text-[#D4AF37]/90 text-[10px] mb-1.5">
+                    <Sparkles className="w-3 h-3" />
+                    <span className="uppercase tracking-[0.18em]">{v.model}</span>
+                  </div>
+                  <p className="text-xs text-white/70 leading-relaxed max-w-md">{v.note}</p>
                 </div>
               </div>
             </article>

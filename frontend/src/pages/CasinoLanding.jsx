@@ -1,9 +1,10 @@
 import LandingPage from "@/components/LandingPage";
 
 const PARTY_BUS_IMG = "/fleet/party-bus.jpg";
+const MOTOR_COACH_IMG = "/fleet/motor-coach.jpg";
+const MINI_COACH_IMG = "/fleet/mini-coach.jpg";
 const SPRINTER_IMG = "/fleet/sprinter.jpg";
 const SUV_IMG = "/fleet/luxury-suv.jpg";
-const SEDAN_IMG = "/fleet/executive-sedan.jpg";
 
 export default function CasinoLanding() {
   return (
@@ -46,8 +47,8 @@ export default function CasinoLanding() {
       fleetTitleAccent="whole-company outing"
       fleet={[
         { name: "Executive Sprinter", seats: "8-14 passengers", desc: "The poker-club sweet spot. Captain's chairs, USB, tinted windows. Ideal for Graton, Thunder Valley, Cache Creek day trips.", img: SPRINTER_IMG },
-        { name: "Mini Coach", seats: "24-35 passengers", desc: "Birthday groups, corporate outings, church-league players. Reclining seats, AC, luggage bay. Great for Reno/Tahoe overnights.", img: PARTY_BUS_IMG },
-        { name: "Motor Coach", seats: "40-56 passengers", desc: "Full company casino night or large tournament group. Restroom, PA, luggage bay, reclining seats. Weekly runs by senior clubs.", img: PARTY_BUS_IMG },
+        { name: "Mini Coach", seats: "24-35 passengers", desc: "Birthday groups, corporate outings, church-league players. Reclining seats, AC, luggage bay. Great for Reno/Tahoe overnights.", img: MINI_COACH_IMG },
+        { name: "Motor Coach", seats: "40-56 passengers", desc: "Full company casino night or large tournament group. Restroom, PA, luggage bay, reclining seats. Weekly runs by senior clubs.", img: MOTOR_COACH_IMG },
         { name: "Party Bus", seats: "14-30 passengers", desc: "For when the casino run is really a bachelor party or a birthday. LED, dance floor, bar setup. The ride is part of the celebration.", img: PARTY_BUS_IMG },
       ]}
       venuesEyebrow="Casinos we regularly drive to"
@@ -57,37 +58,37 @@ export default function CasinoLanding() {
       venues={[
         {
           name: "Graton Resort & Casino",
-          image: PARTY_BUS_IMG,
+          image: MINI_COACH_IMG,
           blurb: "Rohnert Park · ~1 hour from SF. The closest full-scale casino to the Bay Area. Slots, table games, poker, high-limit rooms. Sprinter round trip from $650, Mini Coach from $1,100.",
           badge: "Closest to SF",
         },
         {
           name: "Thunder Valley Casino",
-          image: PARTY_BUS_IMG,
+          image: MOTOR_COACH_IMG,
           blurb: "Lincoln (near Sacramento) · ~1.5 hours from SF. Consistently the top-revenue casino in California. Massive gaming floor, big poker room, well-known steakhouse. Sprinter from $850, Motor Coach from $2,600.",
           badge: "Top CA revenue",
         },
         {
           name: "Cache Creek Casino Resort",
-          image: PARTY_BUS_IMG,
+          image: MINI_COACH_IMG,
           blurb: "Brooks (Yolo County) · ~2 hours from SF. Wine-country casino with hotel, golf, and spa. Popular for corporate outings and mid-scale bachelor parties. Sprinter from $950.",
           badge: "Corporate favorite",
         },
         {
           name: "Jackson Rancheria",
-          image: PARTY_BUS_IMG,
+          image: SPRINTER_IMG,
           blurb: "Amador County · ~2.5 hours from SF. Historic Gold Country location, hotel + casino combo. Slower pace, good weekend getaway feel. Sprinter from $1,050.",
           badge: "Gold Country",
         },
         {
           name: "Reno Casino Corridor",
-          image: PARTY_BUS_IMG,
+          image: MOTOR_COACH_IMG,
           blurb: "Peppermill · Grand Sierra Resort · Atlantis · Silver Legacy · Circus Circus Reno. ~3.5-4 hours from SF. Same-day trip is possible but most groups make it an overnight. Sprinter from $1,600, Motor Coach from $3,800.",
           badge: "Overnight recommended",
         },
         {
           name: "Lake Tahoe Casinos",
-          image: PARTY_BUS_IMG,
+          image: MINI_COACH_IMG,
           blurb: "Harrah's Lake Tahoe · Hard Rock Lake Tahoe · Nugget Casino Sparks. ~4 hours from SF. The scenic run — casino + Tahoe lake views. Bachelor/bachelorette favorite. Sprinter from $1,800, Motor Coach from $4,200.",
           badge: "Scenic route",
         },
@@ -104,7 +105,7 @@ export default function CasinoLanding() {
         { time: "6:30 PM", title: "Regroup at the entrance", blurb: "Driver texts the group 30 minutes before scheduled departure. Roll call at the porte-cochère, load up, head out. If someone's on a hot streak, we can push departure by 30–60 min with a small overage charge — agreed upfront." },
         { time: "8:00 PM", title: "Return to Bay Area", blurb: "Curbside drop-off wherever the group started. Everyone home safe, no DUI risk, no rideshare surge, no arguing about who drives." },
       ]}
-      gallery={[PARTY_BUS_IMG, SPRINTER_IMG, SUV_IMG, PARTY_BUS_IMG, SEDAN_IMG]}
+      gallery={[MOTOR_COACH_IMG, MINI_COACH_IMG, PARTY_BUS_IMG, SPRINTER_IMG, SUV_IMG]}
       ctaEyebrow="Plan the casino run"
       ctaTitleA="Get your flat-rate casino quote in"
       ctaTitleAccent="under 60 seconds"

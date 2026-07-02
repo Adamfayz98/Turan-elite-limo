@@ -1,6 +1,7 @@
 import LandingPage from "@/components/LandingPage";
 
-const PARTY_BUS_IMG = "/fleet/party-bus.jpg";
+const MOTOR_COACH_IMG = "/fleet/motor-coach.jpg";
+const MINI_COACH_IMG = "/fleet/mini-coach.jpg";
 const SPRINTER_IMG = "/fleet/sprinter.jpg";
 const SUV_IMG = "/fleet/luxury-suv.jpg";
 
@@ -44,12 +45,12 @@ export default function MotorCoachLanding() {
       fleetTitleA="From 40-seat mid-size to"
       fleetTitleAccent="56-seat full touring coach"
       fleet={[
-        { name: "Motor Coach 56", seats: "50-56 passengers", desc: "The flagship. Reclining seats, restroom, PA system, luggage bay, WiFi option, panoramic windows. Corporate roadshows, large weddings, tours.", img: PARTY_BUS_IMG },
-        { name: "Motor Coach 45", seats: "40-45 passengers", desc: "Mid-size touring coach. Same amenities as the 56 in a slightly smaller footprint. Great for corporate groups & wedding parties.", img: PARTY_BUS_IMG },
-        { name: "Mini Coach", seats: "24-35 passengers", desc: "The step-down when 56 is overkill. High-back seats, AC, luggage bay. See our dedicated Mini Coach page.", img: SPRINTER_IMG },
+        { name: "Motor Coach 56", seats: "50-56 passengers", desc: "The flagship. Reclining seats, restroom, PA system, luggage bay, WiFi option, panoramic windows. Corporate roadshows, large weddings, tours.", img: MOTOR_COACH_IMG },
+        { name: "Motor Coach 45", seats: "40-45 passengers", desc: "Mid-size touring coach. Same amenities as the 56 in a slightly smaller footprint. Great for corporate groups & wedding parties.", img: MOTOR_COACH_IMG },
+        { name: "Mini Coach", seats: "24-35 passengers", desc: "The step-down when 56 is overkill. High-back seats, AC, luggage bay. See our dedicated Mini Coach page.", img: MINI_COACH_IMG },
         { name: "Chase SUV", seats: "1-6 passengers", desc: "Cadillac Escalade or Yukon for the VIP party — bride & groom, executives, keynote speaker — while the coach carries the group.", img: SUV_IMG },
       ]}
-      gallery={[PARTY_BUS_IMG, SPRINTER_IMG, SUV_IMG, PARTY_BUS_IMG, SPRINTER_IMG]}
+      gallery={[MOTOR_COACH_IMG, MINI_COACH_IMG, SPRINTER_IMG, SUV_IMG, MOTOR_COACH_IMG]}
       ctaEyebrow="Plan the group transport"
       ctaTitleA="Get your motor coach quote in"
       ctaTitleAccent="under 60 seconds"
