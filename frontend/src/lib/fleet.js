@@ -73,4 +73,22 @@ export const FLEET = [
     note: "Built for celebrations. LED lighting, premium sound, dance floor, full bar.",
     img: "/fleet/party-bus.jpg",
   },
+  {
+    name: "Mini Coach",
+    model: "24–35 Passenger Mid-Size Coach",
+    pax: "24–35",
+    bags: "20",
+    callOnly: true,
+    note: "The mid-size charter. High-back reclining seats, AC, luggage bay. Wedding guest shuttles, sports teams, mid-size corporate groups.",
+    img: "/fleet/party-bus.jpg",
+  },
+  {
+    name: "Motor Coach",
+    model: "40–56 Passenger Charter Bus",
+    pax: "40–56",
+    bags: "56",
+    callOnly: true,
+    note: "Full-size touring coach. Reclining seats, restroom onboard, PA system, luggage bay, WiFi option. Corporate roadshows, large weddings, tours, sports teams.",
+    img: "/fleet/party-bus.jpg",
+  },
 ];

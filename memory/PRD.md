@@ -1,6 +1,49 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Jul 2, 2026 — iter 57 (Google Ads conversion tracking fixes — post-CAI audit)
+> Last refreshed: Feb 2026 — iter 58 (Motor Coach + Mini Coach + Casino Charter service expansion)
+
+## ✅ New Service Types: Motor Coach, Mini Coach & Casino Charter (Feb 2026 — iter 58)
+
+**Why:** Party Bus campaigns are performing well. To capture additional broker margin, three new service verticals were added that are currently under-served in Bay Area PPC:
+- **Motor Coach (40–56 pax)** — $2,500+ AOV, corporate roadshows / weddings / sports teams
+- **Mini Coach (24–35 pax)** — fills the gap between Sprinter (14) and Motor Coach (40+); minimal PPC competition
+- **Casino Charter** — flat-rate round-trip to Graton, Thunder Valley, Cache Creek, Jackson Rancheria, Reno, Tahoe. Low CPC ($3–$8), high intent, 30–40% broker margins
+
+**What shipped:**
+1. **Backend:** `Mini Coach` and `Motor Coach` added to `VEHICLE_TYPES` and `DEFAULT_VEHICLE_PRICING` in `server.py`. Both are `call_only: True` (brokered, not instant-priced).
+2. **Frontend Fleet lib:** Added Mini Coach + Motor Coach to `/lib/fleet.js` with copy, pax counts, and images.
+3. **Pricing reference:** Added `"motor coach"` entry to `pricingReference.js` (Mini Coach already present). Enables admin Vehicle Picker + Profit Preview Chip to compute margins on brokered coach charters.
+4. **New landing pages:**
+   - `/motor-coach-rental` — `MotorCoachLanding.jsx`, SEO-optimized for "motor coach rental bay area", "charter bus san francisco", "56 passenger bus"
+   - `/mini-coach-rental` — `MiniCoachLanding.jsx`, SEO-optimized for "mini coach rental", "mini bus rental", "wedding shuttle bay area"
+   - `/casino-transportation` — `CasinoLanding.jsx`, SEO-optimized for "casino bus bay area", "graton shuttle", "thunder valley bus san francisco", "reno bus trip", "tahoe casino transportation"
+   - Each page includes: pillars (6), routes (6), fleet options (4), gallery (5), CTA, and 7–8 FAQs targeted at real customer objections.
+5. **Route registrations:** 30+ URL variants registered in `App.js` for the 3 new pages (SEO-friendly aliases + city variants).
+6. **Google Ads campaign playbook:** `/app/memory/GOOGLE_ADS_NEW_CAMPAIGNS.md` — complete keyword lists (exact + phrase match), negative keywords, ad copy (15 headlines + 4 descriptions per group), ad extensions, budget suggestions, expected CPC/CVR benchmarks. Owner can copy-paste into Google Ads UI.
+
+**Testing:** Backend `/api/options` verified live — vehicle_types now returns 10 items including Mini Coach + Motor Coach. All three landing pages render cleanly (screenshot verified: correct testids, page titles, hero copy, price strips). Lint clean on all new files.
+
+**Conversion tracking:** All three landing pages inherit the same `LandingPage` component + form pipeline as Party Bus / Wine Tour, so `begin_checkout` and `purchase` events fire with `booking.id` transaction_id automatically. No extra gtag setup required.
+
+**Owner next steps (in Google Ads UI):**
+- Create Search campaign `TEL - Group Charter & Casino (Search)` with 3 ad groups per the playbook
+- Paste keywords + ad copy from `/app/memory/GOOGLE_ADS_NEW_CAMPAIGNS.md`
+- Set daily budget to $45–$75 total across the 3 ad groups
+- Wait 3 days (Google learning phase), then review search terms report and add negatives
+
+**Files touched:**
+- backend/server.py — VEHICLE_TYPES + DEFAULT_VEHICLE_PRICING
+- frontend/src/lib/fleet.js — added Mini Coach + Motor Coach entries
+- frontend/src/lib/pricingReference.js — added `"motor coach"` net rate entry
+- frontend/src/components/admin/VehiclePickerDialog.jsx — thumbnail map updated
+- frontend/src/components/Fleet.jsx — homepage grid span for new vehicles
+- frontend/src/App.js — imports + route registrations
+- frontend/src/pages/MotorCoachLanding.jsx (NEW)
+- frontend/src/pages/MiniCoachLanding.jsx (NEW)
+- frontend/src/pages/CasinoLanding.jsx (NEW)
+- /app/memory/GOOGLE_ADS_NEW_CAMPAIGNS.md (NEW)
+
+---
 
 ## ✅ Google Ads Conversion Tracking — Post-CAI Audit Fixes (Jul 2, 2026 — iter 57)
 

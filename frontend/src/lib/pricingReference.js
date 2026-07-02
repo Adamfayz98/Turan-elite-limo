@@ -31,6 +31,7 @@ export const AFFILIATE_NET_RATES = {
   "party bus":               { hourly: 200, min_hours: 4, min_pax: 14, max_pax: 30, formality: "party",  tier: "bus",      description: "Dance floor, full bar, club lighting, sound. Bachelor/ette, big celebrations.",  flat_rate_capable: false, confirmed: null },
   "limo coach":              { hourly: 220, min_hours: 4, min_pax: 14, max_pax: 20, formality: "party",  tier: "bus",      description: "Lounge-style seating, premium bar, club lighting. Upscale weddings, premium parties.", flat_rate_capable: false, confirmed: null },
   "mini coach":              { hourly: 165, min_hours: 3, min_pax: 14, max_pax: 28, formality: "formal", tier: "coach",    description: "High-back coach seats, AC. Wedding guest shuttles, corporate events.",            flat_rate_capable: false, confirmed: null },
+  "motor coach":             { hourly: 220, min_hours: 5, min_pax: 25, max_pax: 56, formality: "formal", tier: "coach",    description: "Full-size 40–56 passenger charter bus. Reclining seats, restroom, PA, luggage bay. Corporate roadshows, weddings, tours.", flat_rate_capable: true, confirmed: null },
 };
 
 // Look up the net rate for a vehicle. Returns null if we don't have data.

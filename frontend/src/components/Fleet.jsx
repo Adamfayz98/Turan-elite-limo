@@ -10,6 +10,8 @@ const SPAN_BY_NAME = {
   "Stretch Limousine": "lg:col-span-2 lg:row-span-1",
   "Sprinter Van": "lg:col-span-1 lg:row-span-1",
   "Party Bus": "lg:col-span-3 lg:row-span-1",
+  "Mini Coach": "lg:col-span-2 lg:row-span-1",
+  "Motor Coach": "lg:col-span-3 lg:row-span-1",
 };
 const FLEET = SHARED_FLEET.map((v) => ({ ...v, span: SPAN_BY_NAME[v.name] || "" }));
 

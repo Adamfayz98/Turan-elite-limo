@@ -137,6 +137,8 @@ VEHICLE_TYPES = [
     "Executive Sprinter",
     "Jet Sprinter",
     "Party Bus",
+    "Mini Coach",
+    "Motor Coach",
 ]
 
 # Default pricing seeded into MongoDB on first startup (admins can edit live).
@@ -149,6 +151,8 @@ DEFAULT_VEHICLE_PRICING = {
     "Executive Sprinter": {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.00, "call_only": True},
     "Jet Sprinter":       {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.25, "call_only": True},
     "Party Bus":          {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.50, "call_only": True},
+    "Mini Coach":         {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 2.50, "call_only": True},
+    "Motor Coach":        {"base": 0.0,   "per_mile": 0.0,  "minimum": 0.0,   "hourly_rate": 0.0,   "wait_minute_rate": 3.00, "call_only": True},
 }
 
 # Hourly bookings include this many miles per hour at no extra charge

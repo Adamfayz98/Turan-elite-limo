@@ -36,7 +36,8 @@ const VEHICLE_THUMB = {
   "stretch limo":         "/fleet/stretch-limo.jpg",
   "party bus":            "/fleet/party-bus.jpg",
   "limo coach":           "/fleet/party-bus.jpg",
-  "mini coach":           "/fleet/sprinter.jpg",
+  "mini coach":           "/fleet/party-bus.jpg",
+  "motor coach":          "/fleet/party-bus.jpg",
 };
 
 // Quick-pick occasion presets so operators don't have to think about formality.

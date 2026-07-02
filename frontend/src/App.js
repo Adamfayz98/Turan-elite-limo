@@ -24,6 +24,9 @@ import WeddingLanding from "@/pages/WeddingLanding";
 import WineTourLanding from "@/pages/WineTourLanding";
 import CorporateLanding from "@/pages/CorporateLanding";
 import PartyBusLanding from "@/pages/PartyBusLanding";
+import MotorCoachLanding from "@/pages/MotorCoachLanding";
+import MiniCoachLanding from "@/pages/MiniCoachLanding";
+import CasinoLanding from "@/pages/CasinoLanding";
 import QuoteOfferConfirm from "@/pages/QuoteOfferConfirm";
 import BookPage from "@/pages/BookPage";
 import QuotePage from "@/pages/QuotePage";
@@ -95,6 +98,35 @@ function App() {
           <Route path="/party-bus-san-francisco" element={<PartyBusLanding />} />
           <Route path="/party-bus-bay-area" element={<PartyBusLanding />} />
           <Route path="/limo-bus" element={<PartyBusLanding />} />
+          {/* Motor Coach — 40–56 passenger charter bus */}
+          <Route path="/motor-coach" element={<MotorCoachLanding />} />
+          <Route path="/motor-coach-rental" element={<MotorCoachLanding />} />
+          <Route path="/motor-coach-bay-area" element={<MotorCoachLanding />} />
+          <Route path="/charter-bus" element={<MotorCoachLanding />} />
+          <Route path="/charter-bus-rental" element={<MotorCoachLanding />} />
+          <Route path="/charter-bus-san-francisco" element={<MotorCoachLanding />} />
+          <Route path="/56-passenger-bus" element={<MotorCoachLanding />} />
+          <Route path="/coach-bus-rental" element={<MotorCoachLanding />} />
+          {/* Mini Coach — 24–35 passenger */}
+          <Route path="/mini-coach" element={<MiniCoachLanding />} />
+          <Route path="/mini-coach-rental" element={<MiniCoachLanding />} />
+          <Route path="/mini-bus" element={<MiniCoachLanding />} />
+          <Route path="/mini-bus-rental" element={<MiniCoachLanding />} />
+          <Route path="/24-passenger-bus" element={<MiniCoachLanding />} />
+          <Route path="/28-passenger-bus" element={<MiniCoachLanding />} />
+          <Route path="/35-passenger-bus" element={<MiniCoachLanding />} />
+          <Route path="/mini-coach-bay-area" element={<MiniCoachLanding />} />
+          {/* Casino transportation */}
+          <Route path="/casino" element={<CasinoLanding />} />
+          <Route path="/casino-transportation" element={<CasinoLanding />} />
+          <Route path="/casino-shuttle" element={<CasinoLanding />} />
+          <Route path="/casino-bus" element={<CasinoLanding />} />
+          <Route path="/bay-area-casino" element={<CasinoLanding />} />
+          <Route path="/graton-casino-shuttle" element={<CasinoLanding />} />
+          <Route path="/thunder-valley-shuttle" element={<CasinoLanding />} />
+          <Route path="/cache-creek-shuttle" element={<CasinoLanding />} />
+          <Route path="/reno-bus-trip" element={<CasinoLanding />} />
+          <Route path="/tahoe-casino-transportation" element={<CasinoLanding />} />
           <Route path="/quote/:token" element={<QuoteOfferConfirm />} />
           {/* Dedicated landing pages for Google Business Profile "Book online"
               and "Request quote" CTAs. Both reuse BookingForm but wrap it in
