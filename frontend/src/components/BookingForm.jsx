@@ -138,9 +138,18 @@ export default function BookingForm() {
   // for browsers that silently block window.location.href to Stripe.
   const [checkoutOverlay, setCheckoutOverlay] = useState(null); // { url, bookingId, sessionId } | null
 
+  // Active first-ride promo displayed as a chip above the booking form.
+  // Sourced from the same endpoint as the site-wide PromoBanner so the
+  // percentage/dollar amount always matches the current admin config.
+  // Hidden entirely when no active promo is flagged for the banner.
+  const [firstRidePromo, setFirstRidePromo] = useState(null);
+
   useEffect(() => {
     api.get("/options").then((r) => setOptions(r.data)).catch(() => {});
     api.get("/pricing/wait-rates").then((r) => setWaitPolicy(r.data)).catch(() => {});
+    api.get("/promos/banner").then((r) => {
+      if (r.data?.code) setFirstRidePromo(r.data);
+    }).catch(() => {});
   }, []);
 
   // Pre-fill from URL query params (used by FloatingQuoteWidget on landing pages
@@ -518,14 +527,23 @@ export default function BookingForm() {
           <p className="mt-5 text-white/55 max-w-2xl mx-auto leading-relaxed">
             Three quick steps. Live pricing as soon as you tell us where you're going.
           </p>
-          <div
-            data-testid="first-ride-banner"
-            className="mt-6 inline-flex items-center gap-2 text-xs md:text-sm bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] px-4 py-2 rounded-full"
-          >
-            <span className="font-semibold">20% off your first ride</span>
-            <span className="text-[#D4AF37]/70">·</span>
-            <span className="text-[#D4AF37]/85">applied automatically at checkout — no code needed</span>
-          </div>
+          {firstRidePromo && (() => {
+            const label =
+              firstRidePromo.discount_type === "percent"
+                ? `${firstRidePromo.value}% off`
+                : `$${firstRidePromo.value} off`;
+            const scope = firstRidePromo.first_ride_only ? "your first ride" : "your ride";
+            return (
+              <div
+                data-testid="first-ride-banner"
+                className="mt-6 inline-flex items-center gap-2 text-xs md:text-sm bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] px-4 py-2 rounded-full"
+              >
+                <span className="font-semibold">{label} {scope}</span>
+                <span className="text-[#D4AF37]/70">·</span>
+                <span className="text-[#D4AF37]/85">applied automatically at checkout — no code needed</span>
+              </div>
+            );
+          })()}
         </div>
 
         <form
