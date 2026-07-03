@@ -75,6 +75,7 @@ function App() {
           <Route path="/download" element={<AppDownload />} />
           <Route path="/terms" element={<TermsOfService />} />
           <Route path="/world-cup-2026" element={<WorldCup2026 />} />
+          <Route path="/worldcup2026" element={<WorldCup2026 />} />
           <Route path="/worldcup" element={<WorldCup2026 />} />
           <Route path="/levis-stadium" element={<WorldCup2026 />} />
           <Route path="/levis-stadium-transportation" element={<WorldCup2026 />} />
