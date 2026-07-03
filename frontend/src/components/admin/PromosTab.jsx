@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, Ticket, Edit2, Copy } from "lucide-react";
+import { Loader2, Plus, Trash2, Ticket, Edit2, Copy, AlertTriangle, TrendingUp, Sparkles, DollarSign, Clock } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -162,6 +162,8 @@ export default function PromosTab() {
 
   return (
     <div className="space-y-6" data-testid="promos-tab">
+      <PromoHealth promos={promos} onEdit={setEditing} onToggleActive={toggleActive} />
+
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="font-serif text-2xl">Promo codes</h2>
@@ -535,6 +537,230 @@ export default function PromosTab() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+
+/**
+ * PromoHealth — insights strip at the top of the Promos tab.
+ *
+ * Client-side computed from the existing /admin/promos payload so no new
+ * backend endpoints are required. Surfaces four things:
+ *   1. Warnings (config issues that make promos misbehave)
+ *   2. Currently banner-flagged promo (or lack thereof)
+ *   3. All-time performance stats (redemptions + discount given)
+ *   4. Expiring soon list
+ *
+ * Every card is clickable — jumps into edit mode for the relevant promo so
+ * the operator can fix issues without hunting through the list.
+ */
+function PromoHealth({ promos, onEdit, onToggleActive }) {
+  const stats = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const inSevenDays = new Date(today);
+    inSevenDays.setDate(inSevenDays.getDate() + 7);
+
+    const active = promos.filter((p) => p.active);
+    const bannerFlagged = active.filter((p) => p.show_on_banner);
+    // Same rule as backend /promos/banner: newest wins when multiple flagged.
+    const bannerWinner = [...bannerFlagged].sort((a, b) => {
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    })[0] || null;
+
+    const parseDate = (iso) => {
+      if (!iso) return null;
+      const d = new Date(iso);
+      return isNaN(d.getTime()) ? null : d;
+    };
+    const expired = active.filter((p) => {
+      const d = parseDate(p.expires_at);
+      return d && d < today;
+    });
+    const expiringSoon = active.filter((p) => {
+      const d = parseDate(p.expires_at);
+      return d && d >= today && d <= inSevenDays;
+    });
+
+    const totalUses = promos.reduce((s, p) => s + (p.uses || 0), 0);
+    const totalDiscount = promos.reduce((s, p) => s + (p.total_discount_given || 0), 0);
+    const topPerformer = [...promos]
+      .filter((p) => (p.uses || 0) > 0)
+      .sort((a, b) => (b.uses || 0) - (a.uses || 0))[0] || null;
+
+    return {
+      activeCount: active.length,
+      bannerFlagged,
+      bannerWinner,
+      expired,
+      expiringSoon,
+      totalUses,
+      totalDiscount,
+      topPerformer,
+    };
+  }, [promos]);
+
+  if (promos.length === 0) return null; // Nothing meaningful to show yet.
+
+  const warnings = [];
+  if (stats.bannerFlagged.length === 0) {
+    warnings.push({
+      key: "no-banner",
+      severity: "amber",
+      title: "No banner promo active",
+      body: "No promo is flagged for the sitewide banner. The homepage banner + booking-form chip won't display any offer.",
+    });
+  } else if (stats.bannerFlagged.length > 1) {
+    warnings.push({
+      key: "multi-banner",
+      severity: "amber",
+      title: `${stats.bannerFlagged.length} promos flagged for banner`,
+      body: `Only the newest ("${stats.bannerWinner?.code}") will show. Toggle "Show on banner" off on the others to remove ambiguity.`,
+      action: stats.bannerFlagged.filter((p) => p.id !== stats.bannerWinner?.id),
+    });
+  }
+  if (stats.expired.length > 0) {
+    warnings.push({
+      key: "expired",
+      severity: "red",
+      title: `${stats.expired.length} expired promo${stats.expired.length > 1 ? "s" : ""} still marked active`,
+      body: `${stats.expired.map((p) => p.code).join(", ")} — expiration date has passed but "Active" is still ON. Customers may see error messages at checkout.`,
+      action: stats.expired,
+    });
+  }
+
+  return (
+    <div className="space-y-3" data-testid="promo-health">
+      {/* Warnings section — only appears if there are issues */}
+      {warnings.length > 0 && (
+        <div className="grid gap-2">
+          {warnings.map((w) => (
+            <div
+              key={w.key}
+              data-testid={`promo-warning-${w.key}`}
+              className={`flex items-start gap-3 rounded-xl border p-3 ${
+                w.severity === "red"
+                  ? "border-red-500/40 bg-red-500/5"
+                  : "border-amber-500/40 bg-amber-500/5"
+              }`}
+            >
+              <AlertTriangle className={`w-4 h-4 mt-0.5 flex-shrink-0 ${w.severity === "red" ? "text-red-400" : "text-amber-400"}`} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold text-white">{w.title}</div>
+                <div className="text-xs text-white/60 mt-0.5 leading-relaxed">{w.body}</div>
+                {w.action && w.action.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {w.action.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => onEdit(p)}
+                        data-testid={`promo-warning-fix-${p.code}`}
+                        className="text-[11px] px-2 py-1 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/85 transition-colors"
+                      >
+                        Fix {p.code} →
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* Banner promo card — clickable to edit */}
+        <button
+          type="button"
+          onClick={() => stats.bannerWinner && onEdit(stats.bannerWinner)}
+          disabled={!stats.bannerWinner}
+          data-testid="promo-health-banner-card"
+          className={`text-left rounded-xl border p-3 transition-all ${
+            stats.bannerWinner
+              ? "border-[#D4AF37]/30 bg-[#D4AF37]/5 hover:border-[#D4AF37]/60 cursor-pointer"
+              : "border-white/10 bg-white/[0.02] cursor-default"
+          }`}
+        >
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-[#D4AF37]/85">
+            <Sparkles className="w-3 h-3" />
+            <span>On banner now</span>
+          </div>
+          {stats.bannerWinner ? (
+            <>
+              <div className="font-mono text-lg font-semibold text-white mt-1.5">{stats.bannerWinner.code}</div>
+              <div className="text-xs text-white/60 mt-0.5">
+                {stats.bannerWinner.discount_type === "percent"
+                  ? `${stats.bannerWinner.value}% off`
+                  : `$${stats.bannerWinner.value} off`}
+                {stats.bannerWinner.first_ride_only ? " · first ride" : ""}
+              </div>
+            </>
+          ) : (
+            <div className="text-sm text-white/50 mt-2 italic">None flagged</div>
+          )}
+        </button>
+
+        {/* Active count */}
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3" data-testid="promo-health-active-card">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-white/50">
+            <Ticket className="w-3 h-3" />
+            <span>Active codes</span>
+          </div>
+          <div className="font-serif text-2xl text-white mt-1.5">{stats.activeCount}</div>
+          <div className="text-xs text-white/50 mt-0.5">of {promos.length} total</div>
+        </div>
+
+        {/* Total redemptions */}
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3" data-testid="promo-health-uses-card">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-white/50">
+            <TrendingUp className="w-3 h-3" />
+            <span>Redemptions</span>
+          </div>
+          <div className="font-serif text-2xl text-white mt-1.5">{stats.totalUses}</div>
+          <div className="text-xs text-white/50 mt-0.5">
+            {stats.topPerformer ? `Top: ${stats.topPerformer.code} (${stats.topPerformer.uses})` : "No redemptions yet"}
+          </div>
+        </div>
+
+        {/* Total discount given */}
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3" data-testid="promo-health-discount-card">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-white/50">
+            <DollarSign className="w-3 h-3" />
+            <span>Discount given</span>
+          </div>
+          <div className="font-serif text-2xl text-white mt-1.5">
+            ${stats.totalDiscount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          </div>
+          <div className="text-xs text-white/50 mt-0.5">all-time · pre-tax</div>
+        </div>
+      </div>
+
+      {/* Expiring-soon strip — only appears if there are any */}
+      {stats.expiringSoon.length > 0 && (
+        <div
+          data-testid="promo-health-expiring"
+          className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5"
+        >
+          <Clock className="w-4 h-4 text-white/50 flex-shrink-0" />
+          <span className="text-xs text-white/60">Expiring in next 7 days:</span>
+          <div className="flex flex-wrap gap-1.5">
+            {stats.expiringSoon.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onEdit(p)}
+                data-testid={`promo-health-expiring-${p.code}`}
+                className="text-[11px] px-2 py-1 rounded-full bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 transition-colors"
+              >
+                {p.code} · ends {p.expires_at}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,37 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: Feb 2026 — iter 61 (Quote Requests badge count bug fix — dual-state sync)
+> Last refreshed: July 3, 2026 — iter 63 (Promo Health dashboard + dynamic booking chip)
+
+## ✅ Promo Health dashboard + dynamic booking chip (Jul 3, 2026 — iter 63)
+
+**Why:** Two related issues surfaced. First, the "20% off your first ride" chip above the booking form was hardcoded — didn't update when admin changed the active promo. Second, no single view showed the operator whether the current promo config was actually functioning correctly.
+
+**What shipped:**
+
+### 1. Dynamic first-ride chip on BookingForm
+- Removed the hardcoded "20% off" chip in `BookingForm.jsx`
+- Added fetch to `/api/promos/banner` on mount (same endpoint site-wide `PromoBanner` uses)
+- Chip now renders live from `discount_type` + `value` + `first_ride_only`
+- If no promo flagged for banner, chip disappears entirely (no placeholder)
+- Top banner + booking chip share single source of truth — admin toggles update both simultaneously
+
+### 2. Promo Health section at top of Admin → Promos tab
+- New `PromoHealth` component, client-side computed from existing `/admin/promos` payload (no new backend endpoints)
+- **Warnings row** — red/amber cards for: no banner promo active, multiple banner-flagged (only newest wins), expired-but-still-active. Each warning has "Fix [CODE] →" jump-to-edit buttons
+- **Stats grid** — 4 cards: On banner now (clickable) / Active codes / Total redemptions (with top performer) / Total discount given all-time
+- **Expiring-soon strip** — amber chips for active promos expiring in next 7 days, each clickable to edit
+- Empty state protected (returns null when zero promos)
+- Uses `useMemo` — recomputes only when promo list changes
+
+**Testing:** Zero JS console errors. Backend `/api/promos/banner` verified live. Frontend chip fix screenshot-confirmed (currently shows "20% off" because old WELCOME promo is still banner-flagged; owner needs to toggle Show on banner OFF on old promo + ON on new 30% promo).
+
+**Files touched:**
+- frontend/src/components/BookingForm.jsx
+- frontend/src/components/admin/PromosTab.jsx
+
+**Bonus advisory to CAI (Google Ads):** Confirmed the 2 extra ad groups in existing Luxury Chauffeur campaign ("Luxury Executive — Airport", "Luxury Executive — General") were NOT part of my instructions. Advised CAI investigation and pause if keywords overlap with Airport/Brand & General ad groups.
+
+---
 
 ## ✅ Bug fix: Quote Requests tab badge stuck (Feb 2026 — iter 61)
 
