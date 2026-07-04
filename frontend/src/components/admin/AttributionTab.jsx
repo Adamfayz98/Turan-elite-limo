@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, TrendingUp, AlertCircle, RefreshCw, Ban, CheckCircle2, Download, FileText, Wrench, Ticket } from "lucide-react";
+import { Loader2, TrendingUp, AlertCircle, RefreshCw, Ban, CheckCircle2, Download, FileText, Wrench, Ticket, Zap, Send, ArrowRightLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -71,6 +71,91 @@ export default function AttributionTab() {
   const [quoteConvDownloading, setQuoteConvDownloading] = useState(false);
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [backfillResult, setBackfillResult] = useState(null);
+  // --- Google Ads server-side API integration state ---
+  const [gadsStatus, setGadsStatus] = useState(null);
+  const [gadsPingRunning, setGadsPingRunning] = useState(false);
+  const [gadsPingResult, setGadsPingResult] = useState(null);
+  const [gadsPreviewRunning, setGadsPreviewRunning] = useState(false);
+  const [gadsPreview, setGadsPreview] = useState(null);
+  const [gadsBackfillRunning, setGadsBackfillRunning] = useState(false);
+  const [gadsBackfillResult, setGadsBackfillResult] = useState(null);
+  const [gadsSwitching, setGadsSwitching] = useState(false);
+
+  const loadGadsStatus = async () => {
+    try {
+      const { data } = await api.get("/admin/google-ads/status");
+      setGadsStatus(data);
+    } catch {
+      setGadsStatus(null);
+    }
+  };
+
+  const runGadsPing = async () => {
+    setGadsPingRunning(true);
+    setGadsPingResult(null);
+    try {
+      const { data } = await api.post("/admin/google-ads/ping");
+      setGadsPingResult(data);
+      if (data.ok) {
+        toast.success(`Google Ads API connected · ${(data.accessible_customers || []).length} customer(s) visible`);
+      } else {
+        toast.error(`Ping failed: ${data.error || "unknown"}`);
+      }
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Ping request failed");
+    } finally {
+      setGadsPingRunning(false);
+    }
+  };
+
+  const runGadsPreview = async () => {
+    setGadsPreviewRunning(true);
+    try {
+      const { data } = await api.get(`/admin/google-ads/backfill-preview?days=90`);
+      setGadsPreview(data);
+      toast.success(
+        `Preview: ${data.recoverable_total}/${data.total_paid_bookings} bookings recoverable ($${(data.total_profit_recoverable || 0).toLocaleString()} profit)`,
+      );
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Preview failed");
+    } finally {
+      setGadsPreviewRunning(false);
+    }
+  };
+
+  const runGadsBackfill = async () => {
+    const activeLabel = gadsStatus?.active_is_test ? "TEST" : gadsStatus?.active_is_profit ? "PROFIT" : "active";
+    const recoverable = gadsPreview?.recoverable_total ?? "?";
+    const ok = window.confirm(
+      `Upload the last 90 days of paid bookings to Google Ads (${activeLabel} conversion action)?\n\n` +
+      `~${recoverable} bookings will be sent. Only rows with a stored gclid are eligible — no guessed or fake gclids are ever sent. Safe to re-run (idempotent).\n\nProceed?`,
+    );
+    if (!ok) return;
+    setGadsBackfillRunning(true);
+    setGadsBackfillResult(null);
+    try {
+      const { data } = await api.post(`/admin/google-ads/backfill?days=90`);
+      setGadsBackfillResult(data);
+      toast.success(`Queued ${data.queued} uploads to Google Ads (${activeLabel}) · runs in background`);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Backfill failed");
+    } finally {
+      setGadsBackfillRunning(false);
+    }
+  };
+
+  const switchGadsAction = async (target) => {
+    setGadsSwitching(true);
+    try {
+      const { data } = await api.post(`/admin/google-ads/switch-active-action`, { target });
+      toast.success(`Switched active conversion action to ${target.toUpperCase()} (ID ${data.active_conversion_action_id})`);
+      await loadGadsStatus();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Switch failed");
+    } finally {
+      setGadsSwitching(false);
+    }
+  };
 
   const loadAdsPreview = async (d) => {
     try {
@@ -213,6 +298,7 @@ export default function AttributionTab() {
     loadBlocked();
     loadAdsPreview(days);
     loadQuoteConvSummary(days);
+    loadGadsStatus();
   }, [days]);
 
   if (loading && !data) {
@@ -403,6 +489,269 @@ export default function AttributionTab() {
             )}
           </Button>
         </div>
+      </div>
+
+      {/* Google Ads server-side API card. Replaces the manual CSV upload flow —
+          this posts conversions directly to Google Ads via ConversionUploadService.
+          Starts pointed at the TEST conversion action so uploads can be sanity-
+          checked in the Ads UI before flipping to Profit for real Smart Bidding. */}
+      <div
+        className="rounded-2xl border border-[#4285F4]/25 bg-[#4285F4]/[0.04] p-5"
+        data-testid="google-ads-api-card"
+      >
+        <div className="flex items-center gap-2 text-[#4285F4] text-sm font-semibold">
+          <Zap className="w-4 h-4" /> Google Ads server-side API (direct upload)
+        </div>
+        <p className="text-white/60 text-xs mt-1.5 leading-relaxed max-w-2xl">
+          Replaces the manual CSV upload above. Stripe webhook fires a background
+          upload to Google Ads directly, using the booking&apos;s stored{" "}
+          <code className="text-white/85">gclid</code> and real profit
+          (retail − affiliate cost). Idempotent — same booking is never sent twice.
+        </p>
+
+        {/* Config health row */}
+        {gadsStatus ? (
+          <div
+            className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-[11px]"
+            data-testid="google-ads-status-row"
+          >
+            <div className="text-white/50">
+              Config{" "}
+              {gadsStatus.configured ? (
+                <span className="text-emerald-400">✓ complete</span>
+              ) : (
+                <span className="text-red-400">✗ missing keys</span>
+              )}
+            </div>
+            <div className="text-white/50">
+              Customer <span className="text-white/85 font-mono">{gadsStatus.customer_id}</span>
+            </div>
+            <div className="text-white/50">
+              MCC <span className="text-white/85 font-mono">{gadsStatus.login_customer_id || "—"}</span>
+            </div>
+            <div className="text-white/50">
+              Active action:{" "}
+              {gadsStatus.active_is_test ? (
+                <span className="text-amber-300 font-semibold">TEST</span>
+              ) : gadsStatus.active_is_profit ? (
+                <span className="text-emerald-300 font-semibold">PROFIT</span>
+              ) : (
+                <span className="text-white/85">{gadsStatus.active_conversion_action_id}</span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 text-[11px] text-white/40">Loading config status…</div>
+        )}
+
+        {/* Action buttons row */}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button
+            onClick={runGadsPing}
+            disabled={gadsPingRunning || !gadsStatus?.configured}
+            variant="outline"
+            size="sm"
+            className="border-[#4285F4]/40 text-[#4285F4] hover:bg-[#4285F4]/10 hover:text-[#4285F4]"
+            data-testid="google-ads-ping-btn"
+          >
+            {gadsPingRunning ? (
+              <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Pinging…</>
+            ) : (
+              <><CheckCircle2 className="w-3.5 h-3.5 mr-2" /> Ping API</>
+            )}
+          </Button>
+
+          <Button
+            onClick={runGadsPreview}
+            disabled={gadsPreviewRunning || !gadsStatus?.configured}
+            variant="outline"
+            size="sm"
+            className="border-white/25 text-white hover:bg-white/10"
+            data-testid="google-ads-preview-btn"
+          >
+            {gadsPreviewRunning ? (
+              <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Loading…</>
+            ) : (
+              <><FileText className="w-3.5 h-3.5 mr-2" /> Preview backfill (90d)</>
+            )}
+          </Button>
+
+          <Button
+            onClick={runGadsBackfill}
+            disabled={gadsBackfillRunning || !gadsStatus?.configured}
+            size="sm"
+            className="bg-[#4285F4] text-white hover:bg-[#4285F4]/90"
+            data-testid="google-ads-backfill-btn"
+          >
+            {gadsBackfillRunning ? (
+              <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Queuing…</>
+            ) : (
+              <><Send className="w-3.5 h-3.5 mr-2" /> Run backfill (90d) →{" "}
+                {gadsStatus?.active_is_test ? "TEST" : gadsStatus?.active_is_profit ? "PROFIT" : "?"}
+              </>
+            )}
+          </Button>
+
+          {/* Toggle: only enabled once both action IDs are configured */}
+          <div className="ml-auto flex items-center gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-white/40 mr-1">Target:</span>
+            <Button
+              onClick={() => switchGadsAction("test")}
+              disabled={gadsSwitching || gadsStatus?.active_is_test}
+              size="sm"
+              variant="outline"
+              className={cn(
+                "border-white/20 text-xs h-7 px-2",
+                gadsStatus?.active_is_test
+                  ? "bg-amber-500/20 text-amber-200 border-amber-500/40"
+                  : "text-white/70 hover:bg-white/5",
+              )}
+              data-testid="google-ads-switch-test-btn"
+            >
+              TEST
+            </Button>
+            <ArrowRightLeft className="w-3 h-3 text-white/30" />
+            <Button
+              onClick={() => switchGadsAction("profit")}
+              disabled={gadsSwitching || gadsStatus?.active_is_profit || !gadsStatus?.profit_conversion_action_id}
+              size="sm"
+              variant="outline"
+              className={cn(
+                "border-white/20 text-xs h-7 px-2",
+                gadsStatus?.active_is_profit
+                  ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/40"
+                  : "text-white/70 hover:bg-white/5",
+              )}
+              data-testid="google-ads-switch-profit-btn"
+            >
+              PROFIT
+            </Button>
+          </div>
+        </div>
+
+        {/* Ping result panel */}
+        {gadsPingResult ? (
+          <div
+            className={cn(
+              "mt-3 rounded-lg border p-3 text-[11px]",
+              gadsPingResult.ok
+                ? "border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-100"
+                : "border-red-500/30 bg-red-500/[0.06] text-red-200",
+            )}
+            data-testid="google-ads-ping-result"
+          >
+            {gadsPingResult.ok ? (
+              <>
+                <div className="font-semibold text-emerald-300 mb-1">✓ Connected</div>
+                <div className="text-white/60">
+                  Accessible customers:{" "}
+                  <span className="font-mono text-white/85">
+                    {(gadsPingResult.accessible_customers || []).join(", ") || "—"}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="font-semibold mb-1">✗ Ping failed</div>
+                <div className="text-white/70 leading-relaxed">{gadsPingResult.error}</div>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {/* Preview result panel */}
+        {gadsPreview ? (
+          <div
+            className="mt-3 rounded-lg border border-white/15 bg-black/40 p-3.5 space-y-2"
+            data-testid="google-ads-preview-result"
+          >
+            <div className="text-[11px] uppercase tracking-[0.2em] text-white/45">
+              Backfill preview · last {gadsPreview.days} days
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div>
+                <div className="text-white/45 text-[10px] uppercase">Paid bookings</div>
+                <div className="text-white text-lg font-semibold tabular-nums">{gadsPreview.total_paid_bookings}</div>
+              </div>
+              <div>
+                <div className="text-white/45 text-[10px] uppercase">Revenue</div>
+                <div className="text-[#D4AF37] text-lg font-semibold tabular-nums">
+                  ${Math.round(gadsPreview.total_revenue || 0).toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div className="text-white/45 text-[10px] uppercase">Recoverable</div>
+                <div className="text-emerald-300 text-lg font-semibold tabular-nums">
+                  {gadsPreview.recoverable_total}{" "}
+                  <span className="text-white/40 text-xs font-normal">({gadsPreview.recoverable_pct}%)</span>
+                </div>
+              </div>
+              <div>
+                <div className="text-white/45 text-[10px] uppercase">Unrecoverable</div>
+                <div className="text-red-300 text-lg font-semibold tabular-nums">
+                  {gadsPreview.permanently_unrecoverable}
+                </div>
+              </div>
+            </div>
+            <div className="text-[11px] text-white/55 leading-relaxed pt-1 border-t border-white/10">
+              gclid on booking: <span className="text-white/85">{gadsPreview.gclid_directly_on_booking}</span> ·
+              via parent quote: <span className="text-white/85">{gadsPreview.gclid_via_parent_quote}</span> ·
+              already uploaded: <span className="text-white/85">{gadsPreview.already_uploaded_to_google}</span>
+            </div>
+
+            {gadsPreview.sample_unrecoverable_bookings?.length ? (
+              <details className="mt-2">
+                <summary className="text-[11px] text-white/55 cursor-pointer hover:text-white/80">
+                  Show sample unrecoverable bookings ({gadsPreview.sample_unrecoverable_bookings.length}) —
+                  sanity check against when the gclid bug was active
+                </summary>
+                <div className="mt-2 max-h-40 overflow-auto rounded border border-white/10 bg-black/30">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-white/[0.03] text-white/45 uppercase tracking-wider text-[10px]">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">Booked</th>
+                        <th className="px-2 py-1.5 text-left">Conf #</th>
+                        <th className="px-2 py-1.5 text-left">Customer</th>
+                        <th className="px-2 py-1.5 text-left">Quote link?</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-white/75">
+                      {gadsPreview.sample_unrecoverable_bookings.map((b) => (
+                        <tr key={b.id} className="border-t border-white/5">
+                          <td className="px-2 py-1.5 tabular-nums">{(b.created_at || "").slice(0, 10)}</td>
+                          <td className="px-2 py-1.5 font-mono text-white/85">{b.confirmation_number || "—"}</td>
+                          <td className="px-2 py-1.5 text-white/60">{b.email || "—"}</td>
+                          <td className="px-2 py-1.5">
+                            {b.has_quote_link ? (
+                              <span className="text-amber-300">yes (no gclid on either)</span>
+                            ) : (
+                              <span className="text-red-300">no</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Backfill result panel */}
+        {gadsBackfillResult ? (
+          <div
+            className="mt-3 rounded-lg border border-[#4285F4]/30 bg-[#4285F4]/[0.06] p-3 text-[11px]"
+            data-testid="google-ads-backfill-result"
+          >
+            <div className="font-semibold text-[#4285F4] mb-1">Backfill queued</div>
+            <div className="text-white/70 leading-relaxed">
+              {gadsBackfillResult.queued} booking(s) queued to upload in the background over the next ~1 minute.
+              Refresh this page or check the <span className="font-mono text-white/85">recent-uploads</span> endpoint
+              to see per-row status. Sends may take a few hours to appear in Google Ads UI.
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Totals row */}

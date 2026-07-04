@@ -2,6 +2,42 @@
 
 > Last refreshed: July 3, 2026 — iter 63 (Promo Health dashboard + dynamic booking chip)
 
+## ✅ Google Ads server-side Offline Conversion API — LIVE (Feb 2026 — iter 48)
+
+**Why:** Replace the manual daily CSV upload with a real-time backend API pipeline so Smart Bidding gets fresh profit-based signal within minutes of each paid booking, not once per day.
+
+**What shipped:**
+- `google-ads` SDK installed, creds wired into `/app/backend/.env`:
+  - Developer Token, OAuth2 Client ID + Secret (Web-app type), Refresh Token
+  - Login Customer ID (MCC): 3947028100 · Customer ID: 1918423009
+  - Test conversion action `7671967367` + Profit action `7673194491`
+- New `/app/backend/routes/google_ads.py` (~550 lines):
+  - `upload_booking_to_google_ads(booking_id)` — idempotent, marks booking on success/failure, sends profit (retail − affiliate_cost), uses booking `id` as `order_id` for future ConversionAdjustments
+  - `GET /admin/google-ads/status` — masked config health
+  - `POST /admin/google-ads/ping` — live API check (`list_accessible_customers`)
+  - `GET /admin/google-ads/backfill-preview?days=90` — dry-run count of recoverable-via-gclid vs permanently unrecoverable, with sample list
+  - `POST /admin/google-ads/backfill?days=90` — batch upload background task
+  - `POST /admin/google-ads/upload-booking` — manual single-booking test
+  - `GET /admin/google-ads/recent-uploads` — audit table
+  - `POST /admin/google-ads/switch-active-action {target: test|profit}` — runtime toggle
+- Stripe webhook (`/api/webhook/stripe`) hooks into `payment_status=paid` transition and fires `background_tasks.add_task(upload_booking_to_google_ads)` — non-blocking
+- Admin UI card added to Attribution tab: config status row, Ping / Preview / Run Backfill / Test↔Profit toggle buttons, expandable "sample unrecoverable" table
+- **Safety guarantees:** Three layers of gclid validation — Mongo query, upload-fn guard, payload construction — so no fake/guessed gclids can ever be uploaded
+
+**Live-verified:** Python-level ping succeeded end-to-end (`customers/1918423009` + `customers/3947028100` both visible). All 7 endpoints registered per `/openapi.json`. Frontend lint clean, admin page loads with no console errors.
+
+**Files touched:**
+- backend/.env (10 new GOOGLE_ADS_* vars)
+- backend/routes/google_ads.py (NEW)
+- backend/routes/payments.py (BackgroundTasks + webhook hook)
+- backend/server.py (router registration)
+- frontend/src/components/admin/AttributionTab.jsx (new Google Ads API card)
+
+**Cleanup task (deferred):** After first successful upload confirmed in Google Ads UI, user will reset the OAuth Client Secret in Cloud Console and send the new value to update `.env` — closes exposure from setup handoff.
+
+---
+
+
 ## ✅ Required `affiliate_cost` on quote-send + dynamic App Download promo (Feb 2026 — iter 48)
 
 **Why:** Two profit-tracking / consistency gaps closed in one session.
