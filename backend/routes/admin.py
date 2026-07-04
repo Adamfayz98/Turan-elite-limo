@@ -1493,6 +1493,12 @@ async def public_quote_offer_finalize(token: str, session_id: str, request: Requ
         "card_last4": card_last4,
         "wait_time_consent": True,
         "consent_accepted_at": q.get("consent_accepted_at") or now_iso,
+        # Preserve first-touch attribution captured on the original quote-form
+        # submission (utm_source, utm_campaign, gclid, source_bucket, etc.).
+        # Without this, quote-paid bookings never appear in the Google Ads
+        # Offline Conversion CSV export because gclid is empty — and that's
+        # ~13 of 15 real paid bookings per month for this business.
+        "utm": q.get("utm") or {},
     }
     try:
         await db.bookings.insert_one(booking_doc.copy())
@@ -3457,3 +3463,54 @@ async def admin_offline_conversions_preview(
         "total_value": round(total_value, 2),
     }
 
+
+
+@router.post("/admin/ads/offline-conversions/backfill-utm")
+async def admin_offline_conversions_backfill_utm(_: dict = Depends(require_admin)):
+    """One-shot backfill: for any booking that has a linked quote_request_id
+    but an empty/missing utm field, copy the utm attribution from the parent
+    quote_request. Fixes the historical gap where quote-paid bookings weren't
+    preserving gclid — critical for the Google Ads Offline Conversion CSV
+    which filters on utm.gclid.
+
+    Safe to run multiple times: only touches bookings whose utm.gclid is
+    currently empty. Idempotent.
+    """
+    scanned = 0
+    updated = 0
+    quote_link_missing = 0
+    parent_no_utm = 0
+
+    async for b in db.bookings.find(
+        {"quote_request_id": {"$exists": True, "$ne": None}},
+        {"_id": 0, "id": 1, "quote_request_id": 1, "utm": 1},
+    ):
+        scanned += 1
+        current_utm = b.get("utm") or {}
+        if (current_utm.get("gclid") or "").strip():
+            continue  # Already has gclid, skip.
+
+        qr = await db.quote_requests.find_one(
+            {"id": b["quote_request_id"]},
+            {"_id": 0, "utm": 1},
+        )
+        if not qr:
+            quote_link_missing += 1
+            continue
+        parent_utm = qr.get("utm") or {}
+        if not parent_utm:
+            parent_no_utm += 1
+            continue
+
+        await db.bookings.update_one(
+            {"id": b["id"]},
+            {"$set": {"utm": parent_utm}},
+        )
+        updated += 1
+
+    return {
+        "scanned": scanned,
+        "updated": updated,
+        "skipped_quote_missing": quote_link_missing,
+        "skipped_parent_no_utm": parent_no_utm,
+    }
