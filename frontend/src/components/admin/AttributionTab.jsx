@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, TrendingUp, AlertCircle, RefreshCw, Ban, CheckCircle2, Download, FileText } from "lucide-react";
+import { Loader2, TrendingUp, AlertCircle, RefreshCw, Ban, CheckCircle2, Download, FileText, Wrench, Ticket } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -67,6 +67,10 @@ export default function AttributionTab() {
   const [togglingSource, setTogglingSource] = useState(null);
   const [adsPreview, setAdsPreview] = useState(null);
   const [adsDownloading, setAdsDownloading] = useState(false);
+  const [quoteConvSummary, setQuoteConvSummary] = useState(null);
+  const [quoteConvDownloading, setQuoteConvDownloading] = useState(false);
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillResult, setBackfillResult] = useState(null);
 
   const loadAdsPreview = async (d) => {
     try {
@@ -74,6 +78,71 @@ export default function AttributionTab() {
       setAdsPreview(resp);
     } catch {
       setAdsPreview(null);
+    }
+  };
+
+  const loadQuoteConvSummary = async (d) => {
+    try {
+      const { data: resp } = await api.get(`/admin/ads/quote-conversions/summary?days=${d}`);
+      setQuoteConvSummary(resp);
+    } catch {
+      setQuoteConvSummary(null);
+    }
+  };
+
+  const runBackfillUtm = async () => {
+    const ok = window.confirm(
+      "Backfill historical UTM attribution?\n\n" +
+      "This scans every booking with a linked quote request and copies the " +
+      "utm/gclid data from the parent quote onto the booking. Safe to run " +
+      "multiple times (idempotent) — only touches bookings that are currently missing gclid.\n\n" +
+      "Run now?",
+    );
+    if (!ok) return;
+    setBackfillRunning(true);
+    setBackfillResult(null);
+    try {
+      const { data: resp } = await api.post("/admin/ads/offline-conversions/backfill-utm");
+      setBackfillResult(resp);
+      toast.success(
+        `Backfill complete · ${resp.updated} bookings updated (${resp.scanned} scanned)`,
+      );
+      // Refresh both previews since backfill affects both.
+      loadAdsPreview(days);
+      loadQuoteConvSummary(days);
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Backfill failed");
+    } finally {
+      setBackfillRunning(false);
+    }
+  };
+
+  const downloadQuoteConvCsv = async () => {
+    setQuoteConvDownloading(true);
+    try {
+      const token = localStorage.getItem("turon_admin_token");
+      const url = `${process.env.REACT_APP_BACKEND_URL}/api/admin/ads/quote-conversions.csv?days=${days}`;
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const wonHeader = res.headers.get("X-Rows-Won");
+      const lostHeader = res.headers.get("X-Rows-Lost");
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      const filename = `quote-conversions-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+      toast.success(`Downloaded ${filename} · ${wonHeader || 0} won, ${lostHeader || 0} lost`);
+    } catch (err) {
+      toast.error(`Couldn't download quote conversions CSV: ${err.message}`);
+    } finally {
+      setQuoteConvDownloading(false);
     }
   };
 
@@ -143,6 +212,7 @@ export default function AttributionTab() {
     load(days);
     loadBlocked();
     loadAdsPreview(days);
+    loadQuoteConvSummary(days);
   }, [days]);
 
   if (loading && !data) {
@@ -237,6 +307,98 @@ export default function AttributionTab() {
               <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Preparing…</>
             ) : (
               <><Download className="w-4 h-4 mr-2" /> Download CSV</>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Quote Conversions export + UTM backfill card.
+          Different unit of analysis than the Offline Conversion CSV above:
+          this exports one row per QUOTE REQUEST (won/lost/open) — the file
+          format Google Ads Enhanced Conversions for Leads uses to receive
+          real revenue signal per lead once the server-side API integration
+          ships. Also hosts the one-shot "backfill historical UTM" button. */}
+      <div
+        className="rounded-2xl border border-[#D4AF37]/20 bg-[#D4AF37]/[0.03] p-5"
+        data-testid="quote-conversions-card"
+      >
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 text-[#D4AF37] text-sm font-semibold">
+              <Ticket className="w-4 h-4" />
+              Quote Conversions Feedback (per-lead)
+            </div>
+            <p className="text-white/60 text-xs mt-1.5 leading-relaxed max-w-xl">
+              One row per quote request — won / lost / open — with gclid, quoted price,
+              paid amount and payment timestamp. Feeds Google Ads Enhanced Conversions
+              for Leads once the API Developer Token ships. Distinct from the Offline
+              Conversion CSV above (which is bookings-first, minimal columns).
+            </p>
+            {quoteConvSummary ? (
+              <div
+                className="text-white/45 text-[11px] mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1"
+                data-testid="quote-conversions-summary"
+              >
+                <div>
+                  <span className="text-white/75">{quoteConvSummary.total_quotes}</span> total quotes ({quoteConvSummary.days}d)
+                </div>
+                <div>
+                  <span className="text-green-400">{quoteConvSummary.won}</span> won ·{" "}
+                  <span className="text-[#D4AF37]">${(quoteConvSummary.total_won_value || 0).toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-red-400">{quoteConvSummary.lost}</span> lost ·{" "}
+                  <span className="text-white/50">{quoteConvSummary.open} open</span>
+                </div>
+                <div>
+                  <span className="text-white/75">{quoteConvSummary.with_gclid}</span> with gclid ·
+                  close rate <span className="text-white/75">{quoteConvSummary.close_rate_percent}%</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <Button
+            onClick={downloadQuoteConvCsv}
+            disabled={quoteConvDownloading || !quoteConvSummary?.total_quotes}
+            className="bg-[#D4AF37] text-black hover:bg-[#B3922E] shrink-0"
+            data-testid="quote-conversions-download-btn"
+          >
+            {quoteConvDownloading ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Preparing…</>
+            ) : (
+              <><Download className="w-4 h-4 mr-2" /> Download CSV</>
+            )}
+          </Button>
+        </div>
+
+        {/* Backfill row — separate action, same card. Only affects historical
+            data. Idempotent. */}
+        <div className="mt-4 pt-4 border-t border-white/10 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="text-xs text-white/60 leading-relaxed max-w-2xl">
+            <span className="text-white/85 font-semibold">Backfill historical UTM.</span>{" "}
+            One-shot job that copies utm attribution from quote requests onto their linked
+            bookings — fixes historical rows where gclid wasn&apos;t preserved during payment.
+            Safe to run multiple times (idempotent). Run this once after deploying the fix.
+            {backfillResult ? (
+              <span className="block mt-1.5 text-[#D4AF37]" data-testid="backfill-result">
+                Last run: scanned <span className="text-white">{backfillResult.scanned}</span> · updated{" "}
+                <span className="text-green-400">{backfillResult.updated}</span> · skipped
+                {" "}(no quote link: {backfillResult.skipped_quote_missing},
+                parent had no utm: {backfillResult.skipped_parent_no_utm})
+              </span>
+            ) : null}
+          </div>
+          <Button
+            onClick={runBackfillUtm}
+            disabled={backfillRunning}
+            variant="outline"
+            className="border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10 hover:text-[#D4AF37] shrink-0"
+            data-testid="backfill-utm-btn"
+          >
+            {backfillRunning ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Running…</>
+            ) : (
+              <><Wrench className="w-4 h-4 mr-2" /> Backfill Historical UTM</>
             )}
           </Button>
         </div>
