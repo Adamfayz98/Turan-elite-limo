@@ -411,6 +411,111 @@ async def admin_recent_uploads(
     return {"total": len(rows), "success": ok, "failed": failed, "rows": rows}
 
 
+@router.get("/admin/google-ads/backfill-preview")
+async def admin_backfill_preview(
+    days: int = Query(90, ge=1, le=365),
+    _: dict = Depends(require_admin),
+):
+    """Dry-run inspector — counts how many paid bookings in the last N days
+    are actually recoverable via gclid, without uploading anything. Honest
+    answer to 'how many of my historical bookings will Google actually see?'.
+
+    Buckets:
+      - recoverable_gclid_on_booking: gclid lives directly on the booking
+      - recoverable_gclid_via_quote:  gclid missing on booking but present
+        on the linked quote_request (backfill-utm will lift it over)
+      - permanently_unrecoverable:    NO gclid on booking OR parent quote
+        (invisible to Google's click-matching — only Enhanced Conversions
+        for Leads could rescue these, and only for customers who were
+        signed into Google around the ad click)
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    paid_bookings = await db.bookings.find(
+        {"created_at": {"$gte": cutoff}, "payment_status": "paid"},
+        {"_id": 0, "id": 1, "utm": 1, "quote_request_id": 1,
+         "amount": 1, "amount_paid": 1, "total_amount": 1, "affiliate_cost": 1,
+         "google_ads_conversion_uploaded": 1, "email": 1, "confirmation_number": 1,
+         "created_at": 1, "utm_source": 1},
+    ).to_list(length=5000)
+
+    total_paid = len(paid_bookings)
+    total_revenue = 0.0
+    total_profit = 0.0
+    on_booking = 0
+    via_quote = 0
+    unrecoverable = 0
+    already_uploaded = 0
+    unrecoverable_samples: list[dict] = []
+
+    # Pre-fetch all quote_requests referenced by these bookings in one query
+    quote_ids = list({b.get("quote_request_id") for b in paid_bookings if b.get("quote_request_id")})
+    quote_map: dict = {}
+    if quote_ids:
+        async for q in db.quote_requests.find(
+            {"id": {"$in": quote_ids}}, {"_id": 0, "id": 1, "utm": 1},
+        ):
+            quote_map[q["id"]] = q
+
+    for b in paid_bookings:
+        # revenue
+        gross = 0.0
+        for k in ("amount", "amount_paid", "total_amount"):
+            v = b.get(k)
+            if isinstance(v, (int, float)) and v > 0:
+                gross = float(v)
+                break
+        total_revenue += gross
+        aff = b.get("affiliate_cost")
+        if isinstance(aff, (int, float)) and aff > 0 and gross > 0:
+            total_profit += max(0.0, gross - float(aff))
+
+        if b.get("google_ads_conversion_uploaded"):
+            already_uploaded += 1
+
+        # gclid lookup
+        utm = b.get("utm") or {}
+        booking_gclid = (utm.get("gclid") or "").strip()
+        if booking_gclid:
+            on_booking += 1
+            continue
+        qid = b.get("quote_request_id")
+        parent = quote_map.get(qid) if qid else None
+        parent_gclid = ((parent or {}).get("utm") or {}).get("gclid") or "" if parent else ""
+        if (parent_gclid or "").strip():
+            via_quote += 1
+            continue
+        unrecoverable += 1
+        if len(unrecoverable_samples) < 10:
+            unrecoverable_samples.append({
+                "id": b.get("id"),
+                "confirmation_number": b.get("confirmation_number"),
+                "email": b.get("email"),
+                "created_at": b.get("created_at"),
+                "utm_source_stored": (utm.get("utm_source") or b.get("utm_source") or None),
+                "has_quote_link": bool(qid),
+            })
+
+    recoverable_total = on_booking + via_quote
+    return {
+        "days": days,
+        "total_paid_bookings": total_paid,
+        "total_revenue": round(total_revenue, 2),
+        "total_profit_recoverable": round(total_profit, 2),
+        "already_uploaded_to_google": already_uploaded,
+        "gclid_directly_on_booking": on_booking,
+        "gclid_via_parent_quote": via_quote,
+        "recoverable_total": recoverable_total,
+        "permanently_unrecoverable": unrecoverable,
+        "recoverable_pct": round(100.0 * recoverable_total / total_paid, 1) if total_paid else 0.0,
+        "sample_unrecoverable_bookings": unrecoverable_samples,
+        "note": (
+            "Recoverable = has a real, stored gclid on the booking OR on its parent quote_request. "
+            "Backfill will run `backfill-utm` first (copies gclid from quote → booking), then upload "
+            "only rows with a real gclid. No fake or guessed gclids are ever sent."
+        ),
+    }
+
+
 class SwitchConversionActionRequest(BaseModel):
     target: str  # "test" | "profit"
 
