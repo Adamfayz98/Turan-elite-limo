@@ -3346,6 +3346,9 @@ async def admin_offline_conversions_csv(
     rows_written = 0
     skipped_no_gclid = 0
     skipped_unpaid = 0
+    skipped_zero_profit = 0
+    rows_value_mode_profit = 0
+    rows_value_mode_gross = 0
 
     async for b in db.bookings.find(
         {"created_at": {"$gte": cutoff}},
@@ -3363,14 +3366,30 @@ async def admin_offline_conversions_csv(
             skipped_no_gclid += 1
             continue
 
-        # Pick the conversion value — prefer the actual paid amount over the
-        # quote, but fall back gracefully.
-        value = 0.0
-        for k in ("amount_paid", "total_amount", "quote_amount"):
+        # Pick the conversion value. Prefer PROFIT (amount - affiliate_cost)
+        # when both are present — that's what Google's ROAS bidding should
+        # optimize on for a broker business where a $1500 booking with $1400
+        # affiliate cost is worth 10x less than a $1500 booking with $500 cost.
+        # Fall back to gross when affiliate_cost is missing (still directionally
+        # useful, but flag it in the response headers so CAI can track coverage).
+        gross = 0.0
+        for k in ("amount", "amount_paid", "total_amount", "quote_amount"):
             v = b.get(k)
             if isinstance(v, (int, float)) and v > 0:
-                value = float(v)
+                gross = float(v)
                 break
+        aff = b.get("affiliate_cost")
+        if isinstance(aff, (int, float)) and aff > 0 and gross > 0:
+            value = round(gross - float(aff), 2)
+            rows_value_mode_profit += 1
+            if value <= 0:
+                # Zero/negative profit means the trip lost money — don't feed
+                # a negative signal to Google, skip the row and count it.
+                skipped_zero_profit += 1
+                continue
+        else:
+            value = gross
+            rows_value_mode_gross += 1
 
         # Conversion time: prefer Stripe's paid_at timestamp, else booking
         # created_at. Google requires the format: yyyy-MM-dd HH:mm:ss+/-HH:MM
@@ -3414,6 +3433,9 @@ async def admin_offline_conversions_csv(
             "X-Rows-Written": str(rows_written),
             "X-Skipped-No-Gclid": str(skipped_no_gclid),
             "X-Skipped-Unpaid": str(skipped_unpaid),
+            "X-Skipped-Zero-Profit": str(skipped_zero_profit),
+            "X-Rows-Value-Profit": str(rows_value_mode_profit),
+            "X-Rows-Value-Gross": str(rows_value_mode_gross),
         },
     )
 
@@ -3434,11 +3456,13 @@ async def admin_offline_conversions_preview(
     paid_total = 0
     no_gclid = 0
     total_value = 0.0
+    total_profit = 0.0
+    rows_with_profit = 0
 
     async for b in db.bookings.find(
         {"created_at": {"$gte": cutoff}},
         {"_id": 0, "utm": 1, "payment_status": 1, "status": 1, "quote_amount": 1,
-         "total_amount": 1, "amount_paid": 1},
+         "total_amount": 1, "amount_paid": 1, "amount": 1, "affiliate_cost": 1},
     ):
         status = (b.get("payment_status") or b.get("status") or "").lower()
         if status not in PAID:
@@ -3449,11 +3473,19 @@ async def admin_offline_conversions_preview(
             no_gclid += 1
             continue
         rows += 1
-        for k in ("amount_paid", "total_amount", "quote_amount"):
+        gross = 0.0
+        for k in ("amount", "amount_paid", "total_amount", "quote_amount"):
             v = b.get(k)
             if isinstance(v, (int, float)) and v > 0:
-                total_value += float(v)
+                gross = float(v)
                 break
+        total_value += gross
+        aff = b.get("affiliate_cost")
+        if isinstance(aff, (int, float)) and aff > 0 and gross > 0:
+            profit = round(gross - float(aff), 2)
+            if profit > 0:
+                total_profit += profit
+                rows_with_profit += 1
 
     return {
         "days": days,
@@ -3461,6 +3493,8 @@ async def admin_offline_conversions_preview(
         "rows_with_gclid": rows,
         "skipped_no_gclid": no_gclid,
         "total_value": round(total_value, 2),
+        "rows_with_profit": rows_with_profit,
+        "total_profit": round(total_profit, 2),
     }
 
 
@@ -3561,7 +3595,9 @@ async def admin_export_quote_conversions_csv(
         "quote_submitted_at",    # ISO timestamp of original form submission
         "quoted_price",          # what we quoted (0 if never quoted)
         "booking_id",            # linked booking (empty if not won)
-        "paid_amount",           # actual paid amount (empty if not won)
+        "gross_amount",          # customer-facing paid amount (empty if not won)
+        "affiliate_cost",        # what we pay the fulfilling operator
+        "profit",                # gross_amount - affiliate_cost (Google Ads should optimize on this for a broker business)
         "paid_at",               # ISO timestamp of payment (empty if not won)
         "name",
         "email",
@@ -3589,22 +3625,36 @@ async def admin_export_quote_conversions_csv(
         gclid = (utm.get("gclid") or "").strip()
         status = (q.get("status") or "new").lower()
 
-        # Look up linked booking for paid_amount + paid_at if won.
-        paid_amount = ""
+        # Look up linked booking for gross_amount + affiliate_cost + paid_at if won.
+        gross_amount = ""
+        affiliate_cost_str = ""
+        profit_str = ""
         paid_at = ""
         booking_id = q.get("booking_id") or ""
+        gross_val = 0.0
         if status == "won" and booking_id:
             b = await db.bookings.find_one(
                 {"id": booking_id},
-                {"_id": 0, "amount_paid": 1, "total_amount": 1, "quote_amount": 1,
+                {"_id": 0, "amount": 1, "amount_paid": 1, "total_amount": 1,
+                 "quote_amount": 1, "affiliate_cost": 1,
                  "stripe_paid_at": 1, "paid_at": 1},
             ) or {}
-            for k in ("amount_paid", "total_amount", "quote_amount"):
+            # Booking amount field is "amount" (see quote-finalize endpoint);
+            # historical bookings may use one of the legacy fields.
+            for k in ("amount", "amount_paid", "total_amount", "quote_amount"):
                 v = b.get(k)
                 if isinstance(v, (int, float)) and v > 0:
-                    paid_amount = f"{float(v):.2f}"
-                    total_won_value += float(v)
+                    gross_val = float(v)
+                    gross_amount = f"{gross_val:.2f}"
+                    total_won_value += gross_val
                     break
+            aff = b.get("affiliate_cost")
+            if isinstance(aff, (int, float)) and aff > 0:
+                affiliate_cost_str = f"{float(aff):.2f}"
+                if gross_val > 0:
+                    profit_val = round(gross_val - float(aff), 2)
+                    if profit_val > 0:
+                        profit_str = f"{profit_val:.2f}"
             paid_at = b.get("stripe_paid_at") or b.get("paid_at") or ""
 
         writer.writerow([
@@ -3618,7 +3668,9 @@ async def admin_export_quote_conversions_csv(
             q.get("created_at") or "",
             f"{float(q.get('quoted_price') or 0):.2f}" if q.get("quoted_price") else "",
             booking_id,
-            paid_amount,
+            gross_amount,
+            affiliate_cost_str,
+            profit_str,
             paid_at,
             q.get("full_name") or "",
             q.get("email") or "",
@@ -3675,6 +3727,8 @@ async def admin_quote_conversions_summary(
     lost_with_gclid = 0
     open_ = 0
     total_won_value = 0.0
+    total_won_profit = 0.0
+    won_with_profit = 0
 
     async for q in db.quote_requests.find(
         {"created_at": {"$gte": cutoff}},
@@ -3694,13 +3748,22 @@ async def admin_quote_conversions_summary(
             if booking_id:
                 b = await db.bookings.find_one(
                     {"id": booking_id},
-                    {"_id": 0, "amount_paid": 1, "total_amount": 1, "quote_amount": 1},
+                    {"_id": 0, "amount": 1, "amount_paid": 1, "total_amount": 1,
+                     "quote_amount": 1, "affiliate_cost": 1},
                 ) or {}
-                for k in ("amount_paid", "total_amount", "quote_amount"):
+                gross_v = 0.0
+                for k in ("amount", "amount_paid", "total_amount", "quote_amount"):
                     v = b.get(k)
                     if isinstance(v, (int, float)) and v > 0:
-                        total_won_value += float(v)
+                        gross_v = float(v)
+                        total_won_value += gross_v
                         break
+                aff = b.get("affiliate_cost")
+                if isinstance(aff, (int, float)) and aff > 0 and gross_v > 0:
+                    profit_v = round(gross_v - float(aff), 2)
+                    if profit_v > 0:
+                        total_won_profit += profit_v
+                        won_with_profit += 1
         elif status == "lost":
             lost += 1
             if has_gclid:
@@ -3718,6 +3781,8 @@ async def admin_quote_conversions_summary(
         "lost_with_gclid": lost_with_gclid,
         "open": open_,
         "total_won_value": round(total_won_value, 2),
+        "total_won_profit": round(total_won_profit, 2),
+        "won_with_profit": won_with_profit,
         "close_rate_percent": round(100.0 * won / total, 1) if total else 0.0,
         "trackable_close_rate_percent": round(100.0 * won_with_gclid / with_gclid, 1) if with_gclid else 0.0,
     }

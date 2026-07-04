@@ -344,15 +344,16 @@ export default function AttributionTab() {
                 </div>
                 <div>
                   <span className="text-green-400">{quoteConvSummary.won}</span> won ·{" "}
-                  <span className="text-[#D4AF37]">${(quoteConvSummary.total_won_value || 0).toLocaleString()}</span>
+                  <span className="text-[#D4AF37]">${(quoteConvSummary.total_won_value || 0).toLocaleString()}</span> gross
+                </div>
+                <div>
+                  <span className="text-emerald-400">${(quoteConvSummary.total_won_profit || 0).toLocaleString()}</span> profit
+                  <span className="text-white/40"> · {quoteConvSummary.won_with_profit}/{quoteConvSummary.won} tracked</span>
                 </div>
                 <div>
                   <span className="text-red-400">{quoteConvSummary.lost}</span> lost ·{" "}
-                  <span className="text-white/50">{quoteConvSummary.open} open</span>
-                </div>
-                <div>
-                  <span className="text-white/75">{quoteConvSummary.with_gclid}</span> with gclid ·
-                  close rate <span className="text-white/75">{quoteConvSummary.close_rate_percent}%</span>
+                  <span className="text-white/50">{quoteConvSummary.open} open</span> ·
+                  close <span className="text-white/75">{quoteConvSummary.close_rate_percent}%</span>
                 </div>
               </div>
             ) : null}
