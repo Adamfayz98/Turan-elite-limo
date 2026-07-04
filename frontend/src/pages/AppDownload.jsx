@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
+import { api } from "@/lib/api";
 
 // Apple's official badge SVG (black, English). Hot-linked from Apple's CDN
 // is permitted under the App Store Marketing Guidelines for download promotion.
@@ -14,12 +15,30 @@ const QR = (url) => `https://api.qrserver.com/v1/create-qr-code/?size=240x240&da
 export default function AppDownload() {
   const [isIOS, setIsIOS] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
+  // Pulls the current banner-flagged promo from the admin Promos tab so the
+  // App Download page stays in sync with whatever code is being advertised
+  // sitewide. Falls back gracefully to nothing if no promo is active.
+  const [promo, setPromo] = useState(null);
 
   useEffect(() => {
     const ua = navigator.userAgent || "";
     setIsIOS(/iPhone|iPad|iPod/.test(ua));
     setIsAndroid(/Android/.test(ua));
+    (async () => {
+      try {
+        const { data } = await api.get("/promos/banner");
+        if (data?.code) setPromo(data);
+      } catch {
+        /* silent — promo pill is optional */
+      }
+    })();
   }, []);
+
+  const promoDiscountLabel = promo
+    ? promo.discount_type === "percent"
+      ? `${promo.value}% off your first ride`
+      : `$${promo.value} off your first ride`
+    : null;
 
   return (
     <div className="min-h-screen bg-black text-white" data-testid="app-download-page">
@@ -67,11 +86,16 @@ export default function AppDownload() {
                 </a>
               </div>
 
-              {/* Promo */}
-              <div className="mt-10 inline-flex items-center gap-3 px-5 py-3 rounded-full border border-[#D4AF37]/40 bg-[#D4AF37]/5">
-                <span className="text-[#D4AF37] tracking-widest text-xs">WELCOME20</span>
-                <span className="text-white/70 text-sm">20% off your first ride</span>
-              </div>
+              {/* Promo — dynamic from admin Promos tab (show_on_banner promo). Hidden if none active. */}
+              {promo && (
+                <div
+                  data-testid="app-download-promo-pill"
+                  className="mt-10 inline-flex items-center gap-3 px-5 py-3 rounded-full border border-[#D4AF37]/40 bg-[#D4AF37]/5"
+                >
+                  <span className="text-[#D4AF37] tracking-widest text-xs">{promo.code}</span>
+                  <span className="text-white/70 text-sm">{promoDiscountLabel}</span>
+                </div>
+              )}
             </div>
 
             {/* QR codes — desktop priority. Show iOS + Android side by side. */}

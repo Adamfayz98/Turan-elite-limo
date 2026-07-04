@@ -643,6 +643,18 @@ function SendQuoteDialog({ state, onClose, onSent, onSavedOnly }) {
       toast.error("Enter a valid price.");
       return;
     }
+    // Affiliate cost is required on the send-to-customer path because it
+    // feeds the profit-based Google Ads offline-conversion CSV. If it's
+    // blank we'd upload $0 profit and destroy Smart Bidding signal.
+    const numericAffiliateCost = Number(affiliateCost);
+    if (!affiliateCost || !isFinite(numericAffiliateCost) || numericAffiliateCost <= 0) {
+      toast.error("Enter the affiliate cost — required so Google Ads bids on real profit.");
+      return;
+    }
+    if (numericAffiliateCost >= numericPrice) {
+      toast.error("Affiliate cost is ≥ retail price — that's a loss. Double-check before sending.");
+      return;
+    }
     await _submit(true);
   };
 
@@ -899,7 +911,8 @@ function SendQuoteDialog({ state, onClose, onSent, onSavedOnly }) {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-[10px] uppercase tracking-[0.18em] text-white/45 block">
-                    Affiliate cost <span className="text-white/35 normal-case tracking-normal">(internal · drives profit math)</span>
+                    Affiliate cost <span className="text-red-400 normal-case tracking-normal" aria-label="required">*</span>
+                    <span className="text-white/35 normal-case tracking-normal"> (internal · required for profit-based Google Ads)</span>
                   </label>
                   {estimate && !affiliateCost && (
                     <button
@@ -1119,8 +1132,13 @@ function SendQuoteDialog({ state, onClose, onSent, onSavedOnly }) {
               </Button>
               <Button
                 onClick={send}
-                disabled={sending || !numericPrice}
+                disabled={sending || !numericPrice || !affiliateCost || Number(affiliateCost) <= 0}
                 data-testid="quote-send-button"
+                title={
+                  !affiliateCost || Number(affiliateCost) <= 0
+                    ? "Enter affiliate cost first — required for profit-based Google Ads bidding"
+                    : undefined
+                }
                 className="bg-[#D4AF37] text-black hover:bg-[#B3922E] disabled:opacity-60"
               >
                 {sending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}

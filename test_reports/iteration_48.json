@@ -1,0 +1,51 @@
+{
+  "summary": "Verified Task 2 (App Download promo pill is now dynamic from /api/promos/banner). Task 1 (Admin Send-Quote required affiliate cost) verified via static code review only — live UI verification blocked at admin 2FA (email-code gate), per review-request instructions this is flagged as 'requires manual verification' rather than a bug.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "task_results": {
+    "task_2_app_download_promo_pill": {
+      "status": "PASS",
+      "evidence": {
+        "api_response": {"code": "WELCOME", "discount_type": "percent", "value": 20.0, "first_ride_only": false},
+        "rendered_pill_text_download_route": "WELCOME\\n20% off your first ride",
+        "rendered_pill_text_app_route": "WELCOME\\n20% off your first ride",
+        "console_errors": "none",
+        "notes": "Pill renders the DB code 'WELCOME' (NOT the old hardcoded 'WELCOME20'). Discount label matches percent value from API. Pill correctly hidden if promo is null (guarded by {promo && ...} render). Verified on both /download and /app routes."
+      }
+    },
+    "task_1_send_quote_affiliate_cost_required": {
+      "status": "REQUIRES_MANUAL_VERIFICATION",
+      "reason": "Admin login is 2FA-gated. Reached the 'Enter 6-digit code' screen (code emailed to support@turanelitelimo.com). No inbox access from the test environment.",
+      "code_review_findings": {
+        "label_red_asterisk": "PRESENT — QuoteRequestsTab.jsx:914 renders '<span class=text-red-400>*</span>' plus '(internal · required for profit-based Google Ads)' helper copy",
+        "send_button_disabled_when_empty": "PRESENT — line 1135: disabled={sending || !numericPrice || !affiliateCost || Number(affiliateCost) <= 0}",
+        "tooltip_when_disabled": "PRESENT — line 1137-1141 title='Enter affiliate cost first — required for profit-based Google Ads bidding' (wording slightly differs from request spec but conveys same intent)",
+        "send_toast_when_empty": "PRESENT — line 650-652: toast.error('Enter the affiliate cost — required so Google Ads bids on real profit.') — exact string match",
+        "send_toast_when_cost_gte_price": "PRESENT — line 654-657: toast.error(\"Affiliate cost is ≥ retail price — that's a loss. Double-check before sending.\") — exact string match",
+        "testids": "quote-affiliate-cost (line 930) and quote-send-button (line 1136) both present",
+        "double_guard": "send() function validates BEFORE calling _submit — even a force-click cannot bypass validation because button-disable is UI-only but send() is the source of truth"
+      }
+    }
+  },
+  "test_report_links": ["/app/test_reports/iteration_48.json"],
+  "action_items": [
+    "MANUAL: Main agent / human with inbox access to support@turanelitelimo.com should log in and walk through the Send-Quote dialog to visually confirm the red asterisk, disabled state, tooltip on hover, and the two toast messages. Code review confirms implementation is correct.",
+    "OPTIONAL: The disabled-button tooltip wording is 'Enter affiliate cost first — required for profit-based Google Ads bidding' — request asked for 'tooltip about affiliate cost being required'. Current wording satisfies intent; no action required."
+  ],
+  "critical_code_review_comments": [
+    "QuoteRequestsTab.jsx is 2616 lines — exceeds the 700-line file-size guideline. Recommend splitting SendQuoteDialog, SuggestAffiliatesDialog, and helper math (estimateQuote/computeMargin/marginBand) into separate modules for maintainability. NOT blocking this iteration.",
+    "AppDownload.jsx promo useEffect swallows errors silently (try/catch with empty catch) — acceptable here because pill is optional and hidden on failure, but consider logging to a client error tracker if one exists."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "Task 2: 100% | Task 1: code-review only (2FA blocked live test)"},
+  "test_credentials": "support@turanelitelimo.com / TuronAdmin@2025 (from /app/memory/test_credentials.md) — reached 2FA prompt as expected",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Task 2 (promo pill on /download and /app) is complete and verified live — pill renders 'WELCOME 20% off your first ride' matching /api/promos/banner. Task 1 was verified only via static code review of /app/frontend/src/components/admin/QuoteRequestsTab.jsx (lines 641-659 for send() guard, 914 for label asterisk, 1133-1146 for disabled button + tooltip). Live click-through requires 2FA code from admin's inbox.",
+  "rca of the issue": "N/A — no bugs found"
+}
