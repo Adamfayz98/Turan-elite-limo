@@ -14,7 +14,7 @@ underscore-prefixed private helpers — `from server import *` skips those).
 # can't see this, so we silence F821/F405 for this file.
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 
 # Single shared router for this group. Mounted under /api in server.py.
 router = APIRouter()
@@ -509,7 +509,7 @@ async def admin_backfill_all_saved_cards(_: dict = Depends(require_admin)):
 
 
 @router.post("/webhook/stripe")
-async def stripe_webhook(request: Request):
+async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
     body = await request.body()
     checkout = _get_stripe_checkout(request)
     sig = request.headers.get("Stripe-Signature", "")
@@ -560,6 +560,15 @@ async def stripe_webhook(request: Request):
                     {"id": txn["booking_id"]},
                     {"$set": update_set},
                 )
+                # ---- Fire Google Ads offline conversion upload (non-blocking) ----
+                # Backgrounded so we never delay the Stripe webhook response.
+                # Idempotent — upload_booking_to_google_ads() no-ops if the
+                # booking has google_ads_conversion_uploaded=True already.
+                try:
+                    from routes.google_ads import upload_booking_to_google_ads
+                    background_tasks.add_task(upload_booking_to_google_ads, txn["booking_id"])
+                except Exception as e:
+                    logging.getLogger(__name__).warning(f"Google Ads background schedule failed: {e}")
                 # Send payment-received email (best-effort)
                 try:
                     updated = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
