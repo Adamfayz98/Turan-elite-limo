@@ -3193,7 +3193,11 @@ async def admin_attribution_sources(days: int = 30, _: dict = Depends(require_ad
     PAID = {"paid", "confirmed", "in_progress", "completed"}
 
     def _rev(b: dict) -> float:
-        for k in ("total_amount", "amount_paid", "total_price", "price", "quoted_price"):
+        # Bookings created via quote-finalize store the total as `amount`
+        # (see admin.py:~1461). Legacy checkout paths may use one of the
+        # older fields. Check `amount` FIRST — matches the quote-conversions
+        # endpoint so both revenue rollups agree.
+        for k in ("amount", "total_amount", "amount_paid", "total_price", "price", "quoted_price"):
             v = b.get(k)
             if isinstance(v, (int, float)) and v > 0:
                 return float(v)
