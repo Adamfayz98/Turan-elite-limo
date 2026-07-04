@@ -3505,11 +3505,11 @@ async def admin_offline_conversions_preview(
 
 @router.post("/admin/ads/offline-conversions/backfill-utm")
 async def admin_offline_conversions_backfill_utm(_: dict = Depends(require_admin)):
-    """One-shot backfill: for any booking that has a linked quote_request_id
-    but an empty/missing utm field, copy the utm attribution from the parent
-    quote_request. Fixes the historical gap where quote-paid bookings weren't
-    preserving gclid — critical for the Google Ads Offline Conversion CSV
-    which filters on utm.gclid.
+    """One-shot backfill: for any booking whose utm.gclid is empty, copy the
+    utm from its linked quote_request. Handles BOTH linkage directions —
+    booking.quote_request_id → quote (forward), AND
+    quote.booking_id → booking (reverse) — so bookings created before
+    quote_request_id was persisted also get their attribution restored.
 
     Safe to run multiple times: only touches bookings whose utm.gclid is
     currently empty. Idempotent.
@@ -3519,14 +3519,17 @@ async def admin_offline_conversions_backfill_utm(_: dict = Depends(require_admin
     quote_link_missing = 0
     parent_no_utm = 0
 
+    # --- Pass 1: forward direction — booking.quote_request_id → quote ---
+    seen_ids: set[str] = set()
     async for b in db.bookings.find(
         {"quote_request_id": {"$exists": True, "$ne": None}},
         {"_id": 0, "id": 1, "quote_request_id": 1, "utm": 1},
     ):
         scanned += 1
+        seen_ids.add(b["id"])
         current_utm = b.get("utm") or {}
         if (current_utm.get("gclid") or "").strip():
-            continue  # Already has gclid, skip.
+            continue
 
         qr = await db.quote_requests.find_one(
             {"id": b["quote_request_id"]},
@@ -3543,6 +3546,34 @@ async def admin_offline_conversions_backfill_utm(_: dict = Depends(require_admin
         await db.bookings.update_one(
             {"id": b["id"]},
             {"$set": {"utm": parent_utm}},
+        )
+        updated += 1
+
+    # --- Pass 2: reverse direction — quote.booking_id → booking (for bookings
+    # that never had quote_request_id set). Also opportunistically stamps
+    # quote_request_id onto the booking so future iterations use the fast path. ---
+    async for q in db.quote_requests.find(
+        {"booking_id": {"$exists": True, "$ne": None}, "utm.gclid": {"$exists": True, "$ne": ""}},
+        {"_id": 0, "id": 1, "booking_id": 1, "utm": 1},
+    ):
+        bid = q.get("booking_id")
+        if not bid or bid in seen_ids:
+            continue  # already handled by Pass 1
+        b = await db.bookings.find_one({"id": bid}, {"_id": 0, "id": 1, "utm": 1})
+        if not b:
+            quote_link_missing += 1
+            continue
+        scanned += 1
+        current_utm = b.get("utm") or {}
+        if (current_utm.get("gclid") or "").strip():
+            continue
+        parent_utm = q.get("utm") or {}
+        if not parent_utm:
+            parent_no_utm += 1
+            continue
+        await db.bookings.update_one(
+            {"id": bid},
+            {"$set": {"utm": parent_utm, "quote_request_id": q["id"]}},
         )
         updated += 1
 

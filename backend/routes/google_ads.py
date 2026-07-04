@@ -33,6 +33,52 @@ db = _server.db
 require_admin = _server.require_admin
 
 
+# --------- Bidirectional booking ↔ quote linkage resolver ---------
+
+async def _resolve_booking_quote_utm(booking: dict) -> tuple[dict, Optional[str]]:
+    """Given a booking, return the effective utm dict AND the parent quote_request_id
+    (if any). Tries multiple sources so bookings win/lost during earlier code paths
+    still line up with quote-request data:
+
+      1. `booking.utm` if it already has a gclid — quickest path, no DB hit
+      2. `quote_requests.find_one({"id": booking.quote_request_id})` — the "forward"
+         join our own quote-finalize code sets
+      3. `quote_requests.find_one({"booking_id": booking.id})` — the "reverse"
+         join set by `mark_quote_won` (line 1515 of admin.py); this is what the
+         Quote Conversions CSV uses so both views agree
+
+    Returns (utm_dict, parent_quote_id_or_None). utm_dict may be empty {} if
+    nothing was found on either side.
+    """
+    booking_utm = booking.get("utm") or {}
+    # Fast-path: gclid already on the booking, no join needed
+    if (booking_utm.get("gclid") or "").strip():
+        return booking_utm, booking.get("quote_request_id")
+
+    # Forward join: booking → quote via booking.quote_request_id
+    qid = booking.get("quote_request_id")
+    parent = None
+    if qid:
+        parent = await db.quote_requests.find_one(
+            {"id": qid}, {"_id": 0, "id": 1, "utm": 1},
+        )
+    # Reverse join: quote → booking via quote.booking_id
+    if parent is None:
+        parent = await db.quote_requests.find_one(
+            {"booking_id": booking.get("id")}, {"_id": 0, "id": 1, "utm": 1},
+        )
+
+    if parent:
+        parent_utm = parent.get("utm") or {}
+        if (parent_utm.get("gclid") or "").strip():
+            return parent_utm, parent.get("id")
+        # Parent found but no gclid there either — still return the parent's utm
+        # so we don't lose non-gclid attribution (utm_campaign, etc.)
+        return (parent_utm or booking_utm), parent.get("id")
+
+    return booking_utm, None
+
+
 # --------- Google Ads client factory ---------
 
 def _get_google_ads_client():
@@ -167,10 +213,23 @@ async def upload_booking_to_google_ads(booking_id: str, *, force: bool = False) 
     if b.get("google_ads_conversion_uploaded") and not force:
         return {"ok": True, "booking_id": booking_id, "skipped": "already_uploaded"}
 
-    utm = b.get("utm") or {}
-    if not (utm.get("gclid") or "").strip():
-        # No gclid → nothing to send to Google Ads. Not an error — just a no-op.
+    # Resolve gclid from ALL possible sources — booking.utm, forward join
+    # (booking.quote_request_id → quote), or reverse join (quote.booking_id ==
+    # this booking.id). Historic bookings often have gclid only on the parent
+    # quote_request, so the reverse join is critical for recovery.
+    effective_utm, _parent_qid = await _resolve_booking_quote_utm(b)
+    resolved_gclid = (effective_utm.get("gclid") or "").strip()
+    if not resolved_gclid:
+        # No gclid anywhere — nothing to send to Google Ads. Not an error.
         return {"ok": True, "booking_id": booking_id, "skipped": "no_gclid"}
+    # Stamp the resolved utm on the booking (best-effort) so subsequent
+    # aggregations don't need to re-do the reverse lookup.
+    try:
+        if not (b.get("utm") or {}).get("gclid"):
+            await db.bookings.update_one({"id": booking_id}, {"$set": {"utm": effective_utm}})
+            b["utm"] = effective_utm
+    except Exception:
+        pass
 
     try:
         client = _get_google_ads_client()
@@ -353,24 +412,56 @@ async def admin_backfill_google_ads(
     _: dict = Depends(require_admin),
 ):
     """Kick off a background job that uploads every paid booking in the last
-    `days` days that (a) has a gclid, (b) hasn't been uploaded yet (unless
-    force=true). Runs off-request so it can process hundreds of rows without
-    blocking the admin UI.
+    `days` days that has a recoverable gclid — checking both the booking's
+    utm.gclid AND the linked quote_request's utm.gclid. Runs off-request so
+    hundreds of rows can be processed without blocking the admin UI.
+
+    Matches the /backfill-preview join direction so counts always agree.
     """
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    query: dict = {
-        "created_at": {"$gte": cutoff},
-        "payment_status": "paid",
-        "utm.gclid": {"$exists": True, "$ne": ""},
-    }
-    if not force:
-        query["google_ads_conversion_uploaded"] = {"$ne": True}
 
-    candidates = await db.bookings.find(query, {"_id": 0, "id": 1}).to_list(length=1000)
-    booking_ids = [c["id"] for c in candidates]
+    # Collect booking IDs from BOTH sides:
+    # 1. Bookings with utm.gclid stored directly
+    # 2. Won quote_requests with utm.gclid → their linked booking
+    booking_ids: set[str] = set()
+
+    async for b in db.bookings.find(
+        {
+            "created_at": {"$gte": cutoff},
+            "payment_status": {"$in": ["paid", "deposit_paid"]},
+            "utm.gclid": {"$exists": True, "$ne": ""},
+        },
+        {"_id": 0, "id": 1, "google_ads_conversion_uploaded": 1},
+    ):
+        if force or not b.get("google_ads_conversion_uploaded"):
+            booking_ids.add(b["id"])
+
+    async for q in db.quote_requests.find(
+        {
+            "status": "won",
+            "created_at": {"$gte": cutoff},
+            "booking_id": {"$exists": True, "$ne": None},
+            "utm.gclid": {"$exists": True, "$ne": ""},
+        },
+        {"_id": 0, "booking_id": 1},
+    ):
+        bid = q.get("booking_id")
+        if not bid or bid in booking_ids:
+            continue
+        # Confirm the linked booking is actually paid and (unless force) not yet uploaded
+        linked = await db.bookings.find_one(
+            {"id": bid, "payment_status": {"$in": ["paid", "deposit_paid"]}},
+            {"_id": 0, "id": 1, "google_ads_conversion_uploaded": 1},
+        )
+        if not linked:
+            continue
+        if force or not linked.get("google_ads_conversion_uploaded"):
+            booking_ids.add(bid)
+
+    ids_list = list(booking_ids)
 
     async def _run():
-        for bid in booking_ids:
+        for bid in ids_list:
             try:
                 await upload_booking_to_google_ads(bid, force=force)
             except Exception as e:
@@ -378,7 +469,7 @@ async def admin_backfill_google_ads(
 
     background_tasks.add_task(_run)
     return {
-        "queued": len(booking_ids),
+        "queued": len(ids_list),
         "days": days,
         "force": force,
         "note": "Uploads run in the background — refresh Attribution tab in ~1 min to see updated counts.",
@@ -416,102 +507,160 @@ async def admin_backfill_preview(
     days: int = Query(90, ge=1, le=365),
     _: dict = Depends(require_admin),
 ):
-    """Dry-run inspector — counts how many paid bookings in the last N days
-    are actually recoverable via gclid, without uploading anything. Honest
-    answer to 'how many of my historical bookings will Google actually see?'.
+    """Dry-run inspector — counts recoverable bookings without uploading anything.
 
-    Buckets:
-      - recoverable_gclid_on_booking: gclid lives directly on the booking
-      - recoverable_gclid_via_quote:  gclid missing on booking but present
-        on the linked quote_request (backfill-utm will lift it over)
-      - permanently_unrecoverable:    NO gclid on booking OR parent quote
-        (invisible to Google's click-matching — only Enhanced Conversions
-        for Leads could rescue these, and only for customers who were
-        signed into Google around the ad click)
+    Iterates from `quote_requests` (the source of truth for gclid) and joins to
+    bookings via `quote.booking_id` — SAME direction as the Quote Conversions CSV
+    endpoint, so this preview and the CSV are guaranteed to agree.
+
+    Also counts paid bookings that have NO linked quote (direct booking form
+    submissions) so operators see the full picture — those may still have utm
+    stored directly on the booking (recoverable) or nothing at all (unrecoverable).
     """
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    paid_bookings = await db.bookings.find(
-        {"created_at": {"$gte": cutoff}, "payment_status": "paid"},
-        {"_id": 0, "id": 1, "utm": 1, "quote_request_id": 1,
-         "amount": 1, "amount_paid": 1, "total_amount": 1, "affiliate_cost": 1,
-         "google_ads_conversion_uploaded": 1, "email": 1, "confirmation_number": 1,
-         "created_at": 1, "utm_source": 1},
+
+    # --- Pass 1: iterate quote_requests → join bookings by quote.booking_id ---
+    total_paid_bookings = 0
+    total_revenue = 0.0
+    total_profit_recoverable = 0.0
+    already_uploaded = 0
+    gclid_on_booking = 0
+    gclid_via_parent_quote = 0
+    unrecoverable = 0
+    unrecoverable_samples: list[dict] = []
+    booked_ids_seen: set[str] = set()
+
+    won_quotes = await db.quote_requests.find(
+        {"status": "won", "created_at": {"$gte": cutoff}, "booking_id": {"$exists": True, "$ne": None}},
+        {"_id": 0, "id": 1, "utm": 1, "booking_id": 1, "full_name": 1, "email": 1, "created_at": 1},
     ).to_list(length=5000)
 
-    total_paid = len(paid_bookings)
-    total_revenue = 0.0
-    total_profit = 0.0
-    on_booking = 0
-    via_quote = 0
-    unrecoverable = 0
-    already_uploaded = 0
-    unrecoverable_samples: list[dict] = []
+    for q in won_quotes:
+        bid = q.get("booking_id")
+        if not bid:
+            continue
+        b = await db.bookings.find_one(
+            {"id": bid},
+            {"_id": 0, "id": 1, "utm": 1, "amount": 1, "amount_paid": 1,
+             "total_amount": 1, "quote_amount": 1, "affiliate_cost": 1,
+             "payment_status": 1, "google_ads_conversion_uploaded": 1,
+             "confirmation_number": 1, "email": 1, "created_at": 1},
+        )
+        if not b:
+            continue
+        # Only count real paid bookings (matches Attribution source table
+        # semantics — includes deposit_paid, confirmed, paid states).
+        pay = (b.get("payment_status") or "").lower()
+        if pay not in ("paid", "deposit_paid"):
+            continue
 
-    # Pre-fetch all quote_requests referenced by these bookings in one query
-    quote_ids = list({b.get("quote_request_id") for b in paid_bookings if b.get("quote_request_id")})
-    quote_map: dict = {}
-    if quote_ids:
-        async for q in db.quote_requests.find(
-            {"id": {"$in": quote_ids}}, {"_id": 0, "id": 1, "utm": 1},
-        ):
-            quote_map[q["id"]] = q
+        booked_ids_seen.add(bid)
+        total_paid_bookings += 1
 
-    for b in paid_bookings:
-        # revenue
+        # Revenue
         gross = 0.0
-        for k in ("amount", "amount_paid", "total_amount"):
+        for k in ("amount", "amount_paid", "total_amount", "quote_amount"):
             v = b.get(k)
             if isinstance(v, (int, float)) and v > 0:
                 gross = float(v)
                 break
         total_revenue += gross
         aff = b.get("affiliate_cost")
+        profit_val = gross
         if isinstance(aff, (int, float)) and aff > 0 and gross > 0:
-            total_profit += max(0.0, gross - float(aff))
+            profit_val = max(0.0, gross - float(aff))
 
         if b.get("google_ads_conversion_uploaded"):
             already_uploaded += 1
 
-        # gclid lookup
-        utm = b.get("utm") or {}
-        booking_gclid = (utm.get("gclid") or "").strip()
-        if booking_gclid:
-            on_booking += 1
-            continue
-        qid = b.get("quote_request_id")
-        parent = quote_map.get(qid) if qid else None
-        parent_gclid = ((parent or {}).get("utm") or {}).get("gclid") or "" if parent else ""
-        if (parent_gclid or "").strip():
-            via_quote += 1
-            continue
-        unrecoverable += 1
-        if len(unrecoverable_samples) < 10:
-            unrecoverable_samples.append({
-                "id": b.get("id"),
-                "confirmation_number": b.get("confirmation_number"),
-                "email": b.get("email"),
-                "created_at": b.get("created_at"),
-                "utm_source_stored": (utm.get("utm_source") or b.get("utm_source") or None),
-                "has_quote_link": bool(qid),
-            })
+        # gclid recovery — check both sides
+        booking_utm = b.get("utm") or {}
+        quote_utm = q.get("utm") or {}
+        if (booking_utm.get("gclid") or "").strip():
+            gclid_on_booking += 1
+            total_profit_recoverable += profit_val
+        elif (quote_utm.get("gclid") or "").strip():
+            gclid_via_parent_quote += 1
+            total_profit_recoverable += profit_val
+        else:
+            unrecoverable += 1
+            if len(unrecoverable_samples) < 10:
+                unrecoverable_samples.append({
+                    "id": b.get("id"),
+                    "confirmation_number": b.get("confirmation_number"),
+                    "email": b.get("email") or q.get("email"),
+                    "created_at": b.get("created_at") or q.get("created_at"),
+                    "utm_source_stored": (booking_utm.get("utm_source") or quote_utm.get("utm_source") or None),
+                    "has_quote_link": True,
+                    "quote_id": q.get("id"),
+                })
 
-    recoverable_total = on_booking + via_quote
+    # --- Pass 2: paid bookings with NO linked won-quote (direct booking form) ---
+    # These wouldn't show up in Pass 1 because they were never quoted. We check
+    # if they have utm.gclid directly on the booking (only recoverable path).
+    direct_bookings = await db.bookings.find(
+        {
+            "created_at": {"$gte": cutoff},
+            "payment_status": {"$in": ["paid", "deposit_paid"]},
+            "id": {"$nin": list(booked_ids_seen)} if booked_ids_seen else {"$exists": True},
+        },
+        {"_id": 0, "id": 1, "utm": 1, "amount": 1, "amount_paid": 1,
+         "total_amount": 1, "quote_amount": 1, "affiliate_cost": 1,
+         "google_ads_conversion_uploaded": 1, "confirmation_number": 1,
+         "email": 1, "created_at": 1, "quote_request_id": 1},
+    ).to_list(length=5000)
+
+    for b in direct_bookings:
+        total_paid_bookings += 1
+        gross = 0.0
+        for k in ("amount", "amount_paid", "total_amount", "quote_amount"):
+            v = b.get(k)
+            if isinstance(v, (int, float)) and v > 0:
+                gross = float(v)
+                break
+        total_revenue += gross
+        aff = b.get("affiliate_cost")
+        profit_val = gross
+        if isinstance(aff, (int, float)) and aff > 0 and gross > 0:
+            profit_val = max(0.0, gross - float(aff))
+
+        if b.get("google_ads_conversion_uploaded"):
+            already_uploaded += 1
+
+        booking_utm = b.get("utm") or {}
+        if (booking_utm.get("gclid") or "").strip():
+            gclid_on_booking += 1
+            total_profit_recoverable += profit_val
+        else:
+            unrecoverable += 1
+            if len(unrecoverable_samples) < 10:
+                unrecoverable_samples.append({
+                    "id": b.get("id"),
+                    "confirmation_number": b.get("confirmation_number"),
+                    "email": b.get("email"),
+                    "created_at": b.get("created_at"),
+                    "utm_source_stored": booking_utm.get("utm_source"),
+                    "has_quote_link": False,
+                    "quote_id": None,
+                })
+
+    recoverable_total = gclid_on_booking + gclid_via_parent_quote
     return {
         "days": days,
-        "total_paid_bookings": total_paid,
+        "total_paid_bookings": total_paid_bookings,
         "total_revenue": round(total_revenue, 2),
-        "total_profit_recoverable": round(total_profit, 2),
+        "total_profit_recoverable": round(total_profit_recoverable, 2),
         "already_uploaded_to_google": already_uploaded,
-        "gclid_directly_on_booking": on_booking,
-        "gclid_via_parent_quote": via_quote,
+        "gclid_directly_on_booking": gclid_on_booking,
+        "gclid_via_parent_quote": gclid_via_parent_quote,
         "recoverable_total": recoverable_total,
         "permanently_unrecoverable": unrecoverable,
-        "recoverable_pct": round(100.0 * recoverable_total / total_paid, 1) if total_paid else 0.0,
+        "recoverable_pct": round(100.0 * recoverable_total / total_paid_bookings, 1) if total_paid_bookings else 0.0,
         "sample_unrecoverable_bookings": unrecoverable_samples,
         "note": (
-            "Recoverable = has a real, stored gclid on the booking OR on its parent quote_request. "
-            "Backfill will run `backfill-utm` first (copies gclid from quote → booking), then upload "
-            "only rows with a real gclid. No fake or guessed gclids are ever sent."
+            "Recoverable = stored gclid on the booking OR on its linked quote_request. "
+            "This preview iterates quote_requests (matching the Quote Conversions CSV's "
+            "join direction) — the same booking will always be counted the same way in both views."
         ),
     }
 

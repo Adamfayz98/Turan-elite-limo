@@ -2,6 +2,37 @@
 
 > Last refreshed: July 3, 2026 — iter 63 (Promo Health dashboard + dynamic booking chip)
 
+## 🐛→✅ Google Ads join-direction fix — recoverable count now matches CSV (Feb 2026 — iter 49)
+
+**Bug:** Backfill preview reported `0/29 recoverable` while the Quote Conversions CSV clearly showed at least 2 won bookings with gclid on their parent quote_request (Lisa Rigsbee, Leticia Maldonado). Three views on the same page disagreed:
+
+- Source Table checks `booking.utm.source_bucket` (finds 2 Google Ads paid)
+- CSV iterates `quote_requests` → joins bookings via `quote.booking_id` (works, finds gclid)
+- Backfill preview iterated `bookings` → joined quotes via `booking.quote_request_id` (**failed** — for bookings created before quote_request_id was persisted, or admin-linked ones, that field is missing so the join returns null)
+
+**Root cause:** Bookings and quotes have **two** linkage fields — `booking.quote_request_id` (forward) and `quote.booking_id` (reverse). Some rows only have one direction populated. The CSV used the reverse direction; my new endpoints used the forward direction.
+
+**Fix (three surgery points):**
+
+1. **`_resolve_booking_quote_utm(booking)` helper** — tries booking.utm first, then forward join, then reverse join. Used by `upload_booking_to_google_ads()` so uploads work regardless of which linkage direction is populated. Also opportunistically stamps the resolved utm onto the booking so subsequent aggregations don't need to re-do the reverse lookup.
+2. **`admin_backfill_preview` rewrite** — now iterates from `quote_requests` (source of truth for gclid) → joins bookings by `quote.booking_id`, matching the CSV's direction exactly. Adds a Pass-2 for direct-form bookings that never had a quote. Preview and CSV are guaranteed to agree.
+3. **`admin_backfill_google_ads` query fix** — collects candidate booking IDs from BOTH sides (bookings with `utm.gclid`, plus won quotes' linked bookings). The set union guarantees no eligible booking gets missed.
+4. **`admin_offline_conversions_backfill_utm` bonus fix** — the older "Backfill Historical UTM" button also had the same one-direction bug. Now runs Pass 1 (forward) then Pass 2 (reverse), and stamps `quote_request_id` onto the booking during Pass 2 so future runs use the fast path.
+
+**Testing:** Simulated with 3 test cases in preview DB:
+- Case A (forward-linked): ✅ found via parent quote
+- Case B (reverse-only, no `quote_request_id` on booking): ✅ found via reverse lookup
+- Case C (no gclid anywhere): ✅ correctly marked unrecoverable
+
+**Impact:** For the user's production data — Lisa + Leticia (and any similar historical rows) will now appear in the recoverable count. Once the user taps Preview on prod, the number should jump from 0 to the real count matching the CSV.
+
+**Files touched:**
+- backend/routes/google_ads.py (added resolver, rewrote preview + backfill)
+- backend/routes/admin.py (fixed backfill-utm reverse pass)
+
+---
+
+
 ## ✅ Google Ads server-side Offline Conversion API — LIVE (Feb 2026 — iter 48)
 
 **Why:** Replace the manual daily CSV upload with a real-time backend API pipeline so Smart Bidding gets fresh profit-based signal within minutes of each paid booking, not once per day.
