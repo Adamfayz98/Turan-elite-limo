@@ -2,6 +2,35 @@
 
 > Last refreshed: July 3, 2026 — iter 63 (Promo Health dashboard + dynamic booking chip)
 
+## ✅ Required `affiliate_cost` on quote-send + dynamic App Download promo (Feb 2026 — iter 48)
+
+**Why:** Two profit-tracking / consistency gaps closed in one session.
+
+### 1. `affiliate_cost` now REQUIRED to send a quote
+- Google Ads Offline Conversion CSV uploads *profit* (retail − affiliate_cost). Blank cost = $0 profit → destroys Smart Bidding signal.
+- `SendQuoteDialog` in `QuoteRequestsTab.jsx`:
+  - Label now shows red `*` + copy "internal · required for profit-based Google Ads"
+  - "Send quote to customer" button disabled when `affiliateCost` empty or ≤ 0 (with title-tooltip)
+  - `send()` guards with two toasts:
+    - Empty/0 → "Enter the affiliate cost — required so Google Ads bids on real profit."
+    - Cost ≥ retail → "Affiliate cost is ≥ retail price — that's a loss. Double-check before sending."
+  - "Save trip changes only" path unchanged — operators can still tweak stops/times on paid bookings without a cost.
+
+### 2. App Download page promo pill now dynamic
+- Removed hardcoded `WELCOME20` / `20% off your first ride` chip from `/download` and `/app`
+- Fetches `/api/promos/banner` on mount; pill renders live from `code` + `discount_type` + `value`
+- Hidden gracefully if no promo is flagged `show_on_banner` — no placeholder
+- Same source of truth as sitewide `PromoBanner` and BookingForm chip
+
+**Testing:** Task 2 live-verified (pill renders "WELCOME 20% off your first ride" from DB, no more hardcoded string). Task 1 verified via code review (2FA blocked automated click-through — all guards in place at lines 641–659, label at 914, button at 1133).
+
+**Files touched:**
+- frontend/src/components/admin/QuoteRequestsTab.jsx
+- frontend/src/pages/AppDownload.jsx
+
+---
+
+
 ## ✅ Promo Health dashboard + dynamic booking chip (Jul 3, 2026 — iter 63)
 
 **Why:** Two related issues surfaced. First, the "20% off your first ride" chip above the booking form was hardcoded — didn't update when admin changed the active promo. Second, no single view showed the operator whether the current promo config was actually functioning correctly.
