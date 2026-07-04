@@ -3514,3 +3514,210 @@ async def admin_offline_conversions_backfill_utm(_: dict = Depends(require_admin
         "skipped_quote_missing": quote_link_missing,
         "skipped_parent_no_utm": parent_no_utm,
     }
+
+
+@router.get("/admin/ads/quote-conversions.csv")
+async def admin_export_quote_conversions_csv(
+    days: int = 90,
+    _: dict = Depends(require_admin),
+):
+    """Per-quote conversion feedback CSV for Google Ads (Enhanced Conversions).
+
+    Unlike /admin/ads/offline-conversions.csv (bookings-first, minimal columns
+    matching Google's Offline Conversion Import spec), this endpoint exports
+    QUOTE_REQUESTS as the unit of analysis — one row per lead — so an ad
+    manager can see the full funnel outcome per gclid:
+
+      • WON  → positive conversion with actual paid amount
+      • LOST → negative signal (Enhanced Conversions for Leads uses this to
+               suppress bidding on similar audience segments)
+      • QUOTED / CONTACTED / NEW → still open, don't fire yet
+
+    This is the missing piece for closing the Google Ads feedback loop:
+    Google fires "Request Quote" ($20 placeholder) at form submission, then
+    this data lets us send back the real outcome + real value later.
+
+    Once the Google Ads API Developer Token is approved, the server-side
+    conversion job will read from the same underlying data — so the shape
+    of this CSV mirrors what the API integration will submit.
+    """
+    days = max(1, min(int(days or 90), 365))
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "quote_request_id",
+        "gclid",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "landing_path",
+        "status",                # new | contacted | quoted | won | lost
+        "quote_submitted_at",    # ISO timestamp of original form submission
+        "quoted_price",          # what we quoted (0 if never quoted)
+        "booking_id",            # linked booking (empty if not won)
+        "paid_amount",           # actual paid amount (empty if not won)
+        "paid_at",               # ISO timestamp of payment (empty if not won)
+        "name",
+        "email",
+        "phone",
+        "pickup_date",
+        "vehicle_type",
+    ])
+
+    rows_written = 0
+    with_gclid = 0
+    won_count = 0
+    lost_count = 0
+    open_count = 0
+    total_won_value = 0.0
+
+    async for q in db.quote_requests.find(
+        {"created_at": {"$gte": cutoff}},
+        {
+            "_id": 0, "id": 1, "utm": 1, "status": 1, "created_at": 1,
+            "quoted_price": 1, "booking_id": 1, "full_name": 1, "email": 1,
+            "phone": 1, "pickup_date": 1, "vehicle_type": 1,
+        },
+    ):
+        utm = q.get("utm") or {}
+        gclid = (utm.get("gclid") or "").strip()
+        status = (q.get("status") or "new").lower()
+
+        # Look up linked booking for paid_amount + paid_at if won.
+        paid_amount = ""
+        paid_at = ""
+        booking_id = q.get("booking_id") or ""
+        if status == "won" and booking_id:
+            b = await db.bookings.find_one(
+                {"id": booking_id},
+                {"_id": 0, "amount_paid": 1, "total_amount": 1, "quote_amount": 1,
+                 "stripe_paid_at": 1, "paid_at": 1},
+            ) or {}
+            for k in ("amount_paid", "total_amount", "quote_amount"):
+                v = b.get(k)
+                if isinstance(v, (int, float)) and v > 0:
+                    paid_amount = f"{float(v):.2f}"
+                    total_won_value += float(v)
+                    break
+            paid_at = b.get("stripe_paid_at") or b.get("paid_at") or ""
+
+        writer.writerow([
+            q.get("id") or "",
+            gclid,
+            utm.get("utm_source") or "",
+            utm.get("utm_medium") or "",
+            utm.get("utm_campaign") or "",
+            utm.get("landing_path") or "",
+            status,
+            q.get("created_at") or "",
+            f"{float(q.get('quoted_price') or 0):.2f}" if q.get("quoted_price") else "",
+            booking_id,
+            paid_amount,
+            paid_at,
+            q.get("full_name") or "",
+            q.get("email") or "",
+            q.get("phone") or "",
+            q.get("pickup_date") or "",
+            q.get("vehicle_type") or "",
+        ])
+        rows_written += 1
+        if gclid:
+            with_gclid += 1
+        if status == "won":
+            won_count += 1
+        elif status == "lost":
+            lost_count += 1
+        elif status in ("new", "contacted", "quoted"):
+            open_count += 1
+
+    buf.seek(0)
+    filename = f"quote-conversions-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Rows-Total": str(rows_written),
+            "X-Rows-With-Gclid": str(with_gclid),
+            "X-Rows-Won": str(won_count),
+            "X-Rows-Lost": str(lost_count),
+            "X-Rows-Open": str(open_count),
+            "X-Total-Won-Value": f"{total_won_value:.2f}",
+        },
+    )
+
+
+@router.get("/admin/ads/quote-conversions/summary")
+async def admin_quote_conversions_summary(
+    days: int = 90,
+    _: dict = Depends(require_admin),
+):
+    """Aggregate funnel summary for the quote-conversions CSV endpoint.
+
+    Cheaper than downloading the full CSV — returns just counts + $ totals.
+    Useful for the admin UI to show "past 90 days: 42 quotes, 15 won, $12,500
+    total revenue, 28 with gclid" before offering the CSV download button.
+    """
+    days = max(1, min(int(days or 90), 365))
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    total = 0
+    with_gclid = 0
+    won = 0
+    won_with_gclid = 0
+    lost = 0
+    lost_with_gclid = 0
+    open_ = 0
+    total_won_value = 0.0
+
+    async for q in db.quote_requests.find(
+        {"created_at": {"$gte": cutoff}},
+        {"_id": 0, "id": 1, "utm": 1, "status": 1, "booking_id": 1},
+    ):
+        total += 1
+        utm = q.get("utm") or {}
+        has_gclid = bool((utm.get("gclid") or "").strip())
+        if has_gclid:
+            with_gclid += 1
+        status = (q.get("status") or "new").lower()
+        if status == "won":
+            won += 1
+            if has_gclid:
+                won_with_gclid += 1
+            booking_id = q.get("booking_id")
+            if booking_id:
+                b = await db.bookings.find_one(
+                    {"id": booking_id},
+                    {"_id": 0, "amount_paid": 1, "total_amount": 1, "quote_amount": 1},
+                ) or {}
+                for k in ("amount_paid", "total_amount", "quote_amount"):
+                    v = b.get(k)
+                    if isinstance(v, (int, float)) and v > 0:
+                        total_won_value += float(v)
+                        break
+        elif status == "lost":
+            lost += 1
+            if has_gclid:
+                lost_with_gclid += 1
+        elif status in ("new", "contacted", "quoted"):
+            open_ += 1
+
+    return {
+        "days": days,
+        "total_quotes": total,
+        "with_gclid": with_gclid,
+        "won": won,
+        "won_with_gclid": won_with_gclid,
+        "lost": lost,
+        "lost_with_gclid": lost_with_gclid,
+        "open": open_,
+        "total_won_value": round(total_won_value, 2),
+        "close_rate_percent": round(100.0 * won / total, 1) if total else 0.0,
+        "trackable_close_rate_percent": round(100.0 * won_with_gclid / with_gclid, 1) if with_gclid else 0.0,
+    }
