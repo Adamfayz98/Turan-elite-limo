@@ -124,7 +124,7 @@ export default function BookingForm() {
   // Payment timing — "now" (charge at checkout) or "after" (card saved via
   // Stripe setup mode, charged after ride completion). Trust-builder for
   // first-time customers who hesitate to pay a new site upfront.
-  const [payTiming, setPayTiming] = useState("now");
+  const [payTiming, setPayTiming] = useState("after");
   // ---- Twilio A2P / TCPA consent (REQUIRED to submit) ----
   // `smsConsent` is the express written consent for transactional SMS — must
   // be explicitly checked, not pre-checked. `smsPromoOptIn` is the optional

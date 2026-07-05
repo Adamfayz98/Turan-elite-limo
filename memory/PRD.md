@@ -1229,3 +1229,41 @@ See `/app/memory/test_credentials.md`
 - Pay-after-ride is the Blacklane-style safest pattern: card validated at booking ($0 auth), charged off-session after ride, payment-link fallback on decline.
 
 **Backlog additions:** optional pre-auth hold 24h before pickup for pay-after-ride bookings; Google review count on landing/checkout pages; TCP license # near pay button; minor React duplicate-key warning audit on /casino /motor-coach /mini-coach (non-blocking).
+
+---
+
+## 2026-07-05 — "Book Now · Pay After Ride" marketing push + Stripe checkout page trust copy (Iteration 50)
+
+**Context / Why:** User reported Stripe checkout drop-off is the #1 revenue leak — customers weren't even clicking "Proceed to Payment", so the Stripe wallet-support was moot. Solution was to REPEAT the "Book Now · Pay After Ride" (no charge today) promise across every surface a customer touches, and add Apple Pay / Google Pay + 5-star Google Reviews trust signals right before Stripe redirect.
+
+**Frontend surfaces updated:**
+- Homepage Hero (`Hero.jsx`): new gold pill "Book Now · Pay After Your Ride · No card charged today"; primary CTA renamed "Reserve Now · Pay After Ride" (was "Reserve Your Ride").
+- FleetPicker (`FleetPicker.jsx`): gold ribbon "BOOK NOW · PAY AFTER RIDE" on Executive Sedan, First Class, Luxury SUV cards only.
+- Landing pages (`LandingPage.jsx`): new `hidePayAfterBadge` prop. Pill shown on /wedding, /wine-tour, /airport, /corporate; hidden on /party-bus, /motor-coach, /mini-coach, /casino (group-only vehicles).
+- BookingForm (`BookingForm.jsx`): pay-timing options REORDERED (pay-after now first with "Recommended" badge, "$0 today" chip); **default payTiming now = "after"** so first-time visitors see "Reserve Now · $0 Due Today" without clicking; wallet+reviews trust strip below submit.
+- PayBooking (`PayBooking.jsx`): TrustPaymentBadges (Apple Pay / Google Pay / Visa / MC / Amex + 5-star Google Reviews **WITHOUT count**) below the Pay button.
+
+**New reusable components:**
+- `/app/frontend/src/components/PayAfterRideBadge.jsx` — 4 variants: hero, ribbon, inline, banner.
+- `/app/frontend/src/components/TrustPaymentBadges.jsx` — wallet accept-marks (SVG) + 5-star Google Reviews text (NO count per user request).
+
+**Backend — Stripe Checkout page trust text:**
+- `POST /api/payments/checkout` (pay-now): added `submit_type=book`, `custom_text[submit][message]="Reservation confirmed instantly · Flat rate — no surge, no hidden fees · Free cancellation up to 24 hours · Apple Pay & Google Pay accepted."`, and line-item description with pickup→dropoff + date.
+- `POST /api/payments/checkout-setup` (pay-after-ride): added `custom_text[submit][message]="You will NOT be charged today. Your card is securely saved by Stripe and only charged AFTER your ride is completed. Apple Pay & Google Pay supported for one-tap card setup."`
+- Verified with live Stripe API: both sessions accepted with 200 + valid checkout URLs.
+
+**RouteMap race condition fix (bug reported by user: Four Seasons → Carneros, Napa showed blank):**
+- Extracted `_computeRoute` helper. Boot effect now calls it directly after DirectionsRenderer is ready — so if pickup+dropoff were set BEFORE the map booted, the initial route computation isn't lost.
+- Improved error copy: "No driving route found — try a nearby landmark or the venue name."
+
+**Google Ads copy handoff for user/CAI:**
+- `/app/memory/GOOGLE_ADS_COPY_PAY_AFTER_RIDE.md` — 16 RSA headlines, 6 descriptions, sitelinks, callouts, structured snippets, and ad-group-specific variants (Airport, Executive Sedan, Corporate, Wedding, Party Bus). Ready to paste into Google Ads Editor.
+
+**Testing:**
+- Test report: `/app/test_reports/iteration_50.json` — 100% pass (16/16 UI checks + 11/11 pytest incl. iter49 regression).
+- New backend tests: `/app/backend/tests/test_iter50_marketing_push.py` (3 cases).
+
+**Pending user actions:**
+- User to hand off `GOOGLE_ADS_COPY_PAY_AFTER_RIDE.md` to CAI to update Google Ads campaigns.
+- User to redeploy website to production (currently in preview).
+- Still pending from iter49 handoff: Twilio A2P Option A vs B choice; Google Ads OAuth secret rotation.

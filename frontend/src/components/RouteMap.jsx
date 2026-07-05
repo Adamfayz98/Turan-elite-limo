@@ -62,6 +62,52 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
     process.env.REACT_APP_GOOGLE_MAPS_API_KEY ||
     "";
 
+  // Extracted so the boot effect can trigger the first route directly, and
+  // the address-change effect can trigger subsequent routes. Kept above both
+  // effects to avoid any temporal-dead-zone risk when the boot effect's
+  // async .then callback closes over it.
+  const _computeRoute = (pu, doff, sp) => {
+    if (!pu || !doff) {
+      setSummary(null);
+      return;
+    }
+    if (!window.google?.maps || !rendererRef.current) return;
+    setLoading(true);
+    setError("");
+    const svc = new window.google.maps.DirectionsService();
+    const waypoints = (sp || [])
+      .filter((s) => s && s.trim())
+      .map((s) => ({ location: s, stopover: true }));
+    svc.route(
+      {
+        origin: pu,
+        destination: doff,
+        waypoints,
+        travelMode: window.google.maps.TravelMode.DRIVING,
+      },
+      (res, status) => {
+        setLoading(false);
+        if (status !== "OK" || !res) {
+          setError(
+            status === "ZERO_RESULTS"
+              ? "No driving route found — try a nearby landmark or the venue name."
+              : `Couldn't draw route (${status}). Try again in a moment.`,
+          );
+          setSummary(null);
+          return;
+        }
+        rendererRef.current.setDirections(res);
+        const legs = res.routes?.[0]?.legs || [];
+        const totalMeters = legs.reduce((a, l) => a + (l.distance?.value || 0), 0);
+        const totalSeconds = legs.reduce((a, l) => a + (l.duration?.value || 0), 0);
+        setSummary({
+          distanceText: `${(totalMeters / 1609.344).toFixed(1)} mi`,
+          durationText: humanDuration(totalSeconds),
+        });
+      },
+    );
+  };
+
   // Boot the Map exactly once when both addresses are present
   useEffect(() => {
     if (!pickup || !dropoff || !mapDivRef.current || mapInstanceRef.current) return;
@@ -104,51 +150,6 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
       cancelled = true;
     };
   }, [apiKey, pickup, dropoff]);
-
-  // Extracted so the boot effect can trigger the first route directly, and
-  // the address-change effect can trigger subsequent routes. Uses refs so it
-  // doesn't need to be a dependency anywhere.
-  const _computeRoute = (pu, doff, sp) => {
-    if (!pu || !doff) {
-      setSummary(null);
-      return;
-    }
-    if (!window.google?.maps || !rendererRef.current) return;
-    setLoading(true);
-    setError("");
-    const svc = new window.google.maps.DirectionsService();
-    const waypoints = (sp || [])
-      .filter((s) => s && s.trim())
-      .map((s) => ({ location: s, stopover: true }));
-    svc.route(
-      {
-        origin: pu,
-        destination: doff,
-        waypoints,
-        travelMode: window.google.maps.TravelMode.DRIVING,
-      },
-      (res, status) => {
-        setLoading(false);
-        if (status !== "OK" || !res) {
-          setError(
-            status === "ZERO_RESULTS"
-              ? "No driving route found — try a nearby landmark or the venue name."
-              : `Couldn't draw route (${status}). Try again in a moment.`,
-          );
-          setSummary(null);
-          return;
-        }
-        rendererRef.current.setDirections(res);
-        const legs = res.routes?.[0]?.legs || [];
-        const totalMeters = legs.reduce((a, l) => a + (l.distance?.value || 0), 0);
-        const totalSeconds = legs.reduce((a, l) => a + (l.duration?.value || 0), 0);
-        setSummary({
-          distanceText: `${(totalMeters / 1609.344).toFixed(1)} mi`,
-          durationText: humanDuration(totalSeconds),
-        });
-      },
-    );
-  };
 
   // Recompute the route any time addresses change.
   useEffect(() => {
