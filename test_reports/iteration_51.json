@@ -1,0 +1,113 @@
+{
+  "summary": "Iteration 51 — 4 bug-fix verification on top of iter49/50. Backend 9/9 PASS (child-seat pricing on /quote, /bookings persistence, legacy child_seat=true fallback, /public exposes promo_code+discount_amount+original_quote_amount+child_seat_count). Regression 11/11 iter49+iter50 PASS. Frontend BUG #2, #3, #4 PASS. Frontend BUG #1 PayBooking UI FAIL — /pay/{id} still shows original $219.67 as 'DUE NOW' + on 'Pay $X & Secure' button instead of the discounted $175.74. Also uncovered a pre-existing backend bug in _validate_promo_for_booking that 500s on legacy-schema promos (WELCOME20).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/promos/validate",
+        "issue": "500 Internal Server Error with KeyError: 'discount_type' for promos created via _ensure_promo_code_exists (legacy schema uses percent_off, not discount_type). Blocks WELCOME20 and any similarly-seeded code from being applied by the customer. Not introduced by iter51 but VERY relevant because BUG #2 fix adds a promo-override-input that specifically prompts customers to type personal codes.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "PayBooking.jsx",
+        "issue": "BUG #1 FIX INCOMPLETE — for a pay-after-ride booking with a promo applied (payment_status=='pending', payment_mode=='pay_after_ride'), the 'Due after ride' row + 'Pay $X & Secure' button both render booking.deposit_amount ($219.67 = ORIGINAL) instead of booking.pay_later_amount ($175.74 = DISCOUNTED). Root cause: line 391 label uses `isCardOnFile ? 'Due after ride' : 'Due now'` but isCardOnFile only becomes true after Stripe callback flips payment_status→card_on_file. Before that (i.e., on the page the customer first lands on), the fallback is deposit_amount. Screenshot confirmed: reservation TEL-YR6T9N shows 'DUE NOW · $219.67' + 'Pay $219.67 & Secure' even though pay_later_amount=$175.74 in the /public response. Original-quote strike-through + savings row DO render correctly (data-testid=pay-promo-savings). Fix: switch label + amount off booking.payment_mode==='pay_after_ride' rather than payment_status==='card_on_file'; use booking.pay_later_amount as the source of truth when payment_mode is pay_after_ride.",
+        "selector": "[data-testid=pay-due-amount], [data-testid=pay-now-button]",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Customer promo override on BookingForm",
+        "issue": "When BUG #2's promo-override-input is used with a legacy-schema code like WELCOME20, the /promos/validate endpoint 500s and the customer sees only 'Could not validate code, try again' — original WELCOME auto-applied promo stays active. THANKS-JEUY8Q (newer schema) works correctly. Not iter51-caused; recommend a follow-up: normalize legacy promo schema on read OR handle percent_off inside _validate_promo_for_booking.",
+        "affected_selectors": ["[data-testid=promo-override-input]", "[data-testid=promo-override-apply]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "task_results": {
+    "bug1_backend_public_endpoint": {
+      "status": "PASS",
+      "evidence": "GET /api/bookings/{id}/public returns promo_code='WELCOME', discount_amount=43.93, original_quote_amount=219.67, quote_amount=219.67, pay_later_amount=175.74 (= 219.67 − 43.93), child_seat_count=2. Verified via TestPayAfterRideDiscount (2/2 pass) + curl."
+    },
+    "bug1_paybooking_ui_promo_savings_row": {
+      "status": "PASS",
+      "evidence": "line-through '$219.67' + data-testid=pay-promo-savings row with 'WELCOME' chip + 'You saved $43.93' + '-$43.93' all render correctly."
+    },
+    "bug1_paybooking_ui_due_amount": {
+      "status": "FAIL",
+      "evidence": "data-testid=pay-due-amount shows $219.67 (deposit_amount, i.e., ORIGINAL) instead of $175.74 (pay_later_amount, i.e., DISCOUNTED). Label reads 'DUE NOW' instead of 'Due after ride'. 'Pay $219.67 & Secure' button also shows original amount. This is the exact bug the user reported — see PayBooking.jsx line 391 + 393-394 + 415."
+    },
+    "bug1_admin_dialog_three_rows": {
+      "status": "PASS (code review only, no live admin JWT test)",
+      "evidence": "BookingDetailsDialog.jsx line 507-533 renders three rows when b.promo_code && b.discount_amount: 'Quote (before promo)' = original_quote_amount, 'Promo applied' = code + discount, 'Final quote' = pay_later_amount (highlighted). Backend fields verified via /public. Legacy single-row branch preserved for bookings without a promo."
+    },
+    "bug2_promo_override_ui_visible": {
+      "status": "PASS",
+      "evidence": "With WELCOME auto_apply=True in mongo, the BookingForm renders promo chip + 'Auto-applied' badge + data-testid=promo-override-input + data-testid=promo-override-apply below. Text 'HAVE A PERSONAL CODE? ENTER IT BELOW TO REPLACE THE AUTO-APPLIED ONE.' is present."
+    },
+    "bug2_promo_override_replaces": {
+      "status": "PASS",
+      "evidence": "Typing THANKS-JEUY8Q + clicking Apply replaced auto-applied WELCOME. New chip: 'THANKS-JEUY8Q · Saved $25.00 · New total $117.56 · Thanks for referring Dave!' (no Auto-applied badge). Submit button updated to 'Secure Checkout · $117.56'. Toast 'Code THANKS-JEUY8Q applied — you save $25.00!' fired. WELCOME20 also attempted but the underlying /promos/validate 500'd — see backend critical issue."
+    },
+    "bug3_pay_timing_order": {
+      "status": "PASS",
+      "evidence": "pay-timing-now bounding box x=361 (LEFT); pay-timing-after bounding box x=966 (RIGHT). Order confirmed."
+    },
+    "bug3_recommended_badge_removed": {
+      "status": "PASS",
+      "evidence": "pay-timing-after text content = 'Book Now · Pay After Ride $0 today Card securely verified & saved by Stripe — never charged today. Pay only after your ride is complete. Apple Pay & Google Pay ready.' — NO 'Recommended' anywhere."
+    },
+    "bug3_default_pay_timing_now": {
+      "status": "PASS",
+      "evidence": "On fresh load with Executive Sedan selected, pay-timing-now has ring-1 selected class + booking-submit shows 'Secure Checkout · $178.20 →'. Clicking pay-timing-after switches submit to 'Reserve Now · $0 Due Today →'."
+    },
+    "bug4_child_seat_ui_picker": {
+      "status": "PASS",
+      "evidence": "data-testid=booking-child-seat-block renders with -/count/+ controls. Default=0, decrement disabled at 0. Max cap at 6 with increment disabled at 6. Label reads 'Child seats · DOT-compliant, forward-facing · $20 per seat'."
+    },
+    "bug4_child_seat_quote_bump": {
+      "status": "PASS",
+      "evidence": "Executive Sedan submit price: 0 seats=$178.20 → 2 seats=$219.60 (delta=$41.40, i.e. $40 + ~3.5% fee). Backend TestQuoteChildSeatPricing: 1-seat +$20.70, 2-seat +$41.40, hourly +$20.70. Booking + checkout-setup carries the fee: pay_later_amount delta $40 for 2 seats."
+    },
+    "bug4_legacy_child_seat_fallback": {
+      "status": "PASS",
+      "evidence": "TestLegacyChildSeatFallback: mongo-inserted booking with {child_seat: true, child_seat_count: 0} → /public quote_amount includes $20 (delta vs no-seat baseline = $20.70). _compute_quote_amount falls back to 1 seat."
+    },
+    "regression_iter49_iter50": {
+      "status": "PASS",
+      "evidence": "cd /app/backend && REACT_APP_BACKEND_URL=<url> python -m pytest tests/test_iter49_pay_after_ride.py tests/test_iter50_marketing_push.py -q → 11 passed in 8.94s."
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter51_bug_fixes.py",
+    "/app/test_reports/pytest/iter51_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL — Fix PayBooking.jsx line 391 + 393-394 + 415: switch 'Due' label & amount + 'Pay $X & Secure' button off booking.payment_mode==='pay_after_ride' (or use booking.pay_later_amount whenever it's non-null) instead of relying on isCardOnFile which only flips AFTER Stripe callback. Currently a customer with an auto-applied promo lands on /pay/{id} and sees 'DUE NOW · $219.67' + 'Pay $219.67 & Secure' when the actual discounted charge is $175.74 — same class of confusion the user originally reported.",
+    "HIGH — Fix _validate_promo_for_booking (server.py:2595) KeyError on legacy-schema promos. Promos created via _ensure_promo_code_exists have {percent_off: N} while newer promos have {discount_type: 'percent', value: N}. Add a fallback: `discount_type = promo.get('discount_type') or ('percent' if 'percent_off' in promo else 'fixed'); value = promo.get('value') if 'value' in promo else promo.get('percent_off')`. Without this, WELCOME20 and any customer-typed personal code seeded via that helper causes a 500."
+  ],
+  "critical_code_review_comments": [
+    "PayBooking.jsx uses `isCardOnFile` (payment_status==='card_on_file') as the single switch for both label and amount, but a pay-after-ride booking is 'pending' until Stripe fires the setup_intent.succeeded webhook. During the entire pre-Stripe window (which is what customers see when they open the emailed /pay link), the code falls back to the ORIGINAL deposit_amount. The fix should key off payment_mode (which is stamped in DB before we ever redirect the customer to Stripe).",
+    "BookingForm.jsx is now ~1579 lines (was 1505 last iter, 1400 iter49). Keep flagging for extraction — PayTimingBlock, PromoBlock (including override), ChildSeatPicker are all self-contained.",
+    "server.py _validate_promo_for_booking assumes newer promo schema {discount_type, value} — legacy promos with {percent_off} 500. Impacts BUG #2's whole point (letting customers apply a personal code over an auto-applied one).",
+    "PayBooking.jsx line 415 uses booking.deposit_amount for the 'Pay $X & Secure' button — same conceptual issue as line 394. Should use the effective discounted amount to avoid the same 'sticker vs charged' mismatch on pay-now flow when a promo is applied.",
+    "BookingForm applyPromo does not clear dismissedAutoCodes when the customer applies an override — if they later hit Remove on the override, the auto-promo won't re-appear because dismissedAutoCodes isn't touched. Minor UX consideration, not a regression."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter51_bug_fixes.py (new, 9 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% for iter51 new tests (9/9) + 100% for iter49/50 regression (11/11)",
+    "frontend": "6/7 bug-fix acceptance criteria PASS. 1 CRITICAL FAIL: PayBooking Due amount + Pay button show original instead of discounted (BUG #1 UI incomplete)."
+  },
+  "test_credentials": "Admin: support@turanelitelimo.com / TuronAdmin@2025 (not exercised via UI — admin dialog fields verified via code review + /public API which drives the UI).",
+  "seed_data_creation": "Backend tests created ~50 TEST_ pay-later bookings (emails prefixed iter51-test+, iter51-bug1@, legacy-, legacybase-). All cleaned up post-run via bulk delete. WELCOME promo was toggled auto_apply=True/False during test — CONFIRMED reverted to False at end. No production data touched.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter51 backend test file at /app/backend/tests/test_iter51_bug_fixes.py — reuses booking-create helper pattern from iter49/50. Uses motor to insert legacy booking + toggle promo auto_apply. Cleaned up all TEST_ data. To reproduce BUG #1 PayBooking issue: 1) POST /api/bookings with promo_code='WELCOME' + child_seat_count=2, 2) POST /api/payments/checkout-setup (this sets payment_mode=pay_after_ride but leaves payment_status='pending'), 3) Visit /pay/{id} — DUE NOW row shows original quote instead of pay_later_amount. Same for the 'Pay $X & Secure' button. Fix must live in PayBooking.jsx lines 391/394/415. WELCOME auto_apply flag was toggled during testing and reverted to False at end. Frontend testId reminders (unchanged from iter50): booking-pickup / booking-dropoff, vehicle-card-{Name}, keyboard.type triggers React state on autocomplete inputs.",
+  "rca of the issue": "BUG #1 (PayBooking) — Root cause: PayBooking.jsx conflates 'card saved successfully' (payment_status==='card_on_file', which only flips after Stripe webhook fires post-Setup-Intent-completion) with 'this is a pay-after-ride booking' (payment_mode==='pay_after_ride', which is stamped in DB the moment the customer clicks 'Pay After Ride' + hits /checkout-setup). All THREE places that render the 'to-charge' amount to the customer (label at line 391, amount at line 394, button at line 415) are gated on payment_status not payment_mode. So during the window between hitting /checkout-setup and the Stripe webhook firing (which is the ENTIRE window in which the customer sees /pay/{id}), the code falls to the else-branch and shows deposit_amount = original quote_amount. Backend is correct — pay_later_amount is the discounted number and is exposed on /public. Mitigation: change the gate to `booking.payment_mode === 'pay_after_ride'` (and use booking.pay_later_amount as source). This is 100% a frontend fix — one-line-per-place, three places total."
+}

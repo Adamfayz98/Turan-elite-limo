@@ -346,12 +346,40 @@ export default function PayBooking() {
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between">
-                  <div className="text-xs uppercase tracking-[0.2em] text-white/50">Total quoted</div>
-                  <div className="font-serif text-2xl text-white">
-                    ${booking.quote_amount?.toFixed(2)}
+                {/* If a promo was applied, show the original strike-through +
+                    savings badge so customers understand the "Due" number is
+                    already discounted. Prevents the "why does it say $300
+                    when the vehicle card said $240?" confusion. */}
+                {booking.promo_code && booking.discount_amount > 0 ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs uppercase tracking-[0.2em] text-white/50">Original quote</div>
+                      <div className="font-serif text-lg text-white/45 line-through">
+                        ${Number(booking.original_quote_amount ?? booking.quote_amount).toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-2 text-sm" data-testid="pay-promo-savings">
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-300 font-mono text-xs tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30">
+                          {booking.promo_code}
+                        </span>
+                        <span className="text-emerald-300">
+                          You saved ${Number(booking.discount_amount).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="text-emerald-300">
+                        −${Number(booking.discount_amount).toFixed(2)}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs uppercase tracking-[0.2em] text-white/50">Total quoted</div>
+                    <div className="font-serif text-2xl text-white">
+                      ${booking.quote_amount?.toFixed(2)}
+                    </div>
                   </div>
-                </div>
+                )}
                 {booking.deposit_percent < 100 && (
                   <div className="flex items-center justify-between mt-2 text-sm">
                     <div className="text-white/55">Deposit ({booking.deposit_percent}% due now)</div>
@@ -362,7 +390,7 @@ export default function PayBooking() {
                   <div className="text-xs uppercase tracking-[0.2em] text-[#D4AF37]">
                     {isPaid ? "Paid in full" : isCardOnFile ? "Due after ride" : "Due now"}
                   </div>
-                  <div className="font-serif text-3xl gold-text">
+                  <div className="font-serif text-3xl gold-text" data-testid="pay-due-amount">
                     ${(isPaid ? booking.paid_amount : isCardOnFile ? (booking.pay_later_amount ?? booking.deposit_amount) : booking.deposit_amount)?.toFixed(2)}
                   </div>
                 </div>

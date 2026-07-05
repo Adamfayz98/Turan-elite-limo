@@ -427,7 +427,16 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
             <Row
               icon={Briefcase}
               label="Passengers"
-              value={`${b.passengers}${b.luggage_count ? ` · ${b.luggage_count} bag${b.luggage_count > 1 ? "s" : ""}` : ""}${b.child_seat ? " · child seat" : ""}`}
+              value={(() => {
+                const seatCount = Number(b.child_seat_count) || (b.child_seat ? 1 : 0);
+                const seatLabel =
+                  seatCount === 0
+                    ? ""
+                    : seatCount === 1
+                      ? " · 1 child seat (+$20)"
+                      : ` · ${seatCount} child seats (+$${seatCount * 20})`;
+                return `${b.passengers}${b.luggage_count ? ` · ${b.luggage_count} bag${b.luggage_count > 1 ? "s" : ""}` : ""}${seatLabel}`;
+              })()}
             />
           </div>
         </div>
@@ -496,12 +505,39 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
             <Row icon={DollarSign} label="Amount paid" value={`$${Number(b.paid_amount).toFixed(2)}`} />
           )}
           {b.quote_amount != null && (
-            <Row icon={DollarSign} label="Quote" value={`$${Number(b.quote_amount).toFixed(2)}`} />
+            b.promo_code && b.discount_amount ? (
+              <>
+                <Row
+                  icon={DollarSign}
+                  label="Quote (before promo)"
+                  value={`$${Number(b.original_quote_amount ?? b.quote_amount).toFixed(2)}`}
+                />
+                <Row
+                  icon={DollarSign}
+                  label="Promo applied"
+                  value={`${b.promo_code} (-$${Number(b.discount_amount || 0).toFixed(2)})`}
+                />
+                <Row
+                  icon={DollarSign}
+                  label="Final quote"
+                  value={`$${Number(
+                    b.pay_later_amount ??
+                      (Number(b.original_quote_amount ?? b.quote_amount) - Number(b.discount_amount || 0))
+                  ).toFixed(2)}`}
+                  highlight
+                />
+              </>
+            ) : (
+              <Row icon={DollarSign} label="Quote" value={`$${Number(b.quote_amount).toFixed(2)}`} />
+            )
           )}
           {b.tip_amount != null && (
             <Row icon={DollarSign} label="Chauffeur tip" value={`$${Number(b.tip_amount).toFixed(2)}`} highlight />
           )}
-          {b.promo_code && (
+          {/* Legacy promo row — only render when we DIDN'T already render the
+              richer breakdown above (i.e., quote_amount was missing but promo
+              was recorded). Avoids showing the promo twice. */}
+          {b.promo_code && b.quote_amount == null && (
             <Row
               icon={DollarSign}
               label="Promo applied"

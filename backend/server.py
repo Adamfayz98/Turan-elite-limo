@@ -183,6 +183,11 @@ class BookingCreate(BaseModel):
     passengers: int = Field(..., ge=1, le=60)
     luggage_count: int = Field(0, ge=0, le=60)
     child_seat: bool = False
+    # Number of child seats requested — $20/seat added to the fare. Kept
+    # separate from `child_seat` (bool) for backwards compat with older
+    # bookings; new bookings should send this. When present + > 0, child_seat
+    # is auto-set to True.
+    child_seat_count: int = Field(0, ge=0, le=6)
     additional_stops: List[str] = Field(default_factory=list)
     return_trip: bool = False
     return_location: Optional[str] = ""
@@ -226,6 +231,7 @@ class Booking(BaseModel):
     passengers: int
     luggage_count: int = 0
     child_seat: bool = False
+    child_seat_count: int = 0
     additional_stops: List[str] = Field(default_factory=list)
     return_trip: bool = False
     return_location: str = ""
@@ -537,6 +543,14 @@ async def create_booking(payload: BookingCreate, request: Request):
     doc['notes'] = doc.get('notes') or ""
     doc['return_location'] = doc.get('return_location') or ""
     doc['additional_stops'] = doc.get('additional_stops') or []
+    # Normalize child seat state: if the count wasn't sent but the boolean is
+    # on, default to 1 seat; if the count was sent, mirror it onto the boolean
+    # so legacy admin views (child_seat = "yes/no") stay correct.
+    seat_ct = int(doc.get('child_seat_count') or 0)
+    if seat_ct == 0 and doc.get('child_seat'):
+        seat_ct = 1
+    doc['child_seat_count'] = seat_ct
+    doc['child_seat'] = seat_ct > 0
     # Manage token issued upfront so the customer can cancel/change even while pending
     doc['manage_token'] = _generate_manage_token()
     # ----- Twilio A2P audit trail -----
@@ -623,6 +637,9 @@ class QuoteRequest(BaseModel):
     meet_and_greet: bool = False  # Airport Transfer only
     additional_stops_count: int = Field(0, ge=0, le=10)  # # of extra stops; priced via Settings.per_stop_fee
     additional_stops: List[str] = Field(default_factory=list)  # actual addresses, used to extend the priced route
+    # Number of child seats — $20/seat added to every vehicle's quote so the
+    # customer sees the correctly-inclusive fare on the picker cards.
+    child_seat_count: int = Field(0, ge=0, le=6)
 
 
 class VehicleQuote(BaseModel):
@@ -692,6 +709,11 @@ def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
 # long-distance jobs we sub to affiliates).
 SERVICE_AREA_CENTER = (37.7749, -122.4194)  # downtown SF
 SERVICE_AREA_RADIUS_MI = 130.0
+
+# Flat fee per child seat added to a booking. Applied by _compute_quote_amount
+# on top of the base fare (before service fee) — we don't want to erode
+# margin by absorbing DOT-compliant seat sourcing cost anymore.
+CHILD_SEAT_FEE = 20.0
 
 
 def _pickup_in_service_area(pickup_coord: Optional[dict]) -> bool:
@@ -857,6 +879,7 @@ def _build_hourly_quotes(
     pricing_map: dict,
     surge_mult: float = 1.0,
     surge_flat: float = 0.0,
+    addon_flat: float = 0.0,
 ) -> List[VehicleQuote]:
     """Hourly chauffeur pricing: hourly_rate × hours, ignores trip distance."""
     quotes: List[VehicleQuote] = []
@@ -873,6 +896,10 @@ def _build_hourly_quotes(
         price = rate * hours
         if has_event:
             price = _apply_surge(price, surge_mult, surge_flat)
+        # Flat add-ons (child seats etc.) — surcharge fees that don't scale
+        # with hours; applied after surge so they aren't inflated.
+        if addon_flat > 0:
+            price += addon_flat
         price = round(price, 2)
         base_msg = f"${int(rate) if rate == int(rate) else rate}/hr × {hours} hrs"
         if has_event:
@@ -1150,13 +1177,19 @@ async def quote_ride(payload: QuoteRequest):
     stops_count = int(payload.additional_stops_count or 0)
     is_hourly_q = payload.service_type == "Hourly Chauffeur"
     stop_fee_total = 0.0 if is_hourly_q else round(per_stop_fee * stops_count, 2)
+    # Child seat flat fee ($20/seat) — bolts onto every priced vehicle quote
+    # so the customer sees the correctly-inclusive fare in the picker.
+    seat_count = int(payload.child_seat_count or 0)
+    child_seat_total = round(CHILD_SEAT_FEE * seat_count, 2) if seat_count > 0 else 0.0
     # Combined flat add-on that gets bolted onto every priced vehicle quote
-    addon_flat_total = round(mg_fee + stop_fee_total, 2)
+    addon_flat_total = round(mg_fee + stop_fee_total + child_seat_total, 2)
     addon_tags: List[str] = []
     if mg_fee > 0:
         addon_tags.append("meet & greet")
     if stop_fee_total > 0:
         addon_tags.append(f"{stops_count} stop{'s' if stops_count > 1 else ''}")
+    if child_seat_total > 0:
+        addon_tags.append(f"{seat_count} child seat{'s' if seat_count > 1 else ''}")
 
     # Surge events (date-based) — apply on top of all base/hourly pricing
     surge_events = await _load_surge_events()
@@ -1207,7 +1240,7 @@ async def quote_ride(payload: QuoteRequest):
                 fallback=True,
             ), settings.service_fee_percent))
         return await _apply_auto_promo_to_quote_response(_apply_service_fee_to_quote_response(QuoteResponse(
-            quotes=_build_hourly_quotes(payload.hours, pricing_map, surge_mult=surge_mult, surge_flat=surge_flat),
+            quotes=_build_hourly_quotes(payload.hours, pricing_map, surge_mult=surge_mult, surge_flat=surge_flat, addon_flat=child_seat_total),
             pricing_mode="hourly",
             hours=payload.hours,
             included_miles=payload.hours * HOURLY_MILES_INCLUDED_PER_HOUR,
@@ -2836,6 +2869,13 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
     stops_count = len(booking.get("additional_stops") or [])
     if stops_count > 0 and settings.per_stop_fee and settings.per_stop_fee > 0:
         price += stops_count * float(settings.per_stop_fee)
+    # Child seat fee ($20/seat). Prefer explicit count; fall back to legacy
+    # boolean = 1 seat so older bookings still price correctly.
+    seat_count = int(booking.get("child_seat_count") or 0)
+    if seat_count == 0 and booking.get("child_seat"):
+        seat_count = 1
+    if seat_count > 0:
+        price += seat_count * CHILD_SEAT_FEE
     # Service fee (transparent percentage on top)
     if settings.service_fee_percent and settings.service_fee_percent > 0:
         price += price * (settings.service_fee_percent / 100.0)
@@ -2893,6 +2933,7 @@ async def get_public_booking(booking_id: str):
         "passengers": b.get("passengers"),
         "luggage_count": b.get("luggage_count"),
         "child_seat": b.get("child_seat"),
+        "child_seat_count": b.get("child_seat_count") or (1 if b.get("child_seat") else 0),
         "return_trip": b.get("return_trip"),
         "return_location": b.get("return_location"),
         "additional_stops": b.get("additional_stops", []),
@@ -2904,6 +2945,13 @@ async def get_public_booking(booking_id: str):
         "payment_mode": b.get("payment_mode"),
         "pay_later_amount": b.get("pay_later_amount"),
         "pay_later_charge_error": b.get("pay_later_charge_error"),
+        # Promo fields — exposed so the customer + thank-you page can render
+        # the strike-through original price + savings badge without ambiguity
+        # (customers were seeing "Total quoted = $X" and thinking that's what
+        # would be charged, even when a discount was applied).
+        "promo_code": b.get("promo_code"),
+        "discount_amount": b.get("discount_amount"),
+        "original_quote_amount": b.get("original_quote_amount"),
         "driver_name": b.get("driver_name"),
         "trip_status": b.get("trip_status"),
         "manage_token": b.get("manage_token"),

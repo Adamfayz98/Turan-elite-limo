@@ -78,6 +78,7 @@ const initialForm = {
   passengers: 1,
   luggage_count: 0,
   child_seat: false,
+  child_seat_count: 0,
   return_trip: false,
   return_location: "",
   vehicle_type: "",
@@ -122,9 +123,11 @@ export default function BookingForm() {
   const [waitConsent, setWaitConsent] = useState(false);
   const [waitPolicy, setWaitPolicy] = useState(null);
   // Payment timing — "now" (charge at checkout) or "after" (card saved via
-  // Stripe setup mode, charged after ride completion). Trust-builder for
-  // first-time customers who hesitate to pay a new site upfront.
-  const [payTiming, setPayTiming] = useState("after");
+  // Stripe setup mode, charged after ride completion). Default is "now" so
+  // we don't tilt customers away from prepayment (which is preferred for
+  // cashflow + no-shows). Customers who want to pay after ride can pick it
+  // explicitly — both options are equally weighted in the UI.
+  const [payTiming, setPayTiming] = useState("now");
   // ---- Twilio A2P / TCPA consent (REQUIRED to submit) ----
   // `smsConsent` is the express written consent for transactional SMS — must
   // be explicitly checked, not pre-checked. `smsPromoOptIn` is the optional
@@ -225,6 +228,7 @@ export default function BookingForm() {
           meet_and_greet: !!form.meet_and_greet,
           additional_stops_count: cleanStops.length,
           additional_stops: cleanStops,
+          child_seat_count: Number(form.child_seat_count) || 0,
         });
         setQuote(data);
         setOutOfArea(null);
@@ -245,7 +249,7 @@ export default function BookingForm() {
       }
     }, 1100);
     return () => quoteTimer.current && clearTimeout(quoteTimer.current);
-  }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours, form.meet_and_greet, date, stops]);
+  }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours, form.meet_and_greet, form.child_seat_count, date, stops]);
 
   const addStop = () => setStops((s) => [...s, { id: newStopId(), value: "" }]);
   const removeStop = (id) => setStops((s) => s.filter((x) => x.id !== id));
@@ -420,6 +424,8 @@ export default function BookingForm() {
         ...form,
         passengers: Number(form.passengers) || 1,
         luggage_count: Number(form.luggage_count) || 0,
+        child_seat_count: Number(form.child_seat_count) || 0,
+        child_seat: (Number(form.child_seat_count) || 0) > 0,
         additional_stops: stops.map((s) => s.value.trim()).filter(Boolean),
         return_location: form.return_trip ? form.return_location : "",
         pickup_date: format(date, "yyyy-MM-dd"),
@@ -1125,20 +1131,52 @@ export default function BookingForm() {
               </div>
             </div>
 
-            <label
-              className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[#27272A] bg-[#0E0E0E] cursor-pointer hover:border-[#D4AF37]/30 transition-colors md:col-span-2"
-              data-testid="booking-child-seat-toggle"
+            {/* Child seat quantity picker — $20 per seat, up to 6.
+                Legacy `child_seat` boolean is derived from the count on submit
+                so older admin views + emails still show correctly. */}
+            <div
+              className="md:col-span-2 flex flex-wrap items-center justify-between gap-4 px-4 py-3 rounded-xl border border-[#27272A] bg-[#0E0E0E]"
+              data-testid="booking-child-seat-block"
             >
-              <Checkbox
-                checked={form.child_seat}
-                onCheckedChange={(v) => update("child_seat")(!!v)}
-                className="border-white/30 data-[state=checked]:bg-[#D4AF37] data-[state=checked]:border-[#D4AF37] data-[state=checked]:text-black"
-              />
-              <span className="text-sm">
-                <span className="text-white">Add child seat</span>
-                <span className="block text-xs text-white/50">Complimentary on request</span>
-              </span>
-            </label>
+              <div className="min-w-0">
+                <div className="text-sm text-white">Child seats</div>
+                <div className="text-xs text-white/50">
+                  DOT-compliant, forward-facing · <span className="text-[#D4AF37]">$20 per seat</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="child-seat-decrement"
+                  onClick={() =>
+                    update("child_seat_count")(Math.max(0, (Number(form.child_seat_count) || 0) - 1))
+                  }
+                  disabled={(Number(form.child_seat_count) || 0) === 0}
+                  className="w-9 h-9 rounded-full border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10 disabled:opacity-30 disabled:cursor-not-allowed text-lg leading-none"
+                  aria-label="Decrease child seat count"
+                >
+                  −
+                </button>
+                <div
+                  data-testid="child-seat-count-value"
+                  className="min-w-[2.5rem] text-center text-white font-medium tabular-nums"
+                >
+                  {Number(form.child_seat_count) || 0}
+                </div>
+                <button
+                  type="button"
+                  data-testid="child-seat-increment"
+                  onClick={() =>
+                    update("child_seat_count")(Math.min(6, (Number(form.child_seat_count) || 0) + 1))
+                  }
+                  disabled={(Number(form.child_seat_count) || 0) >= 6}
+                  className="w-9 h-9 rounded-full border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10 disabled:opacity-30 disabled:cursor-not-allowed text-lg leading-none"
+                  aria-label="Increase child seat count"
+                >
+                  +
+                </button>
+              </div>
+            </div>
 
             <div className="md:col-span-2">
               <Label className="text-white/80 text-xs uppercase tracking-wider">Special requests</Label>
@@ -1185,37 +1223,76 @@ export default function BookingForm() {
               Apply still requires a vehicle to be selected (guarded in applyPromo). */}
           <div data-testid="promo-section" className="mt-4 rounded-xl border border-[#1F1F1F] bg-[#0A0A0A] p-4">
               {promoApplied ? (
-                <div className="flex flex-wrap items-center gap-3 justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-mono tracking-wider">
-                      {promoApplied.code}
-                    </div>
-                    <div className="text-sm">
-                      <div className="text-emerald-300 flex items-center gap-2 flex-wrap">
-                        Saved ${promoApplied.discount.toFixed(2)} ·{" "}
-                        <span className="text-white/65">
-                          New total ${promoApplied.final_amount.toFixed(2)}
-                        </span>
-                        {promoApplied.auto_applied && (
-                          <span className="text-[9px] uppercase tracking-[0.18em] text-[#D4AF37] bg-[#D4AF37]/10 border border-[#D4AF37]/30 rounded px-1.5 py-[1px]">
-                            Auto-applied
+                <>
+                  <div className="flex flex-wrap items-center gap-3 justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-mono tracking-wider">
+                        {promoApplied.code}
+                      </div>
+                      <div className="text-sm">
+                        <div className="text-emerald-300 flex items-center gap-2 flex-wrap">
+                          Saved ${promoApplied.discount.toFixed(2)} ·{" "}
+                          <span className="text-white/65">
+                            New total ${promoApplied.final_amount.toFixed(2)}
                           </span>
+                          {promoApplied.auto_applied && (
+                            <span className="text-[9px] uppercase tracking-[0.18em] text-[#D4AF37] bg-[#D4AF37]/10 border border-[#D4AF37]/30 rounded px-1.5 py-[1px]">
+                              Auto-applied
+                            </span>
+                          )}
+                        </div>
+                        {promoApplied.description && (
+                          <div className="text-white/45 text-xs mt-0.5">{promoApplied.description}</div>
                         )}
                       </div>
-                      {promoApplied.description && (
-                        <div className="text-white/45 text-xs mt-0.5">{promoApplied.description}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearPromo}
+                      data-testid="promo-remove"
+                      className="text-xs text-white/55 hover:text-white underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  {/* Override input — visible only when the CURRENT promo is
+                      auto-applied. Lets customers redeem a personal code
+                      (e.g. referral, VIP) without first manually removing the
+                      default promo. Typing + Apply replaces the auto-promo. */}
+                  {promoApplied.auto_applied && (
+                    <div className="mt-3 pt-3 border-t border-white/5">
+                      <div className="text-[10px] uppercase tracking-[0.22em] text-white/55 mb-2">
+                        Have a personal code? Enter it below to replace the auto-applied one.
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={promoCode}
+                          onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                          placeholder="e.g. FRIEND10"
+                          data-testid="promo-override-input"
+                          className="flex-1 h-10 px-3 rounded-lg bg-[#0E0E0E] border border-[#27272A] text-white placeholder:text-white/35 text-sm font-mono tracking-wider focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]"
+                          maxLength={40}
+                        />
+                        <Button
+                          type="button"
+                          onClick={applyPromo}
+                          disabled={promoStatus.checking || !promoCode.trim()}
+                          data-testid="promo-override-apply"
+                          className="bg-white/10 hover:bg-white/15 text-white rounded-lg h-10 px-4 text-sm font-medium border border-white/15"
+                        >
+                          {promoStatus.checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Apply"}
+                        </Button>
+                      </div>
+                      {promoStatus.error && (
+                        <div data-testid="promo-error" className="mt-2 text-xs text-red-400">
+                          {promoStatus.error}
+                        </div>
                       )}
                     </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={clearPromo}
-                    data-testid="promo-remove"
-                    className="text-xs text-white/55 hover:text-white underline"
-                  >
-                    Remove
-                  </button>
-                </div>
+                  )}
+                </>
               ) : (
                 <>
                   <div className="text-[10px] uppercase tracking-[0.25em] text-[#D4AF37] mb-2">
@@ -1412,13 +1489,21 @@ export default function BookingForm() {
                 <div className="grid sm:grid-cols-2 gap-3">
                   <button
                     type="button"
+                    data-testid="pay-timing-now"
+                    onClick={() => setPayTiming("now")}
+                    className={optCls(payTiming === "now")}
+                  >
+                    <div className="text-white text-sm font-medium">Pay now</div>
+                    <div className="text-white/55 text-xs mt-1.5 leading-relaxed">
+                      Secure checkout via Stripe. Locks in your reservation instantly. Apple Pay &amp; Google Pay ready.
+                    </div>
+                  </button>
+                  <button
+                    type="button"
                     data-testid="pay-timing-after"
                     onClick={() => setPayTiming("after")}
                     className={optCls(payTiming === "after")}
                   >
-                    <div className="absolute -top-2 right-3 text-[9px] uppercase tracking-widest bg-[#D4AF37] text-black px-2 py-0.5 rounded-full font-semibold shadow-[0_2px_8px_rgba(212,175,55,0.35)]">
-                      Recommended
-                    </div>
                     <div className="text-white text-sm font-medium flex items-center gap-2">
                       Book Now · Pay After Ride
                       <span className="text-[9px] uppercase tracking-widest bg-[#D4AF37]/25 border border-[#D4AF37]/50 text-[#D4AF37] px-1.5 py-0.5 rounded-full font-semibold">
@@ -1427,17 +1512,6 @@ export default function BookingForm() {
                     </div>
                     <div className="text-white/60 text-xs mt-1.5 leading-relaxed">
                       Card securely verified &amp; saved by Stripe — <span className="text-white/85">never charged today</span>. Pay only after your ride is complete. Apple Pay &amp; Google Pay ready.
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="pay-timing-now"
-                    onClick={() => setPayTiming("now")}
-                    className={optCls(payTiming === "now")}
-                  >
-                    <div className="text-white text-sm font-medium">Pay now</div>
-                    <div className="text-white/55 text-xs mt-1.5 leading-relaxed">
-                      Secure checkout via Stripe. Locks in your reservation instantly.
                     </div>
                   </button>
                 </div>

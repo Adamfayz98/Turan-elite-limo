@@ -270,8 +270,12 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str] = None, 
         extras.append(f"Flight number: {booking['flight_number']} (your chauffeur will monitor your flight)")
     if booking.get("meet_and_greet"):
         extras.append("Meet & Greet: chauffeur will meet you inside the terminal at baggage claim")
-    if booking.get("child_seat"):
-        extras.append("Child seat: requested")
+    if booking.get("child_seat") or booking.get("child_seat_count"):
+        seat_ct = int(booking.get("child_seat_count") or (1 if booking.get("child_seat") else 0))
+        if seat_ct == 1:
+            extras.append("Child seat: 1 requested (+$20)")
+        elif seat_ct > 1:
+            extras.append(f"Child seats: {seat_ct} requested (+${seat_ct * 20})")
     if booking.get("luggage_count"):
         extras.append(f"Luggage: {booking['luggage_count']} bags")
     if booking.get("return_trip"):

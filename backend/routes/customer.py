@@ -441,6 +441,7 @@ async def customer_book_and_pay(
         "passengers": payload.passenger_count,
         "luggage_count": 0,
         "child_seat": False,
+        "child_seat_count": 0,
         "additional_stops": [],
         "return_trip": False,
         "return_location": "",
