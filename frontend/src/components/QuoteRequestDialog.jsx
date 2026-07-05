@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
 import {
   Select,
   SelectContent,
@@ -422,13 +423,21 @@ export default function QuoteRequestDialog({
               </div>
             </div>
 
-            {/* Pickup + Dropoff */}
+            {/* Pickup + Dropoff — using PlacesAutocompleteInput (proxied
+                through /api/places/autocomplete which is Bay-Area-restricted)
+                so customers can't accidentally submit incomplete addresses
+                like "3700 Wallace Street" with no city/state. The backend
+                service-area gate is the second line of defense; this is the
+                first — nudge them into typing a REAL, complete Bay Area
+                address before they even hit submit. */}
             <div>
-              <Label className={labelCls}>
-                Pickup location *
-                <InfoHint id="qr-info-pickup" text="Street, hotel, airport, or general area — exact address can come later." />
-              </Label>
-              <Input data-testid="qr-pickup" value={form.pickup_location} onChange={update("pickup_location")} placeholder="123 Main St, San Jose CA" className={inputCls} />
+              <PlacesAutocompleteInput
+                label="Pickup location *"
+                testId="qr-pickup"
+                value={form.pickup_location}
+                onChange={(v) => setForm((s) => ({ ...s, pickup_location: v }))}
+                placeholder="Start typing your pickup — hotel, airport, or address"
+              />
             </div>
 
             {/* Stops (optional, between pickup and dropoff). Each stop is a
@@ -437,20 +446,14 @@ export default function QuoteRequestDialog({
             {stops.length > 0 && (
               <div className="space-y-2">
                 {stops.map((stop, i) => (
-                  <div key={i} className="flex items-center gap-2">
+                  <div key={i} className="flex items-start gap-2">
                     <div className="flex-1">
-                      <Label className={labelCls}>
-                        Stop {i + 1}
-                        {i === 0 && (
-                          <InfoHint id="qr-info-stops" text="Add any stops between pickup and final destination — church, hotel, restaurant, after-party venue, etc." />
-                        )}
-                      </Label>
-                      <Input
-                        data-testid={`qr-stop-${i}`}
+                      <PlacesAutocompleteInput
+                        label={`Stop ${i + 1}`}
+                        testId={`qr-stop-${i}`}
                         value={stop}
-                        onChange={updateStop(i)}
+                        onChange={(v) => setStops((s) => s.map((x, idx) => (idx === i ? v : x)))}
                         placeholder={`Stop ${i + 1} address`}
-                        className={inputCls}
                       />
                     </div>
                     <button
@@ -458,7 +461,7 @@ export default function QuoteRequestDialog({
                       data-testid={`qr-stop-remove-${i}`}
                       onClick={() => removeStop(i)}
                       aria-label={`Remove stop ${i + 1}`}
-                      className="mt-5 h-11 w-11 rounded-full border border-white/10 text-white/50 hover:text-white hover:border-white/30 flex items-center justify-center transition"
+                      className="mt-8 h-11 w-11 rounded-full border border-white/10 text-white/50 hover:text-white hover:border-white/30 flex items-center justify-center transition shrink-0"
                     >
                       <XIcon className="w-4 h-4" />
                     </button>
@@ -478,11 +481,13 @@ export default function QuoteRequestDialog({
             )}
 
             <div>
-              <Label className={labelCls}>
-                Drop-off / destination *
-                <InfoHint id="qr-info-dropoff" text="Where you're going. If it's a multi-stop tour, add the stops in Notes below." />
-              </Label>
-              <Input data-testid="qr-dropoff" value={form.dropoff_location} onChange={update("dropoff_location")} placeholder="SFO Terminal 1, or destination" className={inputCls} />
+              <PlacesAutocompleteInput
+                label="Drop-off / destination *"
+                testId="qr-dropoff"
+                value={form.dropoff_location}
+                onChange={(v) => setForm((s) => ({ ...s, dropoff_location: v }))}
+                placeholder="Where you're going — SFO, hotel, event venue"
+              />
             </div>
 
             {/* Optional notes */}
