@@ -128,12 +128,13 @@ async def driver_update_status(driver_token: str, payload: DriverStatusUpdate, r
         origin = _frontend_origin_from_request(request)
         post_trip_url = f"{origin}/post-trip/{b['manage_token']}"
 
-    # SMS the customer (env-gated; skipped if Twilio not configured)
+    # SMS the customer (env-gated; also gated on sms_consent per Twilio A2P
+    # voluntary-opt-in rules — no SMS if the customer didn't opt in).
     merged = {**b, **set_doc}
     customer_sms = sms_service.render_customer_status_sms(merged, new_status, post_trip_url=post_trip_url)
-    if customer_sms and b.get("phone"):
+    if customer_sms:
         try:
-            await sms_service.send_sms(b["phone"], customer_sms)
+            await sms_service.send_customer_sms(merged, customer_sms)
         except Exception as e:
             logger.warning(f"Customer status SMS failed: {e}")
 
@@ -472,9 +473,9 @@ async def driver_jwt_update_status(
         origin = _frontend_origin_from_request(request)
         post_trip_url = f"{origin}/post-trip/{b['manage_token']}"
     customer_sms = sms_service.render_customer_status_sms(merged, new_status, post_trip_url=post_trip_url)
-    if customer_sms and b.get("phone"):
+    if customer_sms:
         try:
-            await sms_service.send_sms(b["phone"], customer_sms)
+            await sms_service.send_customer_sms(merged, customer_sms)
         except Exception as e:
             logger.warning(f"Customer status SMS failed (jwt-driver): {e}")
     admin_to = sms_service.admin_phone()

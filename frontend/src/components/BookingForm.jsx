@@ -1313,10 +1313,13 @@ export default function BookingForm() {
                 </span>
               </label>
 
-              {/* ---- Twilio A2P 10DLC compliant SMS opt-in (REQUIRED) ----
-                  Two separate, non-pre-checked checkboxes:
-                    1. Transactional SMS (required to submit) — confirmations,
-                       trip updates, driver dispatch, reminders.
+              {/* ---- Twilio A2P 10DLC compliant SMS opt-in (VOLUNTARY) ----
+                  Two separate, non-pre-checked checkboxes. Neither is required
+                  to submit the booking — per carrier rules (2024+), SMS consent
+                  cannot be a condition of service. Customers who opt out still
+                  receive booking confirmations & trip updates via EMAIL.
+                    1. Transactional SMS (optional) — confirmations, trip
+                       updates, driver dispatch, reminders.
                     2. Promotional SMS (optional) — offers, seasonal promos.
                   Includes all 7 required disclosures per Twilio's reviewer
                   checklist: phone capture, consent language, message description,
@@ -1334,7 +1337,6 @@ export default function BookingForm() {
                     data-testid="sms-consent-checkbox"
                     checked={smsConsent}
                     onChange={(e) => setSmsConsent(e.target.checked)}
-                    required
                     className="mt-1 h-5 w-5 accent-[#D4AF37] cursor-pointer flex-shrink-0"
                   />
                   <span className="text-sm text-white/85 leading-relaxed">
@@ -1345,7 +1347,7 @@ export default function BookingForm() {
                     <strong className="text-white">Msg &amp; data rates may apply.</strong>{" "}
                     Reply <strong className="text-white">STOP</strong> to unsubscribe or <strong className="text-white">HELP</strong> for help.
                     See our <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-[#D4AF37] underline">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-[#D4AF37] underline">Privacy Policy</a>.{" "}
-                    <span className="text-[#D4AF37]">*required</span>
+                    <span className="text-white/50">Optional — leave unchecked for email-only updates.</span>
                   </span>
                 </label>
 
@@ -1403,7 +1405,7 @@ export default function BookingForm() {
             <Button
               type="submit"
               data-testid="booking-submit"
-              disabled={submitting || (form.vehicle_type && waitPolicy && (!waitConsent || !smsConsent))}
+              disabled={submitting || (form.vehicle_type && waitPolicy && !waitConsent)}
               className="bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full px-8 h-12 font-medium disabled:opacity-50"
             >
               {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

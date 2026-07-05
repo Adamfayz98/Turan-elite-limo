@@ -2,6 +2,45 @@
 
 > Last refreshed: July 3, 2026 — iter 63 (Promo Health dashboard + dynamic booking chip)
 
+## 📱 Twilio A2P rejection fix — SMS consent now VOLUNTARY (Feb 2026 — iter 50)
+
+**Rejection reason:** "consent cannot be a required condition for service or transaction completion" — Section 3 of the campaign submission literally said "Consent is required to submit the form" and the frontend enforced it.
+
+**Root cause:** SMS consent checkbox was mandatory to submit both booking and quote forms — violates 2024+ CTIA carrier rules. TCPA rule: SMS opt-in must be voluntary and NOT tied to service delivery.
+
+**Fixes shipped (frontend + backend + docs, aligned):**
+
+Frontend:
+- `BookingForm.jsx`: removed `required` on SMS checkbox, removed `!smsConsent` from submit-disabled logic, changed label footer from "*required" to "Optional — leave unchecked for email-only updates"
+- `QuoteRequestDialog.jsx`: same three changes (dropped `smsConsent` from `isValid` memo, removed `required` attr, updated hover title)
+
+Backend:
+- `server.py`: removed `HTTPException(400)` guards on both `/api/bookings` and `/api/quote-requests` when `sms_consent=False`; audit-trail fields (`sms_consent_at`, `sms_consent_ip`) now stamped ONLY when consent is affirmative
+- `sms_service.py`: added `send_customer_sms(booking_or_quote, body)` — silently no-ops if the row doesn't have `sms_consent=True`. Enforces consent at send-time so no code path can accidentally text an opt-out
+- `driver.py`: both customer-status-SMS call sites now use `send_customer_sms`
+- `admin.py`: quote-offer SMS in `/api/admin/quote-requests/{id}/finalize` now gates on `q.get("sms_consent")` — email is always sent, SMS only when opted in
+
+Docs:
+- `TWILIO_A2P_CAMPAIGN_TEXTS.md`: rewrote Section 2 & 3 emphasizing VOLUNTARY opt-in. Added explicit sentence: "SMS consent is entirely optional and is NOT required to submit the form — customers who leave the checkbox unchecked will still receive booking confirmations and trip updates via email and phone call."
+- Section 10 rejection history updated with v2 rejection reason and v3 fix summary
+
+**Testing:**
+- Backend: submitted a quote request with `sms_consent: false` → 200 OK (was 400 before)
+- Lint clean on all modified files
+- Backend still starts cleanly, no regressions
+
+**Files touched:**
+- backend/server.py (removed 2 consent guards, gated audit-trail stamping)
+- backend/sms_service.py (added `send_customer_sms` helper)
+- backend/routes/driver.py (2 call sites → consent-safe helper)
+- backend/routes/admin.py (quote-offer SMS gate)
+- frontend/src/components/BookingForm.jsx (unmandate consent)
+- frontend/src/components/QuoteRequestDialog.jsx (unmandate consent)
+- memory/TWILIO_A2P_CAMPAIGN_TEXTS.md (rewrite Sections 2/3, history log)
+
+---
+
+
 ## 🐛→✅ Google Ads join-direction fix — recoverable count now matches CSV (Feb 2026 — iter 49)
 
 **Bug:** Backfill preview reported `0/29 recoverable` while the Quote Conversions CSV clearly showed at least 2 won bookings with gclid on their parent quote_request (Lisa Rigsbee, Leticia Maldonado). Three views on the same page disagreed:

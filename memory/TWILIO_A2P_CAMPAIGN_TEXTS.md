@@ -1,8 +1,10 @@
 # Twilio A2P 10DLC Campaign Registration — Copy/Paste Texts
 
-> Last updated: Feb 28, 2026 — **v2 (post Error 30893 rejection fix)**
+> Last updated: Feb 2026 — **v3 (post "consent cannot be a condition of service" rejection)**
 >
 > Submit these EXACTLY as written. Twilio reviewers compare them to your live site at turanelitelimo.com/book and turanelitelimo.com/privacy. **Keep all `[bracketed]` fields as brackets — do NOT replace them with real values. Brackets signal "this is a template" to the reviewer.**
+>
+> **v3 change:** SMS opt-in is now VOLUNTARY — customers can complete a booking or request a quote WITHOUT checking the SMS box. Backend confirms via email + phone call when SMS is not opted in. This aligns with the 2024+ CTIA / carrier rule that SMS consent cannot be a condition of receiving service.
 
 ---
 
@@ -11,13 +13,13 @@
 
 ---
 
-## 2. Campaign Description (850 characters — within Twilio's 1024 limit, paste exactly)
+## 2. Campaign Description (paste exactly)
 
-> TuranEliteLimo is a chauffeur transportation company in the San Francisco Bay Area. We send two SMS categories to customers who explicitly opt in via a non-pre-checked checkbox on our booking and quote forms (turanelitelimo.com/book, turanelitelimo.com/quote):
+> TuranEliteLimo is a chauffeur transportation company in the San Francisco Bay Area. We send two SMS categories to customers who VOLUNTARILY opt in via a non-pre-checked checkbox on our booking and quote forms (turanelitelimo.com/book, turanelitelimo.com/quote). SMS opt-in is NOT a condition of service — customers who leave the checkbox unchecked can still complete their booking and receive confirmations by email + phone.
 >
-> (1) Transactional: booking confirmations, payment receipts, driver dispatch and ETA notifications, pickup reminders, and custom quote responses. Frequency: 2-5 msgs per booking.
+> (1) Transactional (voluntary opt-in): booking confirmations, payment receipts, driver dispatch and ETA notifications, pickup reminders, and custom quote responses. Frequency: 2-5 msgs per booking.
 >
-> (2) Promotional (separate optional opt-in): discount offers, seasonal promos, event packages. Frequency: up to 4 msgs per month.
+> (2) Promotional (separate voluntary opt-in): discount offers, seasonal promos, event packages. Frequency: up to 4 msgs per month.
 >
 > The checkbox includes all required disclosures: message types, frequency, msg & data rates, STOP/HELP, links to Terms and Privacy Policy. Consent, timestamp, and IP captured server-side for audit. Full SMS program details in Privacy Policy section 3a: turanelitelimo.com/privacy.
 
@@ -25,7 +27,7 @@
 
 ## 3. Message Flow / Consent (paste into "How end users opt in")
 
-> End users opt in via a non-pre-checked checkbox on the booking form (turanelitelimo.com/book) or quote-request form (turanelitelimo.com/quote). The checkbox is labeled "Yes, text me about my trip" and includes the full SMS program disclosure (message types, frequency 2–5 per booking, msg & data rates apply, Reply STOP/HELP, links to Terms and Privacy Policy). Phone number is captured in a labeled phone-input field directly above the checkbox. Consent is required to submit the form. A second, optional, non-pre-checked checkbox allows opt-in to promotional SMS (up to 4/month). Consent is captured server-side with timestamp and IP for audit. Live form: https://turanelitelimo.com/book. Privacy program details: https://turanelitelimo.com/privacy section 3a.
+> End users VOLUNTARILY opt in via a non-pre-checked checkbox on the booking form (turanelitelimo.com/book) or quote-request form (turanelitelimo.com/quote). The checkbox is labeled "Yes, text me about my trip" and includes the full SMS program disclosure (message types, frequency 2–5 per booking, msg & data rates apply, Reply STOP/HELP, links to Terms and Privacy Policy). Phone number is captured in a labeled phone-input field directly above the checkbox. **SMS consent is entirely optional and is NOT required to submit the form — customers who leave the checkbox unchecked will still receive booking confirmations and trip updates via email and phone call.** A second, optional, non-pre-checked checkbox allows opt-in to promotional SMS (up to 4/month). Consent is captured server-side with timestamp and IP for audit. Live form: https://turanelitelimo.com/book. Privacy program details: https://turanelitelimo.com/privacy section 3a.
 
 ---
 
@@ -97,4 +99,5 @@
 | Date | Campaign SID | Result | Reason |
 |---|---|---|---|
 | 2026-06-28 21:44 UTC | CM1a555e4fa0a1b4c63413845b3324b191 | ❌ Rejected | Error 30893 — samples used real names/values instead of bracketed placeholders, conditional language on promotional sample |
-| (next submission) | (pending) | — | v2 templates with brackets, no conditionals, full STOP/HELP in every sample |
+| (v2 submission) | — | ❌ Rejected | "consent cannot be a required condition for service or transaction completion" — Section 3 stated "Consent is required to submit the form" |
+| (v3 — next submission) | (pending) | — | SMS consent is now VOLUNTARY: booking form allows submit without SMS box, backend uses email fallback, all references to "required" removed |

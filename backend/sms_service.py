@@ -86,6 +86,24 @@ async def send_sms(to: str, body: str) -> Optional[str]:
         return None
 
 
+async def send_customer_sms(booking_or_quote: dict, body: str) -> Optional[str]:
+    """Send an SMS to a CUSTOMER, but only if they affirmatively opted in
+    (`sms_consent=True` on the booking/quote row). Returns None (silently
+    no-op) when consent is missing — enforces the Twilio A2P rule that SMS
+    cannot be a condition of service. Callers should use email as the
+    guaranteed channel; SMS is best-effort on top.
+    """
+    if not booking_or_quote or not booking_or_quote.get("sms_consent"):
+        logger.info(
+            f"[Customer SMS skipped — no consent] booking={booking_or_quote.get('id') if booking_or_quote else None}"
+        )
+        return None
+    phone = booking_or_quote.get("phone")
+    if not phone:
+        return None
+    return await send_sms(phone, body)
+
+
 def _fmt_12h(time24: str) -> str:
     if not time24 or ":" not in time24:
         return time24 or ""

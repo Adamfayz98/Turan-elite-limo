@@ -194,10 +194,11 @@ class BookingCreate(BaseModel):
     promo_code: Optional[str] = Field(None, max_length=40)
     wait_time_consent: bool = False  # MUST be true — frontend enforces, backend re-validates
     # ---- SMS / TCPA consent (Twilio A2P 10DLC compliance) ----
-    # `sms_consent` MUST be true to submit. It's the express written consent
-    # for transactional SMS (booking confirmations, trip updates, driver
-    # dispatch, reminders). Stored alongside the booking with the timestamp
-    # for audit if Twilio or a regulator ever asks for proof of consent.
+    # `sms_consent` is VOLUNTARY (opt-in). Per carrier rules (2024+), SMS
+    # consent cannot be a condition of service. When true, we send confirmations
+    # and trip updates via SMS; when false, we send them via email only.
+    # Timestamp + IP are captured only when true, for audit if Twilio or a
+    # regulator ever asks for proof of consent.
     sms_consent: bool = False
     # `sms_promo_opt_in` is the OPTIONAL second checkbox for promotional SMS
     # (offers, seasonal promos). Default false, must be explicitly checked.
@@ -493,15 +494,13 @@ async def create_booking(payload: BookingCreate, request: Request):
             status_code=400,
             detail="Please accept the wait time policy to continue.",
         )
-    # ----- Twilio A2P / TCPA: require explicit SMS consent -----
-    # We text the customer the confirmation + driver/wait-time updates, so we
-    # need an explicit, non-pre-checked opt-in. Frontend gates submit on this
-    # too; backend re-validates to defeat any bypass attempt.
-    if not payload.sms_consent:
-        raise HTTPException(
-            status_code=400,
-            detail="Please accept SMS notifications so we can text your confirmation and trip updates.",
-        )
+    # ----- Twilio A2P / TCPA: SMS opt-in is VOLUNTARY -----
+    # Per carrier rules (2024+), SMS consent cannot be a condition of service.
+    # If the customer opted out, we send confirmations & trip updates by
+    # EMAIL only — no SMS to their phone. Downstream SMS sends already
+    # gate on booking.sms_consent, so this is safe.
+    # sms_consent_at / sms_consent_ip audit trail is stamped only when opt-in
+    # was affirmatively given (see below).
 
     # ----- Service area guard (defensive) -----
     # The frontend autocomplete already restricts inputs to NorCal, but a
@@ -544,8 +543,12 @@ async def create_booking(payload: BookingCreate, request: Request):
     # Twilio (and any future regulator) can ask for proof of when + how the
     # customer opted into SMS. We stash the timestamp + client IP on the
     # booking itself so the record is co-located with the consent action.
-    doc['sms_consent_at'] = datetime.now(timezone.utc).isoformat()
-    doc['sms_consent_ip'] = (request.client.host if request.client else None)
+    # Stamp audit trail ONLY when the customer affirmatively opted in.
+    # If they didn't opt in, we don't record a consent timestamp (there's
+    # nothing to prove) and we won't send SMS on this booking.
+    if payload.sms_consent:
+        doc['sms_consent_at'] = datetime.now(timezone.utc).isoformat()
+        doc['sms_consent_ip'] = (request.client.host if request.client else None)
 
     # Persist marketing opt-in on a per-customer record so we have a single
     # source of truth for "may we email this person promotions?". The booking
@@ -2113,18 +2116,16 @@ class QuoteRequestCreate(BaseModel):
 async def submit_quote_request(payload: QuoteRequestCreate, request: Request):
     """Customer-facing endpoint. Creates a quote_request row + alerts admin via
     email and SMS gateway. Returns the request id so the UI can show success."""
-    # ----- Twilio A2P / TCPA: require explicit SMS consent -----
-    # Quote responses are delivered primarily via SMS — without consent we
-    # can't legally text the quote back.
-    if not payload.sms_consent:
-        raise HTTPException(
-            status_code=400,
-            detail="Please accept SMS notifications so we can text your custom quote.",
-        )
+    # ----- Twilio A2P / TCPA: SMS opt-in is VOLUNTARY -----
+    # Per carrier rules (2024+), SMS consent cannot be a condition of service.
+    # If the customer opted out, we send the quote response by EMAIL + phone
+    # only — no SMS. Downstream quote-response SMS already gates on
+    # quote_request.sms_consent so this is safe.
 
     doc = payload.model_dump()
-    # Capture audit trail at the moment of consent
-    doc["sms_consent_at"] = datetime.now(timezone.utc).isoformat()
+    # Capture audit trail only when consent was affirmatively given
+    if payload.sms_consent:
+        doc["sms_consent_at"] = datetime.now(timezone.utc).isoformat()
 
     # ----- Block-by-source guard (Admin → Attribution → block toggle) -----
     # If this submission's first-touch UTM source is on the admin blocklist,

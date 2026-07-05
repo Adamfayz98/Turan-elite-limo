@@ -1109,10 +1109,12 @@ async def admin_update_quote_request(rid: str, payload: dict, request: Request, 
                 sent_to = q["email"]
         except Exception as e:
             logger.warning(f"Quote-offer email send failed: {e}")
-        # Always SMS too — most limo customers reply faster on text
+        # Always email — the guaranteed channel. SMS is best-effort on top,
+        # ONLY if the customer opted in on the quote request (Twilio A2P
+        # voluntary-opt-in rule — SMS can't be a condition of getting a quote).
         try:
             phone_raw = (q.get("phone") or "").strip()
-            if phone_raw:
+            if phone_raw and q.get("sms_consent"):
                 deposit_pct = q.get("deposit_pct", 50)
                 deposit_amt = round(float(q["quoted_price"]) * float(deposit_pct) / 100.0, 2)
                 sms = (
