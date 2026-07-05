@@ -716,6 +716,20 @@ SERVICE_AREA_RADIUS_MI = 130.0
 CHILD_SEAT_FEE = 20.0
 
 
+def _booking_is_internal_test(b: dict) -> bool:
+    """True if the booking's customer email matches GOOGLE_ADS_EXCLUDED_EMAILS
+    (comma-separated env var). Used by both the client-side and server-side
+    Google Ads conversion paths so Adam's own test bookings never train
+    Smart Bidding on our own dollars.
+    """
+    excluded_raw = os.environ.get("GOOGLE_ADS_EXCLUDED_EMAILS", "").strip()
+    if not excluded_raw:
+        return False
+    excluded = {e.strip().lower() for e in excluded_raw.split(",") if e.strip()}
+    email = (b.get("email") or "").strip().lower()
+    return bool(email and email in excluded)
+
+
 def _pickup_in_service_area(pickup_coord: Optional[dict]) -> bool:
     """True if pickup is inside our Bay Area service radius. None / no coord
     falls back to True so we never block on a geocoder hiccup — the booking
@@ -2967,6 +2981,12 @@ async def get_public_booking(booking_id: str):
         "promo_code": b.get("promo_code"),
         "discount_amount": b.get("discount_amount"),
         "original_quote_amount": b.get("original_quote_amount"),
+        # Internal-test flag — surfaced so the client-side Google Ads Purchase
+        # tag (GoogleAdsConversion.jsx) can skip firing on Adam's own test
+        # bookings / QA runs. The same check gates the server-side offline
+        # conversion upload (see routes/google_ads.py). Both driven by the
+        # comma-separated GOOGLE_ADS_EXCLUDED_EMAILS env var.
+        "is_internal_test": _booking_is_internal_test(b),
         "driver_name": b.get("driver_name"),
         "trip_status": b.get("trip_status"),
         "manage_token": b.get("manage_token"),

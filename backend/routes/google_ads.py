@@ -141,9 +141,22 @@ def _booking_gross_and_profit(b: dict) -> tuple[float, float]:
     """Same math as /admin/ads/quote-conversions.csv — profit = amount − affiliate_cost.
     Returns (gross, profit). Falls back gross→profit if no affiliate cost stored
     so we never upload $0 (which would destroy Smart Bidding signal).
+
+    Value hierarchy — we upload the amount that will ACTUALLY be charged to
+    the customer (post-promo), NOT the pre-promo quote. Uploading the
+    inflated pre-promo amount trains Smart Bidding on the wrong revenue and
+    causes Google to over-bid on discount-hunters. The order below prefers
+    the most-realized figure first.
     """
     gross = 0.0
-    for k in ("amount", "amount_paid", "total_amount", "quote_amount"):
+    for k in (
+        "paid_amount",         # actually captured (pay-now flow after webhook)
+        "pay_later_amount",    # discounted amount to charge post-ride (setup flow)
+        "amount",              # legacy
+        "amount_paid",         # legacy
+        "total_amount",        # legacy
+        "quote_amount",        # last-resort pre-promo total
+    ):
         v = b.get(k)
         if isinstance(v, (int, float)) and v > 0:
             gross = float(v)
@@ -212,6 +225,19 @@ async def upload_booking_to_google_ads(booking_id: str, *, force: bool = False) 
 
     if b.get("google_ads_conversion_uploaded") and not force:
         return {"ok": True, "booking_id": booking_id, "skipped": "already_uploaded"}
+
+    # Internal-test exclusion — bookings whose customer email matches an
+    # entry in GOOGLE_ADS_EXCLUDED_EMAILS (comma-separated env var) are NEVER
+    # uploaded as conversions. This keeps Adam's own test bookings + admin
+    # QA runs + affiliate-partner test purchases out of Smart Bidding's
+    # training data, where they'd inflate value and skew optimization.
+    excluded_raw = os.environ.get("GOOGLE_ADS_EXCLUDED_EMAILS", "").strip()
+    if excluded_raw:
+        excluded = {e.strip().lower() for e in excluded_raw.split(",") if e.strip()}
+        email = (b.get("email") or "").strip().lower()
+        if email and email in excluded:
+            logger.info(f"[google_ads] skipping booking {booking_id}: email {email} is in excluded list")
+            return {"ok": True, "booking_id": booking_id, "skipped": "excluded_email"}
 
     # Resolve gclid from ALL possible sources — booking.utm, forward join
     # (booking.quote_request_id → quote), or reverse join (quote.booking_id ==

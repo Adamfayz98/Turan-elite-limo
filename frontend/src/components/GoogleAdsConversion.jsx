@@ -22,9 +22,18 @@ export default function GoogleAdsConversion({ booking }) {
     if (fired.current) return;
     if (!booking || (booking.payment_status !== "paid" && booking.payment_status !== "card_on_file")) return;
     if (!booking.id) return;
+    // Internal-test exclusion — Adam's own test bookings (and any QA email
+    // in GOOGLE_ADS_EXCLUDED_EMAILS on the backend) never fire the Purchase
+    // event. Prevents self-training Smart Bidding on our own dollars.
+    if (booking.is_internal_test) {
+      fired.current = true;
+      return;
+    }
     trackPurchase({
       bookingId: booking.id,
-      amount: booking.quote_amount,
+      // Use realized revenue (post-promo) when available so Ads gets the
+      // TRUE conversion value, not the pre-promo quote.
+      amount: booking.pay_later_amount ?? booking.paid_amount ?? booking.quote_amount,
       email: booking.email,
       phone: booking.phone,
     });

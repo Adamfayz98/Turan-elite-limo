@@ -1300,3 +1300,36 @@ See `/app/memory/test_credentials.md`
 - Frontend: `components/BookingForm.jsx` (child seat picker, promo override input, pay-timing reorder, badge removal, default reversion), `pages/PayBooking.jsx` (discounted display + payment_mode gate), `components/admin/BookingDetailsDialog.jsx` (3-row promo breakdown + child seat count in passengers row)
 
 **User action required:** Redeploy to production (turanelitelimo.com).
+
+---
+
+## 2026-07-05 late — CAI review response (Iteration 52)
+
+**Context:** CAI raised 9 concerns about the "Book Now · Pay After Ride" ad copy pre-deployment. Half were policy/code questions I needed to verify BEFORE finalizing copy.
+
+**Code answers I verified:**
+- **Conversion firing timing (CAI Q1):** ✅ Purchase conversion fires at BOOKING CONFIRMATION on both fronts — client-side gtag in `GoogleAdsConversion.jsx` (fires when `payment_status='card_on_file'`) and server-side offline conversion via `_finalize_setup_session` → `upload_booking_to_google_ads` (scheduled immediately after Stripe SetupIntent completes).
+- **Payment mechanism (CAI Q2):** ✅ Confirmed as (b) Stripe SetupIntent, not (a) authorization hold. No 7-day expiry problem — long-lead bookings are safe.
+- **Cancellation policy (CAI Q3):** ✅ Real policy exists in `CancellationPolicy.jsx`: 24h+ = free, 12–24h = 50%, <12h = no refund. Copy rewritten to say "Free Cancellation to 24h" instead of vague "Free Cancellation".
+
+**Small code fixes shipped along with the copy rewrite:**
+1. **Conversion value accuracy:** `_booking_gross_and_profit` in `routes/google_ads.py` + `GoogleAdsConversion.jsx` now use `paid_amount → pay_later_amount → quote_amount` priority order, so Smart Bidding sees REALIZED post-promo revenue, not the inflated pre-promo quote.
+2. **Internal-test exclusion:** Added `GOOGLE_ADS_EXCLUDED_EMAILS` env var (comma-separated). Filters BOTH the client-side gtag Purchase event (via `is_internal_test` flag now exposed on `/bookings/{id}/public`) AND the server-side offline upload. Prevents Adam's own test bookings from training Smart Bidding on our own dollars.
+3. Added `_booking_is_internal_test()` helper in `server.py` shared by both paths.
+
+**Deliverable:** `/app/memory/GOOGLE_ADS_COPY_PAY_AFTER_RIDE.md` (v2) — fully rewritten with:
+- Character-counted headlines (all ≤30 chars, verified)
+- 3-headline pinning strategy (not just 1 — fixes Ad Strength concern)
+- "Top-Rated on Google" replacing "5-Star" (GBP is 4.9 avg, not literal 5.0)
+- "Free Cancellation to 24h" replacing bare "Free Cancellation"
+- "Late-model executive fleet" replacing specific car models
+- Cut: Meet & Greet Included, Free Wait, Multilingual Chauffeurs, "Confirmed in 60 Seconds" vs "1 hr" contradiction
+- Sitelink routing: sedan/SUV/first-class campaign gets ONLY fixed-price sitelinks (no wedding/party bus muddying)
+- §0 deployment prerequisite: end-to-end conversion verification checklist
+
+**Testing:** 20/20 backend regression pass. Verified `is_internal_test` flag flips correctly based on env var (nottest@example.com test with/without exclusion).
+
+**User action required:**
+1. Add real emails to `GOOGLE_ADS_EXCLUDED_EMAILS` in `backend/.env` (e.g. adam@..., support@..., cai@...) — restart backend.
+2. Do the §0 end-to-end verification: click a live ad → book Executive Sedan → complete Stripe → verify Purchase fires in Google Ads with post-promo value AND that excluded emails do NOT fire.
+3. Only THEN redeploy site to production and hand v2 copy to CAI.
