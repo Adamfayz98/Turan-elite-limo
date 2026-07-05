@@ -4,7 +4,12 @@ import { Users, Briefcase, Phone as PhoneIcon, Sparkles, Check, MessageSquare } 
 import { FLEET } from "@/lib/fleet";
 import { cn } from "@/lib/utils";
 import QuoteRequestDialog from "@/components/QuoteRequestDialog";
+import PayAfterRideBadge from "@/components/PayAfterRideBadge";
 import { trackPhoneCall } from "@/lib/googleAdsEvents";
+
+// Vehicles eligible for the "Book Now · Pay After Ride" (Stripe SetupIntent)
+// flow. Keep in sync with backend's PAY_AFTER_ELIGIBLE list in payments.py.
+const PAY_AFTER_VEHICLES = new Set(["Executive Sedan", "First Class", "Luxury SUV"]);
 
 /**
  * Fleet grid that doubles as the vehicle selector inside BookingForm.
@@ -62,6 +67,10 @@ export default function FleetPicker({ quote, selected, onSelect, supportPhone = 
                 className="absolute inset-0 w-full h-full object-cover object-center opacity-95 group-hover:scale-105 transition-transform duration-700 pointer-events-none"
               />
               <div className="absolute inset-x-0 bottom-0 h-1/4 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
+              {/* Pay-After-Ride ribbon — only on eligible instant-price vehicles */}
+              {!callOnly && PAY_AFTER_VEHICLES.has(v.name) && !isSelected && (
+                <PayAfterRideBadge variant="ribbon" testId={`pay-after-ribbon-${v.name}`} />
+              )}
               {isSelected && !callOnly && (
                 <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-full bg-[#D4AF37] text-black text-[10px] font-semibold uppercase tracking-[0.2em] flex items-center gap-1">
                   <Check className="w-3 h-3" /> Selected

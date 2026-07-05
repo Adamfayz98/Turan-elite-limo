@@ -9,6 +9,7 @@ export default function MotorCoachLanding() {
   return (
     <LandingPage
       testId="motor-coach-landing"
+      hidePayAfterBadge={true}
       quoteVehicleType="Motor Coach"
       quoteVehicleOptions={["Motor Coach", "Mini Coach", "Luxury SUV"]}
       pageTitle="Bay Area Motor Coach Rental · 40–56 Passenger Charter Bus — TuranEliteLimo"

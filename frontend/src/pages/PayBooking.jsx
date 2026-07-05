@@ -19,6 +19,7 @@ import GoogleAdsConversion from "@/components/GoogleAdsConversion";
 import AppDownloadCTA from "@/components/AppDownloadCTA";
 import ReferralCTA from "@/components/ReferralCTA";
 import CheckoutRedirectOverlay from "@/components/CheckoutRedirectOverlay";
+import TrustPaymentBadges from "@/components/TrustPaymentBadges";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { trackBeginCheckout, trackPhoneCall } from "@/lib/googleAdsEvents";
 
@@ -387,9 +388,13 @@ export default function PayBooking() {
                   </>
                 )}
               </Button>
-              <div className="flex items-center justify-center gap-2 mt-4 text-xs text-white/45">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#D4AF37]" />
-                <span>Secured by Stripe · SSL encrypted</span>
+              {/* Trust strip: wallet accept marks + 5-star Google Reviews.
+                  This is the last thing a customer sees before Stripe — every
+                  extra assurance here (Apple Pay one-tap, SSL, reviews) chips
+                  away at abandonment. Reviews shown WITHOUT count so it stays
+                  effective even while our public review count is still growing. */}
+              <div className="mt-5">
+                <TrustPaymentBadges testId="pay-page-trust-badges" />
               </div>
             </div>
           )}

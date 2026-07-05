@@ -91,6 +91,11 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
             strokeOpacity: 0.9,
           },
         });
+        // Kick off the initial route computation now that the renderer is
+        // ready. Without this, the route-computation effect below can miss
+        // the first render if both addresses were already filled at mount
+        // (React batches; the effect saw no renderer + didn't re-run).
+        _computeRoute(pickup, dropoff, stops);
       })
       .catch((e) => {
         if (!cancelled) setError(`Map failed to load: ${e?.message || e}`);
@@ -100,11 +105,11 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
     };
   }, [apiKey, pickup, dropoff]);
 
-  // Recompute the route any time addresses change. We re-call Directions
-  // even if Maps is still booting — the second effect picks it up once
-  // the renderer is ready (via the dependency list).
-  useEffect(() => {
-    if (!pickup || !dropoff) {
+  // Extracted so the boot effect can trigger the first route directly, and
+  // the address-change effect can trigger subsequent routes. Uses refs so it
+  // doesn't need to be a dependency anywhere.
+  const _computeRoute = (pu, doff, sp) => {
+    if (!pu || !doff) {
       setSummary(null);
       return;
     }
@@ -112,13 +117,13 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
     setLoading(true);
     setError("");
     const svc = new window.google.maps.DirectionsService();
-    const waypoints = (stops || [])
+    const waypoints = (sp || [])
       .filter((s) => s && s.trim())
       .map((s) => ({ location: s, stopover: true }));
     svc.route(
       {
-        origin: pickup,
-        destination: dropoff,
+        origin: pu,
+        destination: doff,
         waypoints,
         travelMode: window.google.maps.TravelMode.DRIVING,
       },
@@ -127,16 +132,13 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
         if (status !== "OK" || !res) {
           setError(
             status === "ZERO_RESULTS"
-              ? "No route found between these locations."
-              : `Couldn't draw route (${status}).`,
+              ? "No driving route found — try a nearby landmark or the venue name."
+              : `Couldn't draw route (${status}). Try again in a moment.`,
           );
           setSummary(null);
           return;
         }
         rendererRef.current.setDirections(res);
-        // Sum up legs so we report the WHOLE trip including stops, not just
-        // the first leg. Google returns distance/duration as { text, value }
-        // per leg; we collapse to a single text+value pair.
         const legs = res.routes?.[0]?.legs || [];
         const totalMeters = legs.reduce((a, l) => a + (l.distance?.value || 0), 0);
         const totalSeconds = legs.reduce((a, l) => a + (l.duration?.value || 0), 0);
@@ -146,6 +148,11 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
         });
       },
     );
+  };
+
+  // Recompute the route any time addresses change.
+  useEffect(() => {
+    _computeRoute(pickup, dropoff, stops);
   }, [pickup, dropoff, stops]);
 
   // Skeleton state — show nothing until BOTH addresses are filled so the

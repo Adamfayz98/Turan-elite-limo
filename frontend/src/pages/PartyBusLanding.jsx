@@ -9,6 +9,7 @@ export default function PartyBusLanding() {
   return (
     <LandingPage
       testId="party-bus-landing"
+      hidePayAfterBadge={true}
       quoteVehicleType="Party Bus"
       quoteVehicleOptions={["Party Bus", "Stretch Limousine", "Jet Sprinter", "Luxury SUV"]}
       pageTitle="Bay Area Party Bus Rental · 14–30 Passenger Limo Coach — TuranEliteLimo"

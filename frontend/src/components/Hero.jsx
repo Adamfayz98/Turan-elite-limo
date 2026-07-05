@@ -1,4 +1,5 @@
 import { ArrowRight, Star } from "lucide-react";
+import PayAfterRideBadge from "@/components/PayAfterRideBadge";
 
 export default function Hero() {
   return (
@@ -50,6 +51,16 @@ export default function Hero() {
             TuranEliteLimo is a private chauffeur service for those who measure travel by composure. Black-car sedans, luxury SUVs and stretch limousines across San Francisco, Silicon Valley, Napa & beyond.
           </p>
 
+          {/* Book Now · Pay After Ride — hero-level trust pill. This is the
+              single strongest reason customers convert to Stripe checkout,
+              so we put it directly under the value prop, above the CTA. */}
+          <div
+            className="mt-7 animate-fade-up"
+            style={{ animationDelay: "325ms", animationFillMode: "both" }}
+          >
+            <PayAfterRideBadge variant="hero" testId="hero-pay-after-badge" />
+          </div>
+
           <div
             className="mt-10 flex flex-wrap items-center gap-4 animate-fade-up"
             style={{ animationDelay: "400ms", animationFillMode: "both" }}
@@ -59,7 +70,7 @@ export default function Hero() {
               data-testid="hero-cta-book"
               className="group inline-flex items-center gap-3 px-8 py-4 bg-[#D4AF37] text-black hover:bg-[#B3922E] rounded-full font-medium transition-all"
             >
-              Reserve Your Ride
+              Reserve Now · Pay After Ride
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </a>
             <a

@@ -22,6 +22,7 @@ import FleetPicker from "@/components/FleetPicker";
 import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
 import RouteMap from "@/components/RouteMap";
 import StripeBadge from "@/components/StripeBadge";
+import TrustPaymentBadges from "@/components/TrustPaymentBadges";
 import CancellationPolicy from "@/components/CancellationPolicy";
 // Google Ads events: fire begin_checkout the moment a booking is created +
 // fire the "lead" event for Call-for-Quote paths (no instant Stripe price).
@@ -1398,7 +1399,7 @@ export default function BookingForm() {
             const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
             if (!vq || vq.price == null) return null;
             const optCls = (active) =>
-              `text-left rounded-xl border p-4 transition cursor-pointer ${
+              `text-left rounded-xl border p-4 transition cursor-pointer relative ${
                 active
                   ? "border-[#D4AF37] bg-[#D4AF37]/10 ring-1 ring-[#D4AF37]/40"
                   : "border-[#1F1F1F] bg-[#0E0E0E] hover:border-[#D4AF37]/40"
@@ -1411,6 +1412,25 @@ export default function BookingForm() {
                 <div className="grid sm:grid-cols-2 gap-3">
                   <button
                     type="button"
+                    data-testid="pay-timing-after"
+                    onClick={() => setPayTiming("after")}
+                    className={optCls(payTiming === "after")}
+                  >
+                    <div className="absolute -top-2 right-3 text-[9px] uppercase tracking-widest bg-[#D4AF37] text-black px-2 py-0.5 rounded-full font-semibold shadow-[0_2px_8px_rgba(212,175,55,0.35)]">
+                      Recommended
+                    </div>
+                    <div className="text-white text-sm font-medium flex items-center gap-2">
+                      Book Now · Pay After Ride
+                      <span className="text-[9px] uppercase tracking-widest bg-[#D4AF37]/25 border border-[#D4AF37]/50 text-[#D4AF37] px-1.5 py-0.5 rounded-full font-semibold">
+                        $0 today
+                      </span>
+                    </div>
+                    <div className="text-white/60 text-xs mt-1.5 leading-relaxed">
+                      Card securely verified &amp; saved by Stripe — <span className="text-white/85">never charged today</span>. Pay only after your ride is complete. Apple Pay &amp; Google Pay ready.
+                    </div>
+                  </button>
+                  <button
+                    type="button"
                     data-testid="pay-timing-now"
                     onClick={() => setPayTiming("now")}
                     className={optCls(payTiming === "now")}
@@ -1418,23 +1438,6 @@ export default function BookingForm() {
                     <div className="text-white text-sm font-medium">Pay now</div>
                     <div className="text-white/55 text-xs mt-1.5 leading-relaxed">
                       Secure checkout via Stripe. Locks in your reservation instantly.
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="pay-timing-after"
-                    onClick={() => setPayTiming("after")}
-                    className={optCls(payTiming === "after")}
-                  >
-                    <div className="text-white text-sm font-medium flex items-center gap-2">
-                      Book now, pay after your ride
-                      <span className="text-[9px] uppercase tracking-widest bg-[#D4AF37] text-black px-2 py-0.5 rounded-full font-semibold">
-                        $0 today
-                      </span>
-                    </div>
-                    <div className="text-white/55 text-xs mt-1.5 leading-relaxed">
-                      Card securely verified &amp; saved by Stripe — never stored on our site.
-                      You're only charged after your ride is completed.
                     </div>
                   </button>
                 </div>
@@ -1470,9 +1473,9 @@ export default function BookingForm() {
                     if (vq && vq.price != null) {
                       const finalPrice = promoApplied ? promoApplied.final_amount : vq.price;
                       if (payTiming === "after") {
-                        return `Reserve Now · $0 Due Today`;
+                        return `Reserve Now · $0 Due Today →`;
                       }
-                      return `Proceed to Payment · $${finalPrice.toFixed(2)}`;
+                      return `Secure Checkout · $${finalPrice.toFixed(2)} →`;
                     }
                     if (vq && vq.price == null) {
                       return "Request Reservation";
@@ -1481,6 +1484,19 @@ export default function BookingForm() {
                   })()}
             </Button>
           </div>
+
+          {/* Wallet accept-marks + Google Reviews trust strip — shown as soon
+              as the vehicle is picked so customers see they can Apple Pay /
+              Google Pay in one tap on the Stripe page (no card entry). */}
+          {(() => {
+            const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
+            if (!vq || vq.price == null) return null;
+            return (
+              <div className="mt-5 pt-5 border-t border-white/5">
+                <TrustPaymentBadges testId="booking-trust-badges" />
+              </div>
+            );
+          })()}
         </form>
       </div>
     </section>

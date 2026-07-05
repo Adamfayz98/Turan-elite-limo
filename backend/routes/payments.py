@@ -173,23 +173,52 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
     customer_email = booking.get("email") or ""
     cn_for_desc = booking.get("confirmation_number") or ""
     product_name = f"TuranEliteLimo chauffeur — {booking.get('vehicle_type','Reservation')}{(' · ' + cn_for_desc) if cn_for_desc else ''}"
+    # Product description shown right under the product name on Stripe's
+    # hosted checkout — repeats the pickup/dropoff so customers see WHAT
+    # they're paying for at the last mile of the funnel. Truncated to
+    # Stripe's ~500-char product-description limit.
+    product_desc_parts = []
+    if booking.get("pickup_location"):
+        product_desc_parts.append(f"{booking['pickup_location']} → {booking.get('dropoff_location', '')}".strip(" →"))
+    if booking.get("pickup_date"):
+        product_desc_parts.append(f"{booking['pickup_date']} · {booking.get('pickup_time','')}".strip(" ·"))
+    product_desc = " · ".join(product_desc_parts)[:480]
     form = [
         ("mode", "payment"),
         ("success_url", success_url),
         ("cancel_url", cancel_url),
+        # Explicitly enable card only; wallet buttons (Apple Pay / Google Pay
+        # / Link) auto-appear on Stripe's hosted page whenever "card" is
+        # enabled + the customer's browser supports them. Listing them here
+        # is redundant and Stripe rejects some (e.g. "google_pay") as invalid
+        # payment_method_types values. Keep it clean.
         ("payment_method_types[]", "card"),
+        # Show "Reserve" instead of "Pay" on the Stripe submit button when
+        # customer picked pay-now — reinforces this is a booking, not a
+        # generic e-commerce purchase.
+        ("submit_type", "book"),
+        # Trust nudge shown on Stripe's own checkout page — same "Book now,
+        # pay after ride" language would confuse pay-now customers, so here
+        # we lean on the flat-rate + confirmation guarantee instead.
+        ("custom_text[submit][message]",
+            "Reservation confirmed instantly · Flat rate — no surge, no hidden fees · "
+            "Free cancellation up to 24 hours · Apple Pay & Google Pay accepted."),
         ("customer_creation", "always"),
         ("line_items[0][quantity]", "1"),
         ("line_items[0][price_data][currency]", settings.currency),
         ("line_items[0][price_data][unit_amount]", str(amount_cents)),
         ("line_items[0][price_data][product_data][name]", product_name),
+    ]
+    if product_desc:
+        form.append(("line_items[0][price_data][product_data][description]", product_desc))
+    form.extend([
         ("payment_intent_data[setup_future_usage]", "off_session"),
         ("payment_intent_data[metadata][booking_id]", payload.booking_id),
         ("payment_intent_data[metadata][confirmation_number]", cn_for_desc),
         ("metadata[booking_id]", payload.booking_id),
         ("metadata[confirmation_number]", cn_for_desc),
         ("metadata[customer_email]", customer_email),
-    ]
+    ])
     if customer_email:
         form.append(("customer_email", customer_email))
 
@@ -1215,6 +1244,13 @@ async def create_payment_checkout_setup(payload: CheckoutCreateRequest, request:
                 ("payment_method_types[]", "card"),
                 ("success_url", success_url),
                 ("cancel_url", cancel_url),
+                # Reinforce "$0 today · pay after ride" ON the Stripe page itself
+                # so customers don't get cold feet when they see a card form.
+                # This shows as gold text right above the "Set up" button.
+                ("custom_text[submit][message]",
+                    "You will NOT be charged today. Your card is securely saved by Stripe "
+                    "and only charged AFTER your ride is completed. "
+                    "Apple Pay & Google Pay supported for one-tap card setup."),
                 ("setup_intent_data[metadata][booking_id]", payload.booking_id),
                 ("setup_intent_data[metadata][kind]", "pay_after_ride"),
                 ("metadata[booking_id]", payload.booking_id),

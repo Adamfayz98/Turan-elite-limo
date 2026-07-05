@@ -9,6 +9,7 @@ export default function MiniCoachLanding() {
   return (
     <LandingPage
       testId="mini-coach-landing"
+      hidePayAfterBadge={true}
       quoteVehicleType="Mini Coach"
       quoteVehicleOptions={["Mini Coach", "Motor Coach", "Executive Sprinter"]}
       pageTitle="Bay Area Mini Coach Rental · 24–35 Passenger Mini Bus — TuranEliteLimo"

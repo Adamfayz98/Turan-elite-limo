@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
 import FloatingQuoteWidget from "@/components/FloatingQuoteWidget";
 import QuoteRequestDialog from "@/components/QuoteRequestDialog";
+import PayAfterRideBadge from "@/components/PayAfterRideBadge";
 
 /**
  * Reusable Google Ads landing page. Used by /airport, /wedding, /wine-tour,
@@ -83,6 +84,10 @@ export default function LandingPage({
   quoteVehicleType, // default vehicle for the quote (e.g. "Party Bus")
   quoteTripType, // pre-filled trip type (e.g. "Wedding")
   quoteVehicleOptions, // optional list of selectable vehicles in the dialog
+  // Landing pages for GROUP-ONLY vehicles (Party Bus, Motor Coach, Mini
+  // Coach) should hide the "Pay After Ride" badge — that offer only applies
+  // to Sedan / SUV / First Class. Pass true from those pages.
+  hidePayAfterBadge = false,
 }) {
   const [quoteOpen, setQuoteOpen] = useState(false);
   const inlineQuote = !!(quoteVehicleType || (quoteVehicleOptions && quoteVehicleOptions.length));
@@ -139,6 +144,16 @@ export default function LandingPage({
             <span className="italic text-[#D4AF37]">{titleAccent}</span> {titleB}
           </h1>
           <p className="text-white/65 text-base sm:text-lg mt-7 max-w-2xl leading-relaxed">{subtitle}</p>
+
+          {/* Book Now · Pay After Ride — landing hero-level trust pill. Only
+              rendered on landing pages where the eligible vehicles (Sedan,
+              SUV, First Class) apply. For group-only landings (Party Bus,
+              Motor Coach, etc.) callers pass hidePayAfterBadge={true}. */}
+          {!hidePayAfterBadge && (
+            <div className="mt-6">
+              <PayAfterRideBadge variant="hero" testId={`${testId}-pay-after-badge`} />
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-4 mt-10">
             <CtaEl data-testid={`${testId}-book-cta`} {...ctaProps}

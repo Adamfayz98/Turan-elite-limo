@@ -10,6 +10,7 @@ export default function CasinoLanding() {
   return (
     <LandingPage
       testId="casino-landing"
+      hidePayAfterBadge={true}
       quoteVehicleType="Executive Sprinter"
       quoteVehicleOptions={["Executive Sprinter", "Mini Coach", "Motor Coach", "Party Bus"]}
       pageTitle="Bay Area Casino Transportation · Graton, Thunder Valley, Reno & Tahoe Shuttle — TuranEliteLimo"

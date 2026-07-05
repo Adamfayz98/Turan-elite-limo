@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 50 — Marketing push for 'Book Now · Pay After Ride' verified across hero, fleet cards, landing pages, booking form, pay page, and Stripe checkout (submit_type + custom_text). Also RouteMap short-trip render + iter49 regression. All acceptance criteria PASS. 11/11 pytest + 100% frontend UI checks.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "task_results": {
+    "hero_pay_after_badge_and_cta": {"status": "PASS", "evidence": "data-testid=hero-pay-after-badge present, text 'Book Now · Pay After Your Ride · No card charged today'. hero-cta-book text = 'Reserve Now · Pay After Ride'."},
+    "fleet_ribbons_eligible_vehicles": {"status": "PASS", "evidence": "pay-after-ribbon-{Executive Sedan|First Class|Luxury SUV} all present with 'BOOK NOW · PAY AFTER RIDE' text (screenshot verified). Ribbon hidden when the card is selected (by design)."},
+    "fleet_ribbons_group_vehicles_hidden": {"status": "PASS", "evidence": "pay-after-ribbon-{Party Bus|Motor Coach|Sprinter|Stretch Limousine|Jet Sprinter|Mini Coach|Executive Sprinter} — none rendered."},
+    "landing_pages_show_pill": {"status": "PASS", "evidence": "/wedding, /wine-tour, /airport, /corporate all render {testid}-pay-after-badge."},
+    "landing_pages_hide_pill": {"status": "PASS", "evidence": "/party-bus, /motor-coach, /mini-coach, /casino — pay-after-badge NOT rendered (hidePayAfterBadge=true)."},
+    "booking_form_pay_timing_order": {"status": "PASS", "evidence": "DOM order = [pay-timing-block, pay-timing-after, pay-timing-now]. 'after' comes first."},
+    "booking_form_pay_timing_after_recommended": {"status": "PASS", "evidence": "pay-timing-after button contains 'Recommended' + 'Book Now · Pay After Ride' + '$0 today' gold badge + 'Card securely verified & saved by Stripe' copy."},
+    "booking_form_submit_copy_after": {"status": "PASS", "evidence": "After clicking pay-timing-after: submit text = 'Reserve Now · $0 Due Today →'."},
+    "booking_form_submit_copy_now": {"status": "PASS", "evidence": "After clicking pay-timing-now: submit text = 'Secure Checkout · $178.20 →'."},
+    "booking_trust_payment_badges": {"status": "PASS", "evidence": "data-testid=booking-trust-badges renders below submit row when a priced vehicle is picked. wallet-badges + all 5 wallet marks (Apple Pay/Google Pay/Visa/Mastercard/American Express) present."},
+    "google_review_badge_no_count": {"status": "PASS", "evidence": "google-review-badge shows 5 stars + text '5-Star Google Reviews' — NO review count / rating number / 'based on' phrasing (screenshot verified)."},
+    "paybooking_trust_badges": {"status": "PASS", "evidence": "Fresh unpaid booking at /pay/{id}: 'Pay $178.27 & Secure' button + data-testid=pay-page-trust-badges renders below it with all 5 wallet marks + google-review-badge '5-Star Google Reviews'."},
+    "backend_checkout_pay_now_submit_type_custom_text": {"status": "PASS", "evidence": "POST /api/payments/checkout with submit_type=book + custom_text.submit.message + product description succeeds (200) and returns https://checkout.stripe.com/ URL. Stripe accepted the new params (would 502 if not). Verified via test_iter50_marketing_push.py::TestCheckoutPayNow (2/2 pass)."},
+    "backend_checkout_setup_custom_text": {"status": "PASS", "evidence": "POST /api/payments/checkout-setup with custom_text still creates a valid setup session; booking flipped to pay_after_ride. Verified via TestCheckoutSetupCustomText + all iter49 tests still passing."},
+    "route_map_short_trip": {"status": "PASS", "evidence": "SFO → Palo Alto: route-map + route-distance='21.9 mi' rendered, no route-error. _computeRoute both boots on map-ready AND on address change; JS `const` hoisting inside function scope means callback closure resolves at effect execution time (safe)."},
+    "iter49_regression": {"status": "PASS", "evidence": "All 8 existing iter49 pytest cases still pass (checkout-setup happy path, rejection, guards, public booking fields, admin charge-pay-later auth/guards). Full 11/11 combined suite pass in 8.64s."}
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter50_marketing_push.py",
+    "/app/backend/tests/test_iter49_pay_after_ride.py",
+    "/app/test_reports/pytest/iter50_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL UX consideration (not a bug, matches spec literally): BookingForm's default payTiming state is 'now' (BookingForm.jsx:127 `useState('now')`). Given this iteration's entire goal is to nudge users to pay-after-ride (the recommended, higher-conversion path), consider defaulting to 'after' so first-time visitors see the '$0 Due Today' submit label without needing to click. The 'Recommended' badge helps, but defaults win. Not blocking — flagging for main-agent product decision."
+  ],
+  "critical_code_review_comments": [
+    "BookingForm.jsx is now ~1505 lines (up from 1400 last iter). Same recommendation as iter49: extract PayTimingBlock, TrustBadgesRow, PromoSection into child components (>700 line guideline).",
+    "RouteMap.jsx line 66-106 useEffect uses `_computeRoute` (declared below at line 111). Works at runtime because JS `const` bindings in the same function scope are initialized before the useEffect callback fires (callback runs post-render). But react-hooks/exhaustive-deps lint would complain — consider using `useCallback` for _computeRoute or defining it above the boot effect. Not a bug now, but risk of TDZ issues if refactored to fire the effect synchronously.",
+    "RouteMap.jsx line 106 dep-array is `[apiKey, pickup, dropoff]` — missing `stops`. `stops` change won't trigger a re-boot (harmless since boot only runs once via mapInstanceRef guard) but the address-change effect (line 154-156) does include stops.",
+    "TrustPaymentBadges Mastercard SVG has overlapping circles (correct brand). Visa, Amex marks use plain SVG text (no license risk). Google Pay uses the multi-color 'G' logo — verify with legal that this rendering is compliant with Google Pay brand guidelines.",
+    "payments.py checkout line 199 sets submit_type=book — good. Line 205 lists 'Apple Pay & Google Pay accepted' in the submit message text — this is factually correct because Stripe auto-enables wallets when payment_method_types=[card] and the browser supports them; no additional server config needed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter50_marketing_push.py (new, 3 test cases)"
+  ],
+  "success_rate": {"backend": "100% (11/11 pytest: 3 new + 8 iter49 regression)", "frontend": "100% for all in-scope UI checks"},
+  "test_credentials": "Admin: support@turanelitelimo.com / TuronAdmin@2025 (not exercised — no admin UI in scope this iter).",
+  "seed_data_creation": "One TEST_ pay-now booking created for /pay/{id} UI verification: id=4dcfca3e-2153-48d6-b81a-8e5f2bafdd05, email=iter50-paybooking+*. Plus multiple TEST_ pay-later bookings via the pytest suite (email prefix 'paylater-test+' and 'iter50-test+'). All seed rows use future date 2026-08-15 and are safe to leave.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 50 marketing push fully verified. New backend test file at /app/backend/tests/test_iter50_marketing_push.py (3 cases) — reuses booking-create helper pattern from iter49. Stripe is LIVE — never enter card details. The BookingForm default payTiming='now' matches literal spec but is flagged as UX consideration (see action_items). RouteMap short trip (SFO → Palo Alto = 21.9 mi) renders cleanly; the extracted _computeRoute pattern works — race condition fix confirmed by design review, no observable failure in browser test. Frontend testId reminder: pickup/dropoff inputs are 'booking-pickup' and 'booking-dropoff' (NOT '-input' suffix); vehicle cards are 'vehicle-card-{Name}'. Use page.keyboard.type() to trigger React state update on autocomplete inputs, not element.fill().",
+  "rca of the issue": "N/A — no bugs found."
+}
