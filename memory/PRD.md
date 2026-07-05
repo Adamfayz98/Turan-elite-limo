@@ -1205,3 +1205,27 @@ See `/app/memory/test_credentials.md`
 3. Push OTA update (`eas update --channel production`) so existing app installs get invite screen + new images — EXPO_TOKEN in watch-and-submit.sh
 4. Optional: new EAS native build (applies Android pathPrefix /r scoping; not blocking — old filter is superset)
 5. P2 backlog: Saved Cards / 1-tap rebooking (Stripe SetupIntent); P3: Apple account linking
+
+---
+
+## 2026-07-05 — In-place landing quote dialogs + "Book now, pay after ride" (Iteration 49)
+
+**Feature 1: In-place quote dialogs on landing pages** ✅ tested
+- Quote-only landing pages (/party-bus, /wedding, /wine-tour, /casino, /motor-coach, /mini-coach) now open `QuoteRequestDialog` directly on the page (no /#booking detour). Airport + Corporate intentionally unchanged (instant-book vehicles).
+- `LandingPage.jsx`: new props `quoteVehicleType`, `quoteTripType`, `quoteVehicleOptions`; hero/bottom CTAs, route cards, custom-route link + floating widget launcher all open the dialog.
+- `QuoteRequestDialog.jsx`: new `defaultTripType` + `vehicleOptions` props (vehicle Select, data-testid="qr-vehicle"). Wedding pre-fills trip "Wedding", Wine Tour pre-fills "Wine Tour".
+
+**Feature 2: Book now, pay after ride (trust/conversion play for sedan/SUV/first-class)** ✅ tested
+- BookingForm: pay-timing choice (data-testid pay-timing-now / pay-timing-after) for instant-price vehicles; "after" → `POST /api/payments/checkout-setup` (Stripe Checkout SETUP mode, $0 today, card verified & saved to a Stripe Customer).
+- Booking fields: `payment_mode="pay_after_ride"`, `pay_later_amount` (deposit% + promo applied), `payment_status` flips to `card_on_file` via `_finalize_setup_session` (called from /payments/status polling + Stripe webhook). Sends `render_card_on_file_email`, admin SMS, promo bump, Google Ads offline conversion (card-verified booking = conversion).
+- Admin: `POST /api/admin/bookings/{id}/charge-pay-later` (BookingDetailsDialog "Pay after ride" block, data-testid charge-pay-later-btn) charges saved card off-session after ride → payment_status=paid + receipt email. Declines stamp `pay_later_charge_error`; /pay/{id} then re-shows Pay button as the fallback payment link (checkout preserves card_on_file status until paid).
+- PayBooking /thank-you: card-on-file hero "Reservation secured · Nothing charged today" (data-testid card-on-file-badge), "Due after ride" amount.
+- Test report: /app/test_reports/iteration_49.json — backend 8/8 pytest, frontend all pass. Backend tests: /app/backend/tests/test_iter49_pay_after_ride.py.
+- NOTE: preview env uses LIVE Stripe key — never complete checkouts in tests.
+
+**Strategy advice given to user (trust problem on sedan/first-class ads):**
+- Recommended AGAINST migrating to Moovs/LimoAnywhere (no consumer trust value, loses custom attribution/promo/admin stack).
+- Recommended enabling Apple Pay / Google Pay in Stripe Dashboard (auto-appears on hosted Checkout for pay-now, zero code).
+- Pay-after-ride is the Blacklane-style safest pattern: card validated at booking ($0 auth), charged off-session after ride, payment-link fallback on decline.
+
+**Backlog additions:** optional pre-auth hold 24h before pickup for pay-after-ride bookings; Google review count on landing/checkout pages; TCP license # near pay button; minor React duplicate-key warning audit on /casino /motor-coach /mini-coach (non-blocking).
