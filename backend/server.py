@@ -2591,11 +2591,26 @@ async def _validate_promo_for_booking(
         if prior > 0:
             return {"ok": False, "reason": "This code is for first-time customers only"}
 
-    # Compute discount
-    if promo["discount_type"] == "percent":
-        discount = round(amount * float(promo["value"]) / 100.0, 2)
+    # Compute discount — support BOTH the newer schema {discount_type, value}
+    # and the legacy schema {percent_off} (used by _ensure_promo_code_exists
+    # seed helper). Without this fallback, legacy-seeded promo codes like
+    # WELCOME20 raise KeyError('discount_type') on validate → 500 → customer
+    # sees "Could not validate code, try again" and gives up.
+    discount_type = promo.get("discount_type")
+    value = promo.get("value")
+    if discount_type is None:
+        if promo.get("percent_off") is not None:
+            discount_type = "percent"
+            value = float(promo.get("percent_off"))
+        elif promo.get("amount_off") is not None:
+            discount_type = "fixed"
+            value = float(promo.get("amount_off"))
+        else:
+            return {"ok": False, "reason": "This code is misconfigured — call us to apply it."}
+    if discount_type == "percent":
+        discount = round(amount * float(value) / 100.0, 2)
     else:  # fixed
-        discount = round(min(float(promo["value"]), amount), 2)
+        discount = round(min(float(value), amount), 2)
     if discount <= 0:
         return {"ok": False, "reason": "Discount would not apply to this ride"}
 
@@ -2603,8 +2618,8 @@ async def _validate_promo_for_booking(
         "ok": True,
         "code": normalized,
         "description": promo.get("description") or "",
-        "discount_type": promo["discount_type"],
-        "value": float(promo["value"]),
+        "discount_type": discount_type,
+        "value": float(value),
         "discount": discount,
         "final_amount": round(amount - discount, 2),
     }

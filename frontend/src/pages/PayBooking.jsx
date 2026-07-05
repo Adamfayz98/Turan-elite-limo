@@ -388,10 +388,32 @@ export default function PayBooking() {
                 )}
                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/10">
                   <div className="text-xs uppercase tracking-[0.2em] text-[#D4AF37]">
-                    {isPaid ? "Paid in full" : isCardOnFile ? "Due after ride" : "Due now"}
+                    {isPaid
+                      ? "Paid in full"
+                      : (isCardOnFile || isPayAfterRide)
+                        ? "Due after ride"
+                        : "Due now"}
                   </div>
                   <div className="font-serif text-3xl gold-text" data-testid="pay-due-amount">
-                    ${(isPaid ? booking.paid_amount : isCardOnFile ? (booking.pay_later_amount ?? booking.deposit_amount) : booking.deposit_amount)?.toFixed(2)}
+                    ${(() => {
+                      if (isPaid) return booking.paid_amount;
+                      // Pay-after-ride bookings (setup mode) — the discounted
+                      // `pay_later_amount` is the source of truth from the
+                      // moment /checkout-setup runs, well before the Stripe
+                      // webhook flips payment_status to card_on_file. Falling
+                      // back to deposit_amount here would show the ORIGINAL
+                      // pre-promo amount, misleading both the customer AND
+                      // the admin (who might charge that instead).
+                      if (isCardOnFile || isPayAfterRide) {
+                        return booking.pay_later_amount ?? booking.deposit_amount;
+                      }
+                      // Regular pay-now flow — if a promo was applied it's
+                      // already baked into pay_later_amount OR into
+                      // deposit_amount (backend applies promo to whichever
+                      // is the "amount to charge"). Prefer pay_later_amount
+                      // when present so we never show the pre-promo total.
+                      return booking.pay_later_amount ?? booking.deposit_amount;
+                    })()?.toFixed(2)}
                   </div>
                 </div>
               </>
@@ -412,7 +434,11 @@ export default function PayBooking() {
                   </>
                 ) : (
                   <>
-                    Pay ${booking.deposit_amount?.toFixed(2)} & Secure
+                    {/* Effective amount: for pay-after-ride bookings this is
+                        the discounted pay_later_amount (backend already
+                        applied the promo). For pay-now flows same fallback
+                        chain so a promo never shows the pre-promo total. */}
+                    Pay ${(booking.pay_later_amount ?? booking.deposit_amount ?? 0).toFixed(2)} & Secure
                   </>
                 )}
               </Button>

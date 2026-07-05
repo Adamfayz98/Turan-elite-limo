@@ -1267,3 +1267,36 @@ See `/app/memory/test_credentials.md`
 - User to hand off `GOOGLE_ADS_COPY_PAY_AFTER_RIDE.md` to CAI to update Google Ads campaigns.
 - User to redeploy website to production (currently in preview).
 - Still pending from iter49 handoff: Twilio A2P Option A vs B choice; Google Ads OAuth secret rotation.
+
+---
+
+## 2026-07-05 evening — Bug fixes on Iter50 marketing push (Iteration 51)
+
+**User-reported issues (all P0, all seen on production):**
+
+1. **Pay-after-ride showed ORIGINAL amount everywhere** (thank-you page, admin, "Pay $X" button) even when an auto-apply promo was live. Admins were at risk of charging the pre-promo amount.
+   - Root cause: PayBooking's "Due after ride" gate used `payment_status === 'card_on_file'`, which only flips AFTER Stripe webhook. On landing, it fell back to `deposit_amount` (raw quote). The "Pay $X & Secure" button hardcoded `booking.deposit_amount` too.
+   - Fix: Gate on `booking.payment_mode === 'pay_after_ride'` OR card_on_file. All amount displays now use `pay_later_amount ?? deposit_amount`. Backend `/bookings/{id}/public` now returns `promo_code`, `discount_amount`, `original_quote_amount`. Frontend shows strike-through original + "You saved $X" chip + discounted "Due after ride" total.
+   - Admin `BookingDetailsDialog` now renders 3-row breakdown: Quote (before promo) · Promo applied · Final quote (highlighted).
+
+2. **Locked promo input when auto-apply promo active.** Customer with a personal code (e.g. Leticia's extra 10%) had to click Remove first, then apply their code.
+   - Fix: When `promoApplied.auto_applied` is true, a secondary override input appears below the applied chip (data-testid=promo-override-input + promo-override-apply). Applying a valid new code REPLACES the auto-applied one in one step.
+
+3. **"Recommended" badge on Pay-After-Ride** was pushing customers away from prepayment.
+   - Fix: Removed the badge. Reordered options — Pay Now is now first (left/default), Pay After Ride second. Default `payTiming` reverted to `"now"`.
+
+4. **Child seat was "complimentary" — should be $20/seat with a quantity picker.**
+   - Fix: Added `CHILD_SEAT_FEE = 20.0` constant. `child_seat_count` field added to `BookingCreate`, `Booking`, `QuoteRequest` models. `_compute_quote_amount` and `/quote` (both transfer + hourly branches) now add `seat_count × $20` to the priced fare. UI replaced boolean Checkbox with −/count/+ picker (max 6). Email + admin + legacy compat all handled (child_seat bool auto-mirrors from count).
+
+**BONUS FIX found by testing agent:** `_validate_promo_for_booking` crashed with `KeyError('discount_type')` on legacy-seeded promos (like `WELCOME20` created via `_ensure_promo_code_exists` with `percent_off` schema). Fixed to fall back to `percent_off`/`amount_off` fields, so both schemas coexist.
+
+**Testing:**
+- `/app/test_reports/iteration_51.json` — All 4 bug fixes verified, plus legacy promo schema fix.
+- Backend regression: 20/20 pass (iter49 pay-after + iter50 marketing + iter51 bug fixes).
+- Live curl verified: booking with 2 child seats + WELCOME auto-promo → quote=$341.09, discount=$68.22, pay_later_amount=$272.87. Screenshot confirmed PayBooking shows all three lines correctly.
+
+**Files changed:**
+- Backend: `server.py` (5 sections: CHILD_SEAT_FEE constant, model fields, quote hourly, quote transfer, /public endpoint, create_booking normalization, _validate_promo_for_booking legacy compat), `routes/customer.py`, `email_service.py`
+- Frontend: `components/BookingForm.jsx` (child seat picker, promo override input, pay-timing reorder, badge removal, default reversion), `pages/PayBooking.jsx` (discounted display + payment_mode gate), `components/admin/BookingDetailsDialog.jsx` (3-row promo breakdown + child seat count in passengers row)
+
+**User action required:** Redeploy to production (turanelitelimo.com).
