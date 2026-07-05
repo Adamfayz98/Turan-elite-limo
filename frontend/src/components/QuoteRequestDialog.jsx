@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Send, Phone as PhoneIcon, Info, Plus, X as XIcon } from "lucide-react";
 
@@ -96,13 +96,16 @@ export default function QuoteRequestDialog({
   open,
   onOpenChange,
   vehicleType,
+  defaultTripType = "",
+  vehicleOptions = null,
   supportPhone = "(650) 410-0687",
 }) {
+  const [vehicle, setVehicle] = useState(vehicleType || "");
   const [form, setForm] = useState({
     full_name: "",
     phone: "",
     email: "",
-    trip_type: "",
+    trip_type: defaultTripType || "",
     service_duration: "",
     pickup_date: "",
     pickup_time: "",
@@ -123,6 +126,18 @@ export default function QuoteRequestDialog({
   // a separate optional opt-in.
   const [smsConsent, setSmsConsent] = useState(false);
   const [smsPromoOptIn, setSmsPromoOptIn] = useState(false);
+
+  // Sync vehicle + default trip type each time the dialog opens (landing pages
+  // open the same dialog instance with different vehicle contexts).
+  useEffect(() => {
+    if (open) {
+      setVehicle(vehicleType || (vehicleOptions && vehicleOptions[0]) || "");
+      if (defaultTripType) {
+        setForm((s) => (s.trip_type ? s : { ...s, trip_type: defaultTripType }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, vehicleType]);
 
   const addStop = () => setStops((s) => (s.length >= 5 ? s : [...s, ""]));
   const removeStop = (i) => setStops((s) => s.filter((_, idx) => idx !== i));
@@ -156,7 +171,7 @@ export default function QuoteRequestDialog({
     try {
       const { data } = await api.post("/quote-requests", {
         ...form,
-        vehicle_type: vehicleType,
+        vehicle_type: vehicle || vehicleType,
         passengers: form.passengers ? Number(form.passengers) : null,
         // Keep `occasion` populated for backward-compat with old admin/email
         // templates that read it. Trip type is the new canonical field.
@@ -174,7 +189,7 @@ export default function QuoteRequestDialog({
       try {
         trackQuoteRequest({
           requestId: data?.id,
-          vehicleType,
+          vehicleType: vehicle || vehicleType,
           email: form.email,
           phone: form.phone,
         });
@@ -190,7 +205,7 @@ export default function QuoteRequestDialog({
   const reset = () => {
     setDone(false);
     setForm({
-      full_name: "", phone: "", email: "", trip_type: "", service_duration: "",
+      full_name: "", phone: "", email: "", trip_type: defaultTripType || "", service_duration: "",
       pickup_date: "", pickup_time: "", pickup_location: "", dropoff_location: "",
       passengers: "", notes: "",
     });
@@ -217,7 +232,7 @@ export default function QuoteRequestDialog({
       >
         <DialogHeader>
           <DialogTitle className="font-serif text-2xl">
-            {done ? "Got it — we'll text you shortly" : `Request a quote · ${vehicleType}`}
+            {done ? "Got it — we'll text you shortly" : `Request a quote${(vehicle || vehicleType) ? ` · ${vehicle || vehicleType}` : ""}`}
           </DialogTitle>
           <DialogDescription className="text-xs text-white/55 mt-1">
             {done
@@ -254,6 +269,29 @@ export default function QuoteRequestDialog({
           </div>
         ) : (
           <div className="space-y-3 mt-2">
+            {/* Vehicle picker — only when opened from a landing page offering
+                multiple quote-only vehicles */}
+            {vehicleOptions && vehicleOptions.length > 0 && (
+              <div>
+                <Label className={labelCls}>
+                  Vehicle *
+                  <InfoHint id="qr-info-vehicle" text="Pick the vehicle you have in mind — we'll confirm the best fit for your group size." />
+                </Label>
+                <Select value={vehicle} onValueChange={setVehicle}>
+                  <SelectTrigger data-testid="qr-vehicle" className={selectTriggerCls}>
+                    <SelectValue placeholder="Select a vehicle" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#0E0E0E] border-[#27272A] text-white">
+                    {vehicleOptions.map((v) => (
+                      <SelectItem key={v} value={v} data-testid={`qr-vehicle-${v.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+                        {v}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             {/* Contact row */}
             <div className="grid grid-cols-2 gap-3">
               <div>

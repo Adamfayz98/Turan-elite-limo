@@ -10,6 +10,8 @@ export default function CasinoLanding() {
   return (
     <LandingPage
       testId="casino-landing"
+      quoteVehicleType="Executive Sprinter"
+      quoteVehicleOptions={["Executive Sprinter", "Mini Coach", "Motor Coach", "Party Bus"]}
       pageTitle="Bay Area Casino Transportation · Graton, Thunder Valley, Reno & Tahoe Shuttle — TuranEliteLimo"
       metaDescription="Bay Area casino transportation and group shuttle service. Flat-rate rides to Graton, Thunder Valley, Cache Creek, Jackson Rancheria, and Reno/Tahoe casinos. Sprinter, Mini Coach, Motor Coach, and Party Bus options. Round-trip flat rate, professional driver, no surprises."
       heroImage={MOTOR_COACH_IMG}

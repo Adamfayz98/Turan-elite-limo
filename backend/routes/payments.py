@@ -246,7 +246,9 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
     )
     booking_set = {
         **booking_updates,
-        "payment_status": "pending",
+        # Don't downgrade a card-on-file booking that's using this endpoint as the
+        # post-decline fallback payment link — keep its status until Stripe pays.
+        **({} if booking.get("payment_status") == "card_on_file" else {"payment_status": "pending"}),
         "payment_session_id": session_id,
     }
     if payment_intent_id:
@@ -292,6 +294,19 @@ async def get_payment_status(session_id: str, request: Request):
     txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
     if not txn:
         raise HTTPException(status_code=404, detail="Payment not found")
+
+    # Setup-mode (pay-after-ride) sessions are finalized via their own path —
+    # they never have payment_status "paid" on Stripe's side.
+    if txn.get("kind") == "setup":
+        result = await _finalize_setup_session(session_id, _frontend_origin_from_request(request))
+        b2 = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
+        return PaymentStatus(
+            payment_status=result if result != "unknown" else "pending",
+            booking_status=(b2.get("status") if b2 else "unknown"),
+            amount=float(txn.get("amount", 0)),
+            currency=txn.get("currency", "usd"),
+            confirmation_number=(b2.get("confirmation_number") if b2 else None),
+        )
 
     booking = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
     new_status = txn.get("status")
@@ -534,6 +549,13 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
         except Exception as e:
             logging.getLogger(__name__).warning(f"Custom invoice webhook check failed: {e}")
         txn = await db.payment_transactions.find_one({"session_id": sid}, {"_id": 0})
+        # Pay-after-ride setup sessions: finalize card-on-file instead of "paid".
+        if txn and txn.get("kind") == "setup":
+            try:
+                await _finalize_setup_session(sid, _frontend_origin_from_request(request))
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Setup session webhook finalize failed: {e}")
+            return {"received": True}
         if txn and event.payment_status == "paid" and txn.get("status") != "paid":
             booking = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
             await db.payment_transactions.update_one(
@@ -1086,3 +1108,355 @@ async def admin_charge_card_on_file(
         "description": description,
         "stripe_payment_intent_id": pi.get("id"),
     }
+
+
+# ---------------------------------------------------------------------------
+# "Book now, pay after ride" — Stripe Checkout in SETUP mode.
+# Card is collected + validated at booking time ($0 charged), saved to a
+# Stripe Customer, then charged off-session by admin after ride completion.
+# ---------------------------------------------------------------------------
+
+@router.post("/payments/checkout-setup", response_model=CheckoutCreateResponse)
+async def create_payment_checkout_setup(payload: CheckoutCreateRequest, request: Request):
+    """Pay-after-ride flow: create a setup-mode Stripe Checkout session that
+    saves + validates the customer's card without charging anything today."""
+    booking = await db.bookings.find_one({"id": payload.booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.get("payment_status") in ("paid", "card_on_file"):
+        raise HTTPException(status_code=400, detail="Booking is already secured")
+    if booking.get("status") not in ("confirmed", "pending"):
+        raise HTTPException(status_code=400, detail="Booking is not active")
+
+    quote_amount = booking.get("quote_amount") or await _compute_quote_amount(booking)
+    if quote_amount is None:
+        raise HTTPException(
+            status_code=400,
+            detail="This vehicle requires a phone quote — call us to arrange payment.",
+        )
+
+    settings = await _load_settings()
+    amount = round(float(quote_amount) * settings.deposit_percent / 100.0, 2)
+    if amount < 0.5:
+        raise HTTPException(status_code=400, detail="Amount too small to charge")
+
+    # Promo handling mirrors the pay-now flow so the customer keeps their discount.
+    original_amount = amount
+    discount_amount = 0.0
+    applied_promo = None
+    code_raw = (booking.get("promo_code") or "").strip()
+    if code_raw:
+        promo = await _validate_promo_for_booking(
+            code_raw, original_amount, booking.get("email"), booking.get("vehicle_type"),
+        )
+        if promo.get("ok"):
+            discount_amount = round(promo["discount"], 2)
+            amount = round(original_amount - discount_amount, 2)
+            applied_promo = promo["code"]
+            if amount < 0.5:
+                amount = 0.5
+                discount_amount = round(original_amount - amount, 2)
+        else:
+            logger.warning(
+                f"Promo '{code_raw}' rejected at setup-checkout for {payload.booking_id}: {promo.get('reason')}"
+            )
+
+    booking_updates = {
+        "quote_amount": quote_amount,
+        "payment_mode": "pay_after_ride",
+        "pay_later_amount": amount,
+    }
+    if applied_promo:
+        booking_updates["promo_code"] = applied_promo
+        booking_updates["discount_amount"] = discount_amount
+        booking_updates["original_quote_amount"] = original_amount
+    if not booking.get("confirmation_number"):
+        booking_updates["confirmation_number"] = await _next_unique_confirmation_number()
+        booking["confirmation_number"] = booking_updates["confirmation_number"]
+
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+
+    origin = payload.origin_url.rstrip("/")
+    success_url = f"{origin}/thank-you?bid={payload.booking_id}&session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/pay/{payload.booking_id}"
+    cn_for_desc = booking.get("confirmation_number") or ""
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    async with httpx.AsyncClient(timeout=15.0) as cli:
+        try:
+            # 1) Create (or reuse) a Stripe Customer so the saved card is chargeable later.
+            customer_id = booking.get("stripe_customer_id")
+            if not customer_id:
+                cust_form = [
+                    ("email", booking.get("email") or ""),
+                    ("name", booking.get("full_name") or ""),
+                    ("metadata[booking_id]", payload.booking_id),
+                ]
+                rc = await cli.post(
+                    "https://api.stripe.com/v1/customers",
+                    headers=headers,
+                    content=urlencode(cust_form).encode("utf-8"),
+                )
+                if rc.status_code != 200:
+                    logger.error(f"Stripe customer create failed: {rc.status_code} {rc.text[:300]}")
+                    await _record_checkout_failure(payload.booking_id, f"stripe_customer_{rc.status_code}", rc.text[:300], booking)
+                    raise HTTPException(status_code=502, detail="Could not start Stripe checkout. We've been notified and will call you to complete the booking.")
+                customer_id = rc.json().get("id")
+
+            # 2) Setup-mode Checkout session — validates the card, charges $0.
+            form = [
+                ("mode", "setup"),
+                ("customer", customer_id),
+                ("payment_method_types[]", "card"),
+                ("success_url", success_url),
+                ("cancel_url", cancel_url),
+                ("setup_intent_data[metadata][booking_id]", payload.booking_id),
+                ("setup_intent_data[metadata][kind]", "pay_after_ride"),
+                ("metadata[booking_id]", payload.booking_id),
+                ("metadata[kind]", "pay_after_ride"),
+                ("metadata[confirmation_number]", cn_for_desc),
+            ]
+            r = await cli.post(
+                "https://api.stripe.com/v1/checkout/sessions",
+                headers=headers,
+                content=urlencode(form).encode("utf-8"),
+            )
+        except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPError) as e:
+            err_msg = f"{type(e).__name__}: {str(e)[:200]}"
+            logger.error(f"Stripe setup-checkout network failure for booking {payload.booking_id}: {err_msg}")
+            await _record_checkout_failure(payload.booking_id, "network_error", err_msg, booking)
+            raise HTTPException(
+                status_code=502,
+                detail="Our payment processor didn't respond in time. Please try again.",
+            )
+    if r.status_code != 200:
+        err_body = r.text[:500]
+        logger.error(f"Stripe setup-checkout create failed: {r.status_code} {err_body}")
+        await _record_checkout_failure(payload.booking_id, f"stripe_{r.status_code}", err_body, booking)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not start Stripe checkout. We've been notified and will call you to complete the booking.",
+        )
+    sess_json = r.json()
+    session_url = sess_json.get("url")
+    session_id = sess_json.get("id")
+    if not session_url or not session_id:
+        await _record_checkout_failure(payload.booking_id, "stripe_invalid_session", str(sess_json)[:300], booking)
+        raise HTTPException(status_code=502, detail="Stripe returned an invalid session")
+
+    await db.payment_transactions.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "booking_id": payload.booking_id,
+            "session_id": session_id,
+            "kind": "setup",
+            "amount": float(amount),
+            "currency": settings.currency,
+            "status": "initiated",
+            "metadata": {
+                "confirmation_number": booking.get("confirmation_number"),
+                "customer_email": booking.get("email"),
+                "kind": "pay_after_ride",
+            },
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    await db.bookings.update_one(
+        {"id": payload.booking_id},
+        {
+            "$set": {
+                **booking_updates,
+                "payment_status": "pending",
+                "payment_session_id": session_id,
+                "stripe_customer_id": customer_id,
+                "last_checkout_attempt_at": datetime.now(timezone.utc).isoformat(),
+            },
+            "$inc": {"checkout_attempts": 1},
+        },
+    )
+    return CheckoutCreateResponse(url=session_url, session_id=session_id, amount=float(amount))
+
+
+async def _finalize_setup_session(session_id: str, client_origin: str | None = None) -> str:
+    """Idempotent: verify a setup-mode Checkout session completed, save the card
+    IDs on the booking, flip payment_status → card_on_file, notify customer/admin.
+    Returns the resulting payment_status ('card_on_file' | 'pending' | 'unknown')."""
+    txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not txn or txn.get("kind") != "setup":
+        return "unknown"
+    booking = await db.bookings.find_one({"id": txn["booking_id"]}, {"_id": 0})
+    if not booking:
+        return "unknown"
+    if booking.get("payment_status") in ("card_on_file", "paid"):
+        return booking["payment_status"]
+
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        return "pending"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as cli:
+            r = await cli.get(
+                f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
+                params={"expand[]": "setup_intent"},
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+    except Exception as e:
+        logger.warning(f"Setup session lookup failed for {session_id}: {e}")
+        return "pending"
+    if r.status_code != 200:
+        logger.warning(f"Setup session lookup HTTP {r.status_code} for {session_id}: {r.text[:200]}")
+        return "pending"
+    sj = r.json()
+    if sj.get("status") != "complete":
+        return "pending"
+    si = sj.get("setup_intent") or {}
+    pm_id = si.get("payment_method") if isinstance(si, dict) else None
+    customer_id = sj.get("customer")
+    if not pm_id:
+        logger.warning(f"Setup session {session_id} complete but no payment_method returned")
+        return "pending"
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.payment_transactions.update_one(
+        {"session_id": session_id},
+        {"$set": {"status": "card_saved", "card_saved_at": now_iso}},
+    )
+    cn = booking.get("confirmation_number") or await _next_unique_confirmation_number()
+    token = booking.get("manage_token") or _generate_manage_token()
+    update_set = {
+        "payment_status": "card_on_file",
+        "card_on_file_at": now_iso,
+        "manage_token": token,
+        "confirmation_number": cn,
+        "stripe_payment_method_id": pm_id,
+        "quote_amount": booking.get("quote_amount"),
+    }
+    if customer_id:
+        update_set["stripe_customer_id"] = customer_id
+    await db.bookings.update_one({"id": booking["id"]}, {"$set": update_set})
+    updated = await db.bookings.find_one({"id": booking["id"]}, {"_id": 0})
+
+    # Google Ads offline conversion — a card-verified booking IS the conversion.
+    try:
+        import asyncio
+        from routes.google_ads import upload_booking_to_google_ads
+        asyncio.create_task(upload_booking_to_google_ads(booking["id"]))
+    except Exception as e:
+        logger.warning(f"Google Ads schedule failed for card-on-file booking: {e}")
+
+    if updated and not updated.get("card_on_file_email_sent"):
+        try:
+            manage_url = f"{client_origin}/manage/{token}" if client_origin else None
+            from email_service import render_card_on_file_email
+            await send_email(
+                to=updated["email"],
+                subject=f"Reservation secured — pay after your ride · {cn}",
+                html=render_card_on_file_email(updated, float(updated.get("pay_later_amount") or 0), manage_url=manage_url),
+                bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+            )
+            await db.bookings.update_one({"id": booking["id"]}, {"$set": {"card_on_file_email_sent": True}})
+        except Exception as e:
+            logger.warning(f"Card-on-file email failed (non-fatal): {e}")
+        try:
+            admin_to = sms_service.admin_phone()
+            if admin_to:
+                amt = float(updated.get("pay_later_amount") or 0)
+                await sms_service.send_sms(
+                    admin_to,
+                    f"New PAY-AFTER-RIDE booking {cn} · {updated.get('vehicle_type','')} · "
+                    f"{updated.get('pickup_date','')} {updated.get('pickup_time','')} · "
+                    f"${amt:,.2f} due after ride. Card verified & on file.",
+                )
+        except Exception as e:
+            logger.warning(f"Card-on-file admin SMS failed (non-fatal): {e}")
+        promo_used = updated.get("promo_code")
+        if promo_used:
+            try:
+                await db.promos.update_one(
+                    {"code": promo_used.upper()},
+                    {"$inc": {"uses": 1, "total_discount_given": float(updated.get("discount_amount") or 0)}},
+                )
+            except Exception as e:
+                logger.warning(f"Promo usage bump failed for {promo_used}: {e}")
+    return "card_on_file"
+
+
+@router.post("/admin/bookings/{booking_id}/charge-pay-later")
+async def admin_charge_pay_later(
+    booking_id: str,
+    payload: dict,
+    _: dict = Depends(require_admin),
+):
+    """Charge the saved card for a pay-after-ride booking (after ride completion).
+    Accepts optional `amount` override; defaults to the booking's pay_later_amount."""
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if b.get("payment_mode") != "pay_after_ride":
+        raise HTTPException(status_code=400, detail="This booking is not a pay-after-ride booking.")
+    if b.get("payment_status") == "paid":
+        return {"already_paid": True, "amount": b.get("paid_amount")}
+    pm_id = b.get("stripe_payment_method_id")
+    customer_id = b.get("stripe_customer_id")
+    if not pm_id or not customer_id:
+        raise HTTPException(status_code=400, detail="No saved card on this booking.")
+
+    try:
+        amount = float(payload.get("amount") or b.get("pay_later_amount") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="amount must be a number")
+    if amount < 0.50:
+        raise HTTPException(status_code=400, detail="Charge too small (under $0.50 minimum).")
+    if amount > 10000:
+        raise HTTPException(status_code=400, detail="Charge exceeds $10,000 — split into smaller charges.")
+
+    cn = b.get("confirmation_number") or b["id"][:8]
+    try:
+        pi = await _stripe_off_session_charge(
+            customer_id=customer_id,
+            payment_method_id=pm_id,
+            amount_cents=int(round(amount * 100)),
+            description=f"Chauffeur service — {b.get('vehicle_type','')} · #{cn}",
+            metadata={"booking_id": b["id"], "kind": "pay_after_ride_final"},
+        )
+    except HTTPException as e:
+        # Record the decline so admin UI can show it + offer the payment-link fallback.
+        await db.bookings.update_one(
+            {"id": b["id"]},
+            {"$set": {
+                "pay_later_charge_error": str(e.detail)[:300],
+                "pay_later_charge_error_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        raise
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.bookings.update_one(
+        {"id": b["id"]},
+        {
+            "$set": {
+                "payment_status": "paid",
+                "paid_amount": amount,
+                "paid_currency": "usd",
+                "paid_at": now_iso,
+                "pay_later_charged_at": now_iso,
+                "payment_intent_id": pi.get("id"),
+            },
+            "$unset": {"pay_later_charge_error": "", "pay_later_charge_error_at": ""},
+        },
+    )
+    try:
+        await send_email(
+            to=b["email"],
+            subject=f"Payment receipt · ${amount:,.2f} · #{cn}",
+            html=render_payment_receipt_email({**b, "confirmation_number": cn}, amount),
+            bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+        )
+    except Exception as e:
+        logger.warning(f"Pay-later receipt email failed (non-fatal): {e}")
+    return {"charged": True, "amount": amount, "payment_intent_id": pi.get("id")}

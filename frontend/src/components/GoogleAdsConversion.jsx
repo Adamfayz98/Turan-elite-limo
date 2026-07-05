@@ -20,7 +20,7 @@ export default function GoogleAdsConversion({ booking }) {
   const fired = useRef(false);
   useEffect(() => {
     if (fired.current) return;
-    if (!booking || booking.payment_status !== "paid") return;
+    if (!booking || (booking.payment_status !== "paid" && booking.payment_status !== "card_on_file")) return;
     if (!booking.id) return;
     trackPurchase({
       bookingId: booking.id,

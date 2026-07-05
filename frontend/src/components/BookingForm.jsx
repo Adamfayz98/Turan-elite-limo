@@ -120,6 +120,10 @@ export default function BookingForm() {
   const [form, setForm] = useState(initialForm);
   const [waitConsent, setWaitConsent] = useState(false);
   const [waitPolicy, setWaitPolicy] = useState(null);
+  // Payment timing — "now" (charge at checkout) or "after" (card saved via
+  // Stripe setup mode, charged after ride completion). Trust-builder for
+  // first-time customers who hesitate to pay a new site upfront.
+  const [payTiming, setPayTiming] = useState("now");
   // ---- Twilio A2P / TCPA consent (REQUIRED to submit) ----
   // `smsConsent` is the express written consent for transactional SMS — must
   // be explicitly checked, not pre-checked. `smsPromoOptIn` is the optional
@@ -469,7 +473,8 @@ export default function BookingForm() {
         // redirect AND offers a manual fallback button if the browser blocks
         // the auto-redirect (iOS Safari ITP, popup blockers, etc).
         try {
-          const { data: co } = await api.post("/payments/checkout", {
+          const endpoint = payTiming === "after" ? "/payments/checkout-setup" : "/payments/checkout";
+          const { data: co } = await api.post(endpoint, {
             booking_id: booking.id,
             origin_url: window.location.origin,
           });
@@ -1388,6 +1393,55 @@ export default function BookingForm() {
             </div>
           )}
 
+          {/* ---- Payment timing choice (instant-price vehicles only) ---- */}
+          {(() => {
+            const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
+            if (!vq || vq.price == null) return null;
+            const optCls = (active) =>
+              `text-left rounded-xl border p-4 transition cursor-pointer ${
+                active
+                  ? "border-[#D4AF37] bg-[#D4AF37]/10 ring-1 ring-[#D4AF37]/40"
+                  : "border-[#1F1F1F] bg-[#0E0E0E] hover:border-[#D4AF37]/40"
+              }`;
+            return (
+              <div className="mt-6" data-testid="pay-timing-block">
+                <div className="text-[10px] uppercase tracking-[0.25em] text-white/55 mb-2.5">
+                  How would you like to pay?
+                </div>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    data-testid="pay-timing-now"
+                    onClick={() => setPayTiming("now")}
+                    className={optCls(payTiming === "now")}
+                  >
+                    <div className="text-white text-sm font-medium">Pay now</div>
+                    <div className="text-white/55 text-xs mt-1.5 leading-relaxed">
+                      Secure checkout via Stripe. Locks in your reservation instantly.
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="pay-timing-after"
+                    onClick={() => setPayTiming("after")}
+                    className={optCls(payTiming === "after")}
+                  >
+                    <div className="text-white text-sm font-medium flex items-center gap-2">
+                      Book now, pay after your ride
+                      <span className="text-[9px] uppercase tracking-widest bg-[#D4AF37] text-black px-2 py-0.5 rounded-full font-semibold">
+                        $0 today
+                      </span>
+                    </div>
+                    <div className="text-white/55 text-xs mt-1.5 leading-relaxed">
+                      Card securely verified &amp; saved by Stripe — never stored on our site.
+                      You're only charged after your ride is completed.
+                    </div>
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Submit */}
           <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
             <div className="text-xs text-white/55">
@@ -1415,6 +1469,9 @@ export default function BookingForm() {
                     const vq = (quote?.quotes || []).find((q) => q.vehicle_type === form.vehicle_type);
                     if (vq && vq.price != null) {
                       const finalPrice = promoApplied ? promoApplied.final_amount : vq.price;
+                      if (payTiming === "after") {
+                        return `Reserve Now · $0 Due Today`;
+                      }
                       return `Proceed to Payment · $${finalPrice.toFixed(2)}`;
                     }
                     if (vq && vq.price == null) {

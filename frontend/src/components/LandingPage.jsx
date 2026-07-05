@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
 import FloatingQuoteWidget from "@/components/FloatingQuoteWidget";
+import QuoteRequestDialog from "@/components/QuoteRequestDialog";
 
 /**
  * Reusable Google Ads landing page. Used by /airport, /wedding, /wine-tour,
@@ -75,7 +76,22 @@ export default function LandingPage({
   // Optional hero background photo (with slow Ken-Burns pan/zoom).
   // Used on Motor Coach / Mini Coach pages to make the vehicle a cinematic backdrop.
   heroImage, // string URL, e.g. "/fleet/motor-coach.jpg"
+  // ---- In-place quote dialog (quote-only vehicle pages) ----
+  // When provided, every "Get Instant Quote" CTA opens the quote-request
+  // dialog right on the landing page instead of navigating to /#booking —
+  // one click from ad → form, no homepage detour.
+  quoteVehicleType, // default vehicle for the quote (e.g. "Party Bus")
+  quoteTripType, // pre-filled trip type (e.g. "Wedding")
+  quoteVehicleOptions, // optional list of selectable vehicles in the dialog
 }) {
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const inlineQuote = !!(quoteVehicleType || (quoteVehicleOptions && quoteVehicleOptions.length));
+  // CTAs render as <button> (open dialog) when inline quoting is on, else <a href="/#booking">.
+  const CtaEl = inlineQuote ? "button" : "a";
+  const ctaProps = inlineQuote
+    ? { type: "button", onClick: () => setQuoteOpen(true) }
+    : { href: BOOK_URL };
+
   useEffect(() => {
     if (pageTitle) document.title = pageTitle;
     if (metaDescription) {
@@ -125,10 +141,10 @@ export default function LandingPage({
           <p className="text-white/65 text-base sm:text-lg mt-7 max-w-2xl leading-relaxed">{subtitle}</p>
 
           <div className="flex flex-wrap items-center gap-4 mt-10">
-            <a data-testid={`${testId}-book-cta`} href={BOOK_URL}
-              className="inline-flex items-center gap-2 px-7 py-4 rounded-full bg-[#D4AF37] text-black font-medium hover:opacity-90 transition shadow-[0_8px_30px_rgba(212,175,55,0.35)]">
+            <CtaEl data-testid={`${testId}-book-cta`} {...ctaProps}
+              className="inline-flex items-center gap-2 px-7 py-4 rounded-full bg-[#D4AF37] text-black font-medium hover:opacity-90 transition shadow-[0_8px_30px_rgba(212,175,55,0.35)] cursor-pointer">
               {ctaLabel || "Get Instant Quote →"}
-            </a>
+            </CtaEl>
             <a data-testid={`${testId}-call-cta`} href={TEL}
               className="inline-flex items-center gap-2 px-7 py-4 rounded-full border border-white/20 text-white hover:bg-white/5 transition">
               Call {PHONE}
@@ -217,9 +233,9 @@ export default function LandingPage({
             </h2>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-12">
               {routes.map((r) => (
-                <a key={`${r.from}-${r.to}`} href={BOOK_URL}
+                <CtaEl key={`${r.from}-${r.to}`} {...ctaProps}
                   data-testid={`${testId}-route-${r.from.toLowerCase().replace(/\s+/g, "-")}`}
-                  className="group block p-6 rounded-2xl border border-white/10 bg-white/[0.02] hover:border-[#D4AF37]/40 hover:bg-white/[0.04] transition">
+                  className="group block w-full text-left p-6 rounded-2xl border border-white/10 bg-white/[0.02] hover:border-[#D4AF37]/40 hover:bg-white/[0.04] transition cursor-pointer">
                   <p className="text-white/40 text-[10px] tracking-[0.25em] uppercase mb-2">{r.from_full}</p>
                   <p className="text-white text-lg">
                     {r.from} <span className="text-white/40">→</span> {r.to}
@@ -227,12 +243,12 @@ export default function LandingPage({
                   <p className="text-[#D4AF37] text-xs tracking-widest mt-3 group-hover:translate-x-1 transition-transform">
                     ~{r.time} · Pre-book →
                   </p>
-                </a>
+                </CtaEl>
               ))}
             </div>
             <p className="text-white/45 text-sm mt-8 max-w-2xl">
               Don&apos;t see your route? We service all of Northern California.{" "}
-              <a href={BOOK_URL} className="text-[#D4AF37] hover:underline" data-testid={`${testId}-custom-route`}>Request a custom quote</a>.
+              <CtaEl {...ctaProps} className="text-[#D4AF37] hover:underline cursor-pointer" data-testid={`${testId}-custom-route`}>Request a custom quote</CtaEl>.
             </p>
           </div>
         </section>
@@ -375,10 +391,10 @@ export default function LandingPage({
           </h2>
           <p className="text-white/60 mt-6 max-w-xl mx-auto">{ctaSubtitle}</p>
           <div className="flex flex-wrap justify-center gap-4 mt-10">
-            <a data-testid={`${testId}-cta-bottom`} href={BOOK_URL}
-              className="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-[#D4AF37] text-black font-medium hover:opacity-90 transition shadow-[0_8px_30px_rgba(212,175,55,0.35)]">
+            <CtaEl data-testid={`${testId}-cta-bottom`} {...ctaProps}
+              className="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-[#D4AF37] text-black font-medium hover:opacity-90 transition shadow-[0_8px_30px_rgba(212,175,55,0.35)] cursor-pointer">
               {ctaLabel || "Get Instant Quote →"}
-            </a>
+            </CtaEl>
             <a data-testid={`${testId}-call-bottom`} href={TEL}
               className="inline-flex items-center gap-2 px-8 py-4 rounded-full border border-white/20 text-white hover:bg-white/5 transition">
               Call {PHONE}
@@ -421,7 +437,19 @@ export default function LandingPage({
         </div>
       </footer>
 
-      <FloatingQuoteWidget testId={`${testId}-fq`} />
+      <FloatingQuoteWidget
+        testId={`${testId}-fq`}
+        onLaunch={inlineQuote ? () => setQuoteOpen(true) : undefined}
+      />
+      {inlineQuote && (
+        <QuoteRequestDialog
+          open={quoteOpen}
+          onOpenChange={setQuoteOpen}
+          vehicleType={quoteVehicleType || (quoteVehicleOptions && quoteVehicleOptions[0]) || ""}
+          defaultTripType={quoteTripType}
+          vehicleOptions={quoteVehicleOptions}
+        />
+      )}
     </div>
   );
 }

@@ -9,6 +9,8 @@ export default function MotorCoachLanding() {
   return (
     <LandingPage
       testId="motor-coach-landing"
+      quoteVehicleType="Motor Coach"
+      quoteVehicleOptions={["Motor Coach", "Mini Coach", "Luxury SUV"]}
       pageTitle="Bay Area Motor Coach Rental · 40–56 Passenger Charter Bus — TuranEliteLimo"
       metaDescription="San Francisco Bay Area motor coach and charter bus rental. 40, 45, 50, and 56 passenger coaches for corporate roadshows, weddings, sports teams, church groups, and tours. Reclining seats, restroom, PA system, WiFi option. Flat rate, professional driver, TCP licensed."
       heroImage={MOTOR_COACH_IMG}

@@ -9,6 +9,8 @@ export default function PartyBusLanding() {
   return (
     <LandingPage
       testId="party-bus-landing"
+      quoteVehicleType="Party Bus"
+      quoteVehicleOptions={["Party Bus", "Stretch Limousine", "Jet Sprinter", "Luxury SUV"]}
       pageTitle="Bay Area Party Bus Rental · 14–30 Passenger Limo Coach — TuranEliteLimo"
       metaDescription="San Francisco & Bay Area party bus rental for birthdays, bachelorette parties, prom, weddings, corporate events. 14–30 passenger limo coach with LED lighting, premium sound, dance floor, full bar. Professional chauffeurs, flat rate, no surprises."
       eyebrow="San Francisco · Bay Area · Napa · Wine Country"

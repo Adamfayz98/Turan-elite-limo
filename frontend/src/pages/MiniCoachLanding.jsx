@@ -9,6 +9,8 @@ export default function MiniCoachLanding() {
   return (
     <LandingPage
       testId="mini-coach-landing"
+      quoteVehicleType="Mini Coach"
+      quoteVehicleOptions={["Mini Coach", "Motor Coach", "Executive Sprinter"]}
       pageTitle="Bay Area Mini Coach Rental · 24–35 Passenger Mini Bus — TuranEliteLimo"
       metaDescription="San Francisco Bay Area mini coach and mini bus rental for 24, 28, and 35 passenger groups. The right-size charter for wedding guest shuttles, corporate teams, sports groups, and mid-size events. Reclining seats, AC, luggage bay, professional driver. Flat rate, TCP licensed."
       heroImage={MINI_COACH_IMG}

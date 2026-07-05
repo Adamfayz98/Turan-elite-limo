@@ -494,6 +494,89 @@ def render_payment_received_pending_email(booking: dict, amount: float, manage_u
 """
 
 
+def render_card_on_file_email(booking: dict, amount: float, manage_url: Optional[str] = None) -> str:
+    """Pay-after-ride flow: card saved & verified via Stripe, nothing charged today.
+    Sent right after the setup-mode checkout completes."""
+    cn = booking.get("confirmation_number", "")
+    first_name = (booking.get('full_name') or '').split(' ')[0] or 'there'
+    manage_btn = render_manage_link_html(manage_url) if manage_url else ""
+    return f"""
+<!doctype html>
+<html><body style="margin:0;background:#0a0a0a;font-family:Arial,Helvetica,sans-serif;color:#fff;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#111;border-radius:14px;border:1px solid #1f1f1f;overflow:hidden;">
+        <tr><td style="background:#0a0a0a;padding:28px 32px;border-bottom:1px solid #1f1f1f;">
+          <span style="font-size:24px;font-weight:700;">
+            Turan<span style="color:#D4AF37;">EliteLimo</span>
+          </span>
+        </td></tr>
+
+        <tr><td style="padding:32px 32px 8px 32px;">
+          <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#D4AF37;margin-bottom:12px;">
+            Reservation Secured · Pay After Your Ride
+          </div>
+          <h1 style="font-size:24px;margin:0 0 12px 0;font-weight:600;">
+            You're all set, {first_name} — nothing charged today.
+          </h1>
+          <p style="color:#bbb;font-size:14px;line-height:1.7;margin:0;">
+            Your card was securely verified and saved with <strong style="color:#fff;">Stripe</strong>
+            (we never see or store your card number). Your reservation total of
+            <strong style="color:#D4AF37;">${amount:,.2f}</strong> will only be charged
+            <strong style="color:#fff;">after your ride is completed</strong>.
+            You'll receive an itemized receipt by email the moment it happens.
+          </p>
+        </td></tr>
+
+        <tr><td style="padding:20px 32px 4px 32px;">
+          <table cellpadding="0" cellspacing="0" width="100%" style="background:#0a0a0a;border:1px solid #D4AF37;border-radius:10px;">
+            <tr><td style="padding:18px 22px;">
+              <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#888;">
+                Confirmation Number
+              </div>
+              <div style="font-size:30px;color:#D4AF37;letter-spacing:3px;font-weight:700;margin-top:6px;font-family:'Courier New',monospace;">
+                {cn}
+              </div>
+            </td></tr>
+          </table>
+        </td></tr>
+
+        <tr><td style="padding:20px 32px 4px 32px;">
+          <div style="background:#0a0a0a;border:1px dashed #2a2a2a;border-radius:10px;padding:14px 18px;">
+            <div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#D4AF37;margin-bottom:6px;">
+              What happens next
+            </div>
+            <ol style="color:#aaa;font-size:13px;line-height:1.7;padding-left:20px;margin:0;">
+              <li>We verify chauffeur &amp; vehicle availability for your date/time.</li>
+              <li>You receive <strong style="color:#fff;">final confirmation</strong> with chauffeur contact info.</li>
+              <li>You ride. <strong style="color:#fff;">After completion</strong>, the saved card is charged ${amount:,.2f} and you get an email receipt.</li>
+            </ol>
+          </div>
+        </td></tr>
+
+        {manage_btn}
+
+        <tr><td style="padding:18px 32px;border-top:1px solid #1f1f1f;color:#aaa;font-size:11px;line-height:1.6;">
+          <div style="color:#D4AF37;letter-spacing:1.5px;text-transform:uppercase;font-size:10px;margin-bottom:6px;">
+            Good to know
+          </div>
+          Free cancellation per our standard policy — since nothing is charged until after your ride,
+          a timely cancellation simply means <strong style="color:#fff;">your card is never charged</strong>.
+          Wait time, damages, or extra stops that actually occur may be added per our posted policy,
+          always itemized and emailed to you.
+        </td></tr>
+
+        <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
+          Need to change something? Reply to this email or call
+          <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+
+
 def render_payment_receipt_email(booking: dict, amount: float) -> str:
     cn = booking.get("confirmation_number", "")
     return f"""

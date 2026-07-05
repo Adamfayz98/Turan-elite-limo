@@ -14,6 +14,9 @@ export default function WeddingLanding() {
   return (
     <LandingPage
       testId="wedding-landing"
+      quoteVehicleType="Stretch Limousine"
+      quoteTripType="Wedding"
+      quoteVehicleOptions={["Stretch Limousine", "Executive Sprinter", "Party Bus", "Luxury SUV", "Executive Sedan"]}
       pageTitle="Bay Area Wedding Limo · Bridal Chauffeur Service — TuranEliteLimo"
       metaDescription="Bay Area wedding chauffeur & limo service. Bride/groom transfers, bridal party shuttles, guest hotel runs. White-glove service, decorated arrival, professional chauffeurs."
       eyebrow="Bay Area · Napa · Sonoma · Carmel"

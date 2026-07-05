@@ -27,6 +27,9 @@ export default function WineTourLanding() {
   return (
     <LandingPage
       testId="wine-tour-landing"
+      quoteVehicleType="Executive Sprinter"
+      quoteTripType="Wine Tour"
+      quoteVehicleOptions={["Executive Sprinter", "Luxury SUV", "Executive Sedan", "Party Bus"]}
       pageTitle="Napa Valley Chauffeur · Wine Country Private Driver — TuranEliteLimo"
       metaDescription="Private chauffeur for Napa, Sonoma & Carneros day trips. Hotel pickup, custom 3–5 stop itineraries, professional Mercedes-Benz Sprinter, multilingual driver. Designated driver for groups of 6 to 12. TCP licensed · $5M insured."
       eyebrow="Napa · Sonoma · Carneros · Russian River"

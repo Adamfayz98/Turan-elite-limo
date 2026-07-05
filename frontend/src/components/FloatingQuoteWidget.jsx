@@ -10,7 +10,7 @@ import PlacesAutocompleteInput from "@/components/PlacesAutocompleteInput";
  *
  * Purely additive. Does not interfere with any existing CTA on the page.
  */
-export default function FloatingQuoteWidget({ testId = "floating-quote" }) {
+export default function FloatingQuoteWidget({ testId = "floating-quote", onLaunch }) {
   const [open, setOpen] = useState(false);
   const [pickup, setPickup] = useState("");
   const [dropoff, setDropoff] = useState("");
@@ -35,7 +35,7 @@ export default function FloatingQuoteWidget({ testId = "floating-quote" }) {
       <button
         type="button"
         data-testid={`${testId}-launcher`}
-        onClick={() => setOpen(true)}
+        onClick={() => (onLaunch ? onLaunch() : setOpen(true))}
         aria-label="Open quick quote"
         className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 px-5 py-3.5 rounded-full bg-[#D4AF37] text-black font-medium shadow-[0_10px_40px_rgba(212,175,55,0.45)] hover:opacity-90 hover:scale-[1.03] active:scale-95 transition"
       >

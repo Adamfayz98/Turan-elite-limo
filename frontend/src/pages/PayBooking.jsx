@@ -86,7 +86,7 @@ export default function PayBooking() {
       // 1) Refresh the booking — webhook may have already marked it paid
       try {
         const { data: fresh } = await api.get(`/bookings/${bookingId}/public`);
-        if (fresh?.payment_status === "paid") {
+        if (fresh?.payment_status === "paid" || fresh?.payment_status === "card_on_file") {
           setBooking(fresh);
           setPollMsg("paid");
           return;
@@ -97,7 +97,7 @@ export default function PayBooking() {
       // 2) Probe Stripe directly via /payments/status (force-updates DB if needed)
       try {
         const { data } = await api.get(`/payments/status/${sid}`);
-        if (data.payment_status === "paid") {
+        if (data.payment_status === "paid" || data.payment_status === "card_on_file") {
           setPollMsg("paid");
           await load();
           return;
@@ -174,13 +174,18 @@ export default function PayBooking() {
   }
 
   const isPaid = booking.payment_status === "paid";
+  const isCardOnFile = booking.payment_status === "card_on_file";
+  const isPayAfterRide = booking.payment_mode === "pay_after_ride";
   const isConfirmed = booking.status === "confirmed";
   const hasDriver = !!booking.driver_name;
   const callOnly = booking.quote_amount == null;
   // If user just returned from Stripe, treat as a payment-in-flight: never show
   // the Pay button (prevents the "pay again" loop if polling is slow/fails).
   const returnedFromStripe = !!sessionId;
-  const showPayButton = !isPaid && !callOnly && !returnedFromStripe;
+  // Card-on-file bookings normally hide the Pay button — unless the post-ride
+  // off-session charge failed, in which case this page IS the fallback payment link.
+  const showPayButton =
+    !isPaid && !callOnly && !returnedFromStripe && (!isCardOnFile || !!booking.pay_later_charge_error);
 
   return (
     <main data-testid="pay-page" className="min-h-screen bg-[#050505] text-white">
@@ -205,7 +210,32 @@ export default function PayBooking() {
       <div className="max-w-3xl mx-auto px-6 py-16">
         {/* Status hero */}
         <div className="text-center mb-10">
-          {isPaid ? (
+          {isCardOnFile && !booking.pay_later_charge_error ? (
+            <>
+              <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mx-auto mb-5">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+              </div>
+              <span className="text-xs tracking-[0.3em] uppercase text-emerald-400" data-testid="card-on-file-badge">
+                Reservation secured · Nothing charged today
+              </span>
+              <h1 className="font-serif text-4xl md:text-5xl mt-4">
+                You're all set, {booking.full_name?.split(" ")[0] || "friend"}.
+              </h1>
+              <p className="text-white/60 mt-3 leading-relaxed max-w-xl mx-auto">
+                Your card was securely verified and saved with <span className="text-[#D4AF37]">Stripe</span> — we never see your card number.
+                You'll only be charged <span className="text-[#D4AF37]">${Number(booking.pay_later_amount || booking.deposit_amount || 0).toFixed(2)} after your ride is completed</span>.
+                Our team is confirming your chauffeur now — final confirmation with driver details arrives by email within an hour.
+              </p>
+              {booking.confirmation_number && (
+                <div className="mt-5 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-xs text-white/65">
+                  Confirmation
+                  <span className="text-[#D4AF37] font-mono">{booking.confirmation_number}</span>
+                </div>
+              )}
+              <AppDownloadCTA />
+              <ReferralCTA />
+            </>
+          ) : isPaid ? (
             <>
               <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mx-auto mb-5">
                 <CheckCircle2 className="w-8 h-8 text-emerald-400" />
@@ -253,9 +283,9 @@ export default function PayBooking() {
                 Thank you, {booking.full_name?.split(" ")[0] || "friend"}.
               </h1>
               <p className="text-white/60 mt-3 leading-relaxed max-w-xl mx-auto">
-                Your card was charged successfully. Our system is still syncing the receipt —
-                you'll receive a <span className="text-[#D4AF37]">final confirmation email with driver details within an hour</span>.
-                If you don't hear back, just reply to that email or call us.
+                {isPayAfterRide
+                  ? <>Your card was securely saved. Our system is still syncing the confirmation — you'll receive a <span className="text-[#D4AF37]">final confirmation email with driver details within an hour</span>. Nothing is charged until after your ride. If you don't hear back, just reply to that email or call us.</>
+                  : <>Your card was charged successfully. Our system is still syncing the receipt — you'll receive a <span className="text-[#D4AF37]">final confirmation email with driver details within an hour</span>. If you don't hear back, just reply to that email or call us.</>}
               </p>
               {booking.confirmation_number && (
                 <div className="mt-5 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-xs text-white/65">
@@ -329,10 +359,10 @@ export default function PayBooking() {
                 )}
                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/10">
                   <div className="text-xs uppercase tracking-[0.2em] text-[#D4AF37]">
-                    {isPaid ? "Paid in full" : "Due now"}
+                    {isPaid ? "Paid in full" : isCardOnFile ? "Due after ride" : "Due now"}
                   </div>
                   <div className="font-serif text-3xl gold-text">
-                    ${(isPaid ? booking.paid_amount : booking.deposit_amount)?.toFixed(2)}
+                    ${(isPaid ? booking.paid_amount : isCardOnFile ? (booking.pay_later_amount ?? booking.deposit_amount) : booking.deposit_amount)?.toFixed(2)}
                   </div>
                 </div>
               </>
@@ -364,7 +394,7 @@ export default function PayBooking() {
             </div>
           )}
 
-          {isPaid && (
+          {(isPaid || isCardOnFile) && (
             <div className="mt-7 flex flex-col gap-3">
               <Link
                 to="/"

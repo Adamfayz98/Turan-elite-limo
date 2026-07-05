@@ -80,6 +80,7 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
   const [extraChargeReason, setExtraChargeReason] = useState("balance");
   const [extraChargeDescription, setExtraChargeDescription] = useState("");
   const [chargingExtra, setChargingExtra] = useState(false);
+  const [chargingPayLater, setChargingPayLater] = useState(false);
   if (!booking) return null;
   const b = booking;
   const formattedDate = b.pickup_date
@@ -101,6 +102,34 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
 
   const hasSavedCard = !!b.stripe_payment_method_id;
   const canChargeOffSession = hasSavedCard && b.wait_time_consent;
+
+  const chargePayLater = async () => {
+    const def = Number(b.pay_later_amount || 0).toFixed(2);
+    const input = window.prompt("Amount to charge the saved card (USD):", def);
+    if (input == null) return;
+    const amt = parseFloat(input);
+    if (!amt || amt < 0.5) {
+      toast.error("Enter a valid amount (min $0.50)");
+      return;
+    }
+    if (!window.confirm(`Charge $${amt.toFixed(2)} to the card on file for #${b.confirmation_number || b.id.slice(0, 8)}?`)) return;
+    setChargingPayLater(true);
+    try {
+      const { data } = await api.post(`/admin/bookings/${b.id}/charge-pay-later`, { amount: amt });
+      if (data.already_paid) {
+        toast.info(`Already paid $${Number(data.amount || 0).toFixed(2)}`);
+      } else {
+        toast.success(`Charged $${Number(data.amount || 0).toFixed(2)} — booking marked paid`);
+      }
+      onChanged?.();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Charge failed");
+      onChanged?.();
+    } finally {
+      setChargingPayLater(false);
+    }
+  };
+
   const pendingMinutes = b.wait_time_minutes_pending;
   const alreadyChargedWait = !!b.wait_time_charged_at;
   const damageCharges = Array.isArray(b.damage_charges) ? b.damage_charges : [];
@@ -478,6 +507,54 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
               label="Promo applied"
               value={`${b.promo_code} (-$${Number(b.discount_amount || 0).toFixed(2)})`}
             />
+          )}
+          {b.payment_mode === "pay_after_ride" && (
+            <div
+              className="mt-2 rounded-lg border border-[#D4AF37]/25 bg-[#D4AF37]/5 p-3"
+              data-testid="pay-after-ride-block"
+            >
+              <div className="text-[10px] uppercase tracking-[0.2em] text-[#D4AF37]">
+                Pay after ride
+              </div>
+              <div className="text-sm text-white/85 mt-1.5">
+                {b.payment_status === "paid" ? (
+                  <>Charged <span className="text-[#D4AF37] font-medium">${Number(b.paid_amount || 0).toFixed(2)}</span>{b.pay_later_charged_at ? ` on ${new Date(b.pay_later_charged_at).toLocaleString()}` : ""}.</>
+                ) : b.payment_status === "card_on_file" ? (
+                  <>Card verified &amp; on file — <span className="text-[#D4AF37] font-medium">${Number(b.pay_later_amount || 0).toFixed(2)}</span> due after ride completion.</>
+                ) : (
+                  <>Customer chose pay-after-ride but hasn't completed card verification yet.</>
+                )}
+              </div>
+              {b.payment_status === "card_on_file" && hasSavedCard && (
+                <Button
+                  size="sm"
+                  onClick={chargePayLater}
+                  disabled={chargingPayLater}
+                  data-testid="charge-pay-later-btn"
+                  className="mt-3 bg-[#D4AF37] text-black hover:bg-[#B3922E] h-8 text-xs font-medium"
+                >
+                  {chargingPayLater ? "Charging…" : `Charge $${Number(b.pay_later_amount || 0).toFixed(2)} now`}
+                </Button>
+              )}
+              {b.pay_later_charge_error && (
+                <div className="text-xs text-red-400 mt-2 leading-relaxed" data-testid="pay-later-charge-error">
+                  Last charge failed: {b.pay_later_charge_error}
+                  <div className="text-white/55 mt-1">
+                    Fallback: send the customer their payment link —{" "}
+                    <button
+                      type="button"
+                      className="text-[#D4AF37] underline"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(`${window.location.origin}/pay/${b.id}`);
+                        toast.success("Payment link copied");
+                      }}
+                    >
+                      copy /pay link
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
 
