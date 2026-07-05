@@ -120,6 +120,11 @@ export default function QuoteRequestDialog({
   const [stops, setStops] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  // "in_area" (default success) or "out_of_area_waitlist" — the backend
+  // service-area gate returns the latter when the pickup address is outside
+  // our 130-mile SF Bay Area radius. Frontend then swaps in the warmer
+  // "coming soon" copy instead of the standard "we'll text you shortly."
+  const [doneStatus, setDoneStatus] = useState("in_area");
   // ---- Twilio A2P / TCPA consent ----
   // We text the customer their custom quote, so we need express written
   // consent for transactional SMS. Required to submit. Promotional SMS is
@@ -194,6 +199,7 @@ export default function QuoteRequestDialog({
           phone: form.phone,
         });
       } catch {/* never block UX on tracking */}
+      setDoneStatus(data?.service_area_status === "out_of_area_waitlist" ? "out_of_area_waitlist" : "in_area");
       setDone(true);
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Couldn't submit, try again");
@@ -204,6 +210,7 @@ export default function QuoteRequestDialog({
 
   const reset = () => {
     setDone(false);
+    setDoneStatus("in_area");
     setForm({
       full_name: "", phone: "", email: "", trip_type: defaultTripType || "", service_duration: "",
       pickup_date: "", pickup_time: "", pickup_location: "", dropoff_location: "",
@@ -232,31 +239,63 @@ export default function QuoteRequestDialog({
       >
         <DialogHeader>
           <DialogTitle className="font-serif text-2xl">
-            {done ? "Got it — we'll text you shortly" : `Request a quote${(vehicle || vehicleType) ? ` · ${vehicle || vehicleType}` : ""}`}
+            {done
+              ? (doneStatus === "out_of_area_waitlist"
+                  ? "You&apos;re on our expansion list"
+                  : "Got it — we&apos;ll text you shortly")
+              : `Request a quote${(vehicle || vehicleType) ? ` · ${vehicle || vehicleType}` : ""}`}
           </DialogTitle>
           <DialogDescription className="text-xs text-white/55 mt-1">
             {done
-              ? "Your request is in. Our team will text or call you with a custom quote — usually within 15 minutes during business hours."
+              ? (doneStatus === "out_of_area_waitlist"
+                  ? "TuranEliteLimo currently operates out of the SF Bay Area — but we're growing. We've saved your request and will reach out the moment we launch chauffeur service in your area."
+                  : "Your request is in. Our team will text or call you with a custom quote — usually within 15 minutes during business hours.")
               : "A few quick details so we can send you an accurate quote on the first reply — no back-and-forth."}
           </DialogDescription>
         </DialogHeader>
 
         {done ? (
           <div className="space-y-4 mt-2">
-            <div className="rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/5 p-5 text-center">
-              <div className="font-serif text-3xl text-[#D4AF37]">Thanks, {form.full_name.split(" ")[0]}</div>
-              <p className="text-xs text-white/60 mt-2 leading-relaxed">
-                Need an answer right now? Call us — we usually pick up.
-              </p>
-              <a
-                href={`tel:${tel}`}
-                onClick={() => trackPhoneCall({ source: "quote-success" })}
-                data-testid="quote-success-call-btn"
-                className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#D4AF37] text-black text-sm font-semibold hover:bg-[#B3922E]"
+            {doneStatus === "out_of_area_waitlist" ? (
+              <div
+                data-testid="quote-out-of-area-message"
+                className="rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/5 p-5"
               >
-                <PhoneIcon className="w-4 h-4" /> {supportPhone}
-              </a>
-            </div>
+                <div className="font-serif text-2xl text-[#D4AF37]">
+                  Thanks, {form.full_name.split(" ")[0]} — coming soon to you.
+                </div>
+                <p className="text-xs text-white/70 mt-3 leading-relaxed">
+                  We only dispatch chauffeurs out of the <span className="text-white">San Francisco Bay Area</span> right now.
+                  Your request is safe with us — we&apos;ll email you the day we open service near your pickup.
+                </p>
+                <p className="text-xs text-white/55 mt-3 leading-relaxed">
+                  Bringing a group to the Bay Area? We handle wine tours, airport transfers, corporate roadshows, and everything in between —
+                  <a
+                    href={`tel:${tel}`}
+                    onClick={() => trackPhoneCall({ source: "quote-out-of-area" })}
+                    data-testid="quote-out-of-area-call-btn"
+                    className="text-[#D4AF37] underline decoration-dotted underline-offset-2 ml-1"
+                  >
+                    call us at {supportPhone}
+                  </a>.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-[#D4AF37]/30 bg-[#D4AF37]/5 p-5 text-center">
+                <div className="font-serif text-3xl text-[#D4AF37]">Thanks, {form.full_name.split(" ")[0]}</div>
+                <p className="text-xs text-white/60 mt-2 leading-relaxed">
+                  Need an answer right now? Call us — we usually pick up.
+                </p>
+                <a
+                  href={`tel:${tel}`}
+                  onClick={() => trackPhoneCall({ source: "quote-success" })}
+                  data-testid="quote-success-call-btn"
+                  className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#D4AF37] text-black text-sm font-semibold hover:bg-[#B3922E]"
+                >
+                  <PhoneIcon className="w-4 h-4" /> {supportPhone}
+                </a>
+              </div>
+            )}
             <Button
               type="button"
               variant="outline"

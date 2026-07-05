@@ -2192,6 +2192,27 @@ async def submit_quote_request(payload: QuoteRequestCreate, request: Request):
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["status"] = "new"
 
+    # ----- Service-area waitlist gate -----
+    # Frontend Places autocomplete is already restricted to the Bay Area,
+    # but nothing stops a determined customer from typing a Philadelphia
+    # address by hand. Rather than hard-rejecting these (loses the lead
+    # forever) we flag them as `out_of_area_waitlist` — Adam can filter
+    # them out of the main admin queue AND email them when/if we expand
+    # into their region. Their submission still gets stored, admin still
+    # gets a low-noise notification, but no SMS blast and no active quote.
+    is_out_of_area = False
+    try:
+        pk = doc.get("pickup_location") or ""
+        if pk:
+            pk_coord = await _geocode(pk)
+            if pk_coord and not _pickup_in_service_area(pk_coord):
+                is_out_of_area = True
+    except Exception as e:
+        logger.warning(f"quote-request service-area geocode failed for {doc.get('id')}: {e}")
+    if is_out_of_area:
+        doc["service_area_status"] = "out_of_area_waitlist"
+        doc["status"] = "waitlist"  # keeps them out of the "new" default admin queue
+
     # ----- Safety / risk scoring -----
     client_ip = safety.get_client_ip(request)
     user_agent = safety.get_user_agent(request)
@@ -2218,6 +2239,26 @@ async def submit_quote_request(payload: QuoteRequestCreate, request: Request):
         logger.warning(f"risk scoring failed: {e}")
 
     await db.quote_requests.insert_one(doc.copy())
+
+    # For out-of-area waitlist leads: skip SMS blast (don't wake Adam up for a
+    # lead we can't fulfill) and use a lower-priority admin email subject.
+    if is_out_of_area:
+        if SUPPORT_EMAIL:
+            try:
+                origin = _frontend_origin_from_request(request)
+                admin_url = f"{origin}/admin"
+                email_html = _render_quote_request_admin_email(doc, admin_url)
+                subj = (
+                    f"📍 Out-of-area waitlist · {doc['vehicle_type']} · "
+                    f"{doc['full_name']} · {(doc.get('pickup_location') or '')[:40]}"
+                )
+                await send_email(to=SUPPORT_EMAIL, subject=subj, html=email_html)
+            except Exception as e:
+                logger.warning(f"Quote-request out-of-area admin email failed: {e}")
+        # Response tells the frontend to show the "coming soon" branch — the
+        # customer sees a warm "we'll notify you if we expand" message
+        # instead of the standard "we'll be in touch shortly" thank-you.
+        return {"id": doc["id"], "ok": True, "service_area_status": "out_of_area_waitlist"}
 
     # Admin SMS — single short text so it lands cleanly on iOS Messages
     try:
