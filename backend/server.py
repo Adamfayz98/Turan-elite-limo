@@ -586,6 +586,46 @@ async def create_booking(payload: BookingCreate, request: Request):
     except Exception as e:
         logger.warning(f"marketing opt-in upsert failed: {e}")
 
+    # ----- Promo lock-in (billing integrity guarantee) -----
+    # If the customer submitted a promo_code, validate + persist the discount
+    # RIGHT NOW while we have full context (email + vehicle + full ride price).
+    # This prevents the customer-sees-$103 / Stripe-charges-$147 mismatch that
+    # happened when /payments/checkout re-validated later and the promo silently
+    # failed (e.g., first_ride_only tripped on a repeat customer after the
+    # quote page had already shown the discount). What we store now IS what
+    # gets charged. If the promo cannot apply, we strip the code from the
+    # booking so the customer sees the full price consistently everywhere
+    # (booking page, PayBooking, email receipts, Stripe) — no silent surprises.
+    if doc.get("promo_code"):
+        try:
+            ride_amount = await _compute_quote_amount(doc)
+            if ride_amount and ride_amount > 0:
+                promo_check = await _validate_promo_for_booking(
+                    doc["promo_code"],
+                    float(ride_amount),
+                    doc.get("email"),
+                    doc.get("vehicle_type"),
+                )
+                if promo_check.get("ok"):
+                    disc = round(float(promo_check["discount"]), 2)
+                    doc["original_quote_amount"] = round(float(ride_amount), 2)
+                    doc["discount_amount"] = disc
+                    doc["quote_amount"] = round(float(ride_amount) - disc, 2)
+                    doc["promo_code"] = promo_check["code"]  # normalized
+                else:
+                    logger.warning(
+                        f"Promo '{doc['promo_code']}' rejected at booking creation "
+                        f"for {doc.get('email')}: {promo_check.get('reason')} — "
+                        f"stripping code so customer sees full price consistently."
+                    )
+                    doc.pop("promo_code", None)
+            else:
+                # Can't compute ride price (call-for-quote vehicle) — leave the
+                # code in place; checkout can re-evaluate once amount is known.
+                pass
+        except Exception as e:
+            logger.warning(f"Promo lock-in failed for booking {doc['id']}: {e}")
+
     insert_doc = doc.copy()
     await db.bookings.insert_one(insert_doc)
 
@@ -2985,6 +3025,11 @@ async def get_public_booking(booking_id: str):
             quote_amount = amt
             await db.bookings.update_one({"id": booking_id}, {"$set": {"quote_amount": amt}})
     settings = await _load_settings()
+    # deposit_amount is computed from quote_amount, which — post-promo-lock-in —
+    # already reflects any applied discount (see server.create_booking). So the
+    # PayBooking page shows the correct discounted deposit and the number matches
+    # what Stripe charges. For legacy bookings that never got the lock-in,
+    # payments.py still applies the promo at checkout so charging remains correct.
     deposit_amount = round(float(quote_amount) * settings.deposit_percent / 100.0, 2) if quote_amount else None
     return {
         "id": b["id"],

@@ -120,34 +120,57 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
     if amount < 0.5:
         raise HTTPException(status_code=400, detail="Amount too small to charge")
 
-    # ----- Apply promo code (Phase 3) -----
-    # The promo_code, if any, was captured at booking-creation time. We re-validate at
-    # checkout to ensure it's still active and hasn't hit max uses.
+    # ----- Promo (Phase 3) — trust the values locked in at booking creation -----
+    # NEW (Feb 2026): The customer-sees-$103/Stripe-charges-$147 bug was caused
+    # by re-validating the promo here, where a first_ride_only check could
+    # silently fail on a customer who had ANY prior booking and quietly fall
+    # through to the full price. Now the discount is validated + persisted at
+    # /bookings creation (see server.create_booking). If the booking has
+    # `discount_amount` stored, we trust it — that IS what the customer saw and
+    # what we charge. We only re-validate for legacy bookings created before
+    # this fix that never got the lock-in.
     original_amount = amount
     discount_amount = 0.0
     applied_promo = None
-    code_raw = (booking.get("promo_code") or "").strip()
-    if code_raw:
-        promo = await _validate_promo_for_booking(
-            code_raw, original_amount, booking.get("email"), booking.get("vehicle_type"),
-        )
-        if promo.get("ok"):
-            discount_amount = round(promo["discount"], 2)
+    stored_discount = float(booking.get("discount_amount") or 0)
+    if stored_discount > 0:
+        # Booking was locked-in at creation. Apply the same proportional discount
+        # to the deposit amount so deposit_percent < 100 still works correctly.
+        orig_ride = float(booking.get("original_quote_amount") or quote_amount)
+        if orig_ride > 0:
+            discount_ratio = stored_discount / orig_ride
+            discount_amount = round(original_amount * discount_ratio, 2)
             amount = round(original_amount - discount_amount, 2)
-            applied_promo = promo["code"]
+            applied_promo = booking.get("promo_code")
             if amount < 0.5:
                 amount = 0.5
                 discount_amount = round(original_amount - amount, 2)
-        else:
-            # Soft-fail: log and continue at full price. The customer already saw a
-            # success badge at booking time; we don't want to surprise-fail on Stripe redirect.
-            logger.warning(
-                f"Promo '{code_raw}' rejected at checkout for {payload.booking_id}: {promo.get('reason')}"
+    else:
+        # Legacy path — re-validate at checkout for bookings created before the
+        # lock-in fix. Same soft-fail behaviour as before to avoid breaking any
+        # in-flight bookings during the migration window.
+        code_raw = (booking.get("promo_code") or "").strip()
+        if code_raw:
+            promo = await _validate_promo_for_booking(
+                code_raw, original_amount, booking.get("email"), booking.get("vehicle_type"),
             )
+            if promo.get("ok"):
+                discount_amount = round(promo["discount"], 2)
+                amount = round(original_amount - discount_amount, 2)
+                applied_promo = promo["code"]
+                if amount < 0.5:
+                    amount = 0.5
+                    discount_amount = round(original_amount - amount, 2)
+            else:
+                logger.warning(
+                    f"Promo '{code_raw}' rejected at checkout for {payload.booking_id}: {promo.get('reason')}"
+                )
 
     # Generate confirmation # on first checkout (so it's locked in even before payment)
     booking_updates = {"quote_amount": quote_amount}
-    if applied_promo:
+    if applied_promo and not booking.get("discount_amount"):
+        # Only backfill promo fields for legacy bookings — new bookings already
+        # have these persisted at creation time by server.create_booking.
         booking_updates["promo_code"] = applied_promo
         booking_updates["discount_amount"] = discount_amount
         booking_updates["original_quote_amount"] = original_amount
@@ -1169,33 +1192,49 @@ async def create_payment_checkout_setup(payload: CheckoutCreateRequest, request:
     if amount < 0.5:
         raise HTTPException(status_code=400, detail="Amount too small to charge")
 
-    # Promo handling mirrors the pay-now flow so the customer keeps their discount.
+    # Promo handling — trust the values locked in at booking creation.
+    # Mirrors /payments/checkout to keep pay-now and pay-after-ride flows in sync.
+    # See the long comment in create_payment_checkout for the billing-integrity
+    # rationale.
     original_amount = amount
     discount_amount = 0.0
     applied_promo = None
-    code_raw = (booking.get("promo_code") or "").strip()
-    if code_raw:
-        promo = await _validate_promo_for_booking(
-            code_raw, original_amount, booking.get("email"), booking.get("vehicle_type"),
-        )
-        if promo.get("ok"):
-            discount_amount = round(promo["discount"], 2)
+    stored_discount = float(booking.get("discount_amount") or 0)
+    if stored_discount > 0:
+        orig_ride = float(booking.get("original_quote_amount") or quote_amount)
+        if orig_ride > 0:
+            discount_ratio = stored_discount / orig_ride
+            discount_amount = round(original_amount * discount_ratio, 2)
             amount = round(original_amount - discount_amount, 2)
-            applied_promo = promo["code"]
+            applied_promo = booking.get("promo_code")
             if amount < 0.5:
                 amount = 0.5
                 discount_amount = round(original_amount - amount, 2)
-        else:
-            logger.warning(
-                f"Promo '{code_raw}' rejected at setup-checkout for {payload.booking_id}: {promo.get('reason')}"
+    else:
+        # Legacy path for bookings created before the lock-in fix.
+        code_raw = (booking.get("promo_code") or "").strip()
+        if code_raw:
+            promo = await _validate_promo_for_booking(
+                code_raw, original_amount, booking.get("email"), booking.get("vehicle_type"),
             )
+            if promo.get("ok"):
+                discount_amount = round(promo["discount"], 2)
+                amount = round(original_amount - discount_amount, 2)
+                applied_promo = promo["code"]
+                if amount < 0.5:
+                    amount = 0.5
+                    discount_amount = round(original_amount - amount, 2)
+            else:
+                logger.warning(
+                    f"Promo '{code_raw}' rejected at setup-checkout for {payload.booking_id}: {promo.get('reason')}"
+                )
 
     booking_updates = {
         "quote_amount": quote_amount,
         "payment_mode": "pay_after_ride",
         "pay_later_amount": amount,
     }
-    if applied_promo:
+    if applied_promo and not booking.get("discount_amount"):
         booking_updates["promo_code"] = applied_promo
         booking_updates["discount_amount"] = discount_amount
         booking_updates["original_quote_amount"] = original_amount
