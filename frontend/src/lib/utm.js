@@ -87,21 +87,38 @@ function _bucketSource(utm, referrer) {
 export function captureUtm() {
   if (typeof window === "undefined" || !window.localStorage) return;
   try {
+    const fromUrl = _readFromUrl();
     const raw = window.localStorage.getItem(STORAGE_KEY);
     const stored = raw ? JSON.parse(raw) : null;
-    if (stored && !_expired(stored)) return; // first-touch already captured & valid
 
-    const fromUrl = _readFromUrl();
+    // NEW: A fresh gclid (or any paid click-id) ALWAYS wins over stored
+    // organic/direct touches, and ALWAYS refreshes the gclid on an existing
+    // paid touch. This fixes the case where a customer had visited the site
+    // organically weeks ago (blocking the localStorage slot) and then clicked
+    // an ad — before the fix, the gclid never got stored and the conversion
+    // upload silently dropped the booking with "no gclid."
+    // Non-paid touches still respect the first-touch-wins rule so organic
+    // attribution stays honest for long-window bookings.
+    const incomingHasPaidClickId = !!(
+      fromUrl && (fromUrl.gclid || fromUrl.fbclid || fromUrl.msclkid || fromUrl.yclid)
+    );
+    if (stored && !_expired(stored) && !incomingHasPaidClickId) return;
+
     const referrer = document.referrer || "";
     // Only persist if we actually have attribution signal — don't store a
     // bare "direct" record when someone just lands on the homepage with no
     // params. We want the FIRST meaningful touch.
     if (!fromUrl && !referrer) return;
 
-    const utm = fromUrl || {};
-    const bucket = _bucketSource(utm, referrer);
+    // Merge: preserve stored fields the incoming URL doesn't have, but let
+    // the incoming paid click-id + landing_path win. This keeps utm_campaign
+    // context if it was set on a prior touch and the ad-click URL only has
+    // gclid (which is common when Google auto-tags but the campaign didn't
+    // set utm_ params).
+    const baseUtm = incomingHasPaidClickId ? { ...(stored || {}), ...fromUrl } : (fromUrl || {});
+    const bucket = _bucketSource(baseUtm, referrer);
     const payload = {
-      ...utm,
+      ...baseUtm,
       referrer: referrer.slice(0, 300),
       landing_path: (window.location.pathname || "").slice(0, 200),
       source_bucket: bucket,
