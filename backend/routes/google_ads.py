@@ -248,15 +248,23 @@ def _build_data_manager_payload(
 ) -> dict:
     """Map a booking doc → Data Manager `events:ingest` payload.
 
-    Payload shape follows Data Manager's `Event` resource spec:
-      - destinations[]: routes the event to a specific Google Ads
-        conversion action via operatingAccountProduct + operatingAccountId
-        + conversionAction resource name
-      - events[]: one Event per conversion, carrying eventTime,
-        transactionId (booking id → dedup key), userIdentifiers
-        (googleClickId), and items[] (value + currency)
-      - validateOnly: top-level dry-run flag — Google validates schema,
-        auth, and audit rules but does NOT record the conversion when True
+    Payload shape follows Data Manager's `Event` + `Destination` resource
+    spec (v1, per developers.google.com/data-manager/api/reference/rest/v1):
+
+      Destination:
+        - operatingAccount = {accountType: GOOGLE_ADS, accountId: <customer>}
+        - loginAccount = same shape, set to the manager (MCC) customer id
+          when GOOGLE_ADS_LOGIN_CUSTOMER_ID is configured — required when
+          the OAuth user authenticates via a manager account
+        - productDestinationId = NUMERIC conversion_action ID (not a full
+          resource name — Google surfaces the id only)
+
+      Event:
+        - transactionId (booking id → dedup key across retries)
+        - eventTimestamp (RFC 3339, Z-normalized)
+        - adIdentifiers.gclid
+        - currency (top-level, ISO 4217)
+        - conversionValue (top-level number)
 
     Raises ValueError when a required booking field is missing so upstream
     callers can persist the reason as an upload_error.
@@ -272,7 +280,6 @@ def _build_data_manager_payload(
 
     when_iso = booking.get("paid_at") or booking.get("created_at") or \
         datetime.now(timezone.utc).isoformat()
-    # Data Manager wants ISO-8601 UTC with a `Z` suffix (RFC 3339)
     try:
         dt = datetime.fromisoformat(when_iso.replace("Z", "+00:00"))
         if dt.tzinfo is None:
@@ -282,31 +289,40 @@ def _build_data_manager_payload(
         event_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     customer_id = os.environ["GOOGLE_ADS_CUSTOMER_ID"].replace("-", "").strip()
-    conversion_action_resource = _active_conversion_action_resource()
+    action_id = (
+        os.environ.get("GOOGLE_ADS_ACTIVE_CONVERSION_ACTION_ID")
+        or os.environ.get("GOOGLE_ADS_TEST_CONVERSION_ACTION_ID", "")
+    )
+    if not action_id:
+        raise ValueError("No conversion action ID configured")
+
+    destination: dict = {
+        "reference": "google_ads_conversion",
+        "operatingAccount": {
+            "accountType": "GOOGLE_ADS",
+            "accountId": customer_id,
+        },
+        "productDestinationId": str(action_id),
+    }
+    login_cid = os.environ.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID", "").replace("-", "").strip()
+    if login_cid:
+        destination["loginAccount"] = {
+            "accountType": "GOOGLE_ADS",
+            "accountId": login_cid,
+        }
 
     return {
-        "destinations": [
-            {
-                "operatingAccountProduct": "GOOGLE_ADS",
-                "operatingAccountId": customer_id,
-                "conversionAction": conversion_action_resource,
-            }
-        ],
+        "destinations": [destination],
         "events": [
             {
-                "eventMetadata": {
-                    "eventTime": event_time,
-                    "transactionId": str(booking.get("id")),
+                "transactionId": str(booking.get("id")),
+                "eventTimestamp": event_time,
+                "eventSource": "WEB",
+                "adIdentifiers": {
+                    "gclid": gclid,
                 },
-                "userIdentifiers": {
-                    "googleClickId": gclid,
-                },
-                "items": [
-                    {
-                        "value": float(profit),
-                        "currencyCode": "USD",
-                    }
-                ],
+                "currency": "USD",
+                "conversionValue": float(profit),
             }
         ],
         "validateOnly": bool(validate_only),
