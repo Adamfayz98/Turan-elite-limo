@@ -97,14 +97,59 @@ export default function AttributionTab() {
       const { data } = await api.post("/admin/google-ads/ping");
       setGadsPingResult(data);
       if (data.ok) {
-        toast.success(`Google Ads API connected · ${(data.accessible_customers || []).length} customer(s) visible`);
+        toast.success(`Legacy Ads API OK · ${(data.accessible_customers || []).length} customer(s) visible`);
       } else {
-        toast.error(`Ping failed: ${data.error || "unknown"}`);
+        toast.error(`Legacy ping failed (expected post-Data-Manager migration): ${data.error || "unknown"}`);
       }
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Ping request failed");
     } finally {
       setGadsPingRunning(false);
+    }
+  };
+
+  const [dmPingRunning, setDmPingRunning] = useState(false);
+  const [dmPingResult, setDmPingResult] = useState(null);
+  const [dmValidateRunning, setDmValidateRunning] = useState(false);
+  const [dmValidateResult, setDmValidateResult] = useState(null);
+
+  const runDmPing = async () => {
+    setDmPingRunning(true);
+    setDmPingResult(null);
+    try {
+      const { data } = await api.post("/admin/google-ads/dm-ping");
+      setDmPingResult(data);
+      if (data.ok && data.has_datamanager_scope) {
+        toast.success(`Data Manager auth OK · scope: datamanager · expires in ${data.expires_in}s`);
+      } else {
+        toast.error(`DM ping failed: ${data.error || data.note || "unknown"}`);
+      }
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "DM ping request failed");
+    } finally {
+      setDmPingRunning(false);
+    }
+  };
+
+  const runDmValidateAdhoc = async () => {
+    setDmValidateRunning(true);
+    setDmValidateResult(null);
+    try {
+      // Dry-run with an example gclid — never records a real conversion.
+      const { data } = await api.post("/admin/google-ads/dm-validate-adhoc", {
+        gclid: "Cj0KCQjw4Oe4BhDcARIsADaM7kExamplePipeValidateGclid1234567890",
+        value: 5.0,
+      });
+      setDmValidateResult(data);
+      if (data.ok && data.request_id) {
+        toast.success(`Data Manager pipe OK · requestId: ${data.request_id}`);
+      } else {
+        toast.error(`DM validate failed · HTTP ${data.http_status || "?"}`);
+      }
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "DM validate request failed");
+    } finally {
+      setDmValidateRunning(false);
     }
   };
 
@@ -551,13 +596,46 @@ export default function AttributionTab() {
             disabled={gadsPingRunning || !gadsStatus?.configured}
             variant="outline"
             size="sm"
-            className="border-[#4285F4]/40 text-[#4285F4] hover:bg-[#4285F4]/10 hover:text-[#4285F4]"
+            className="border-white/20 text-white/60 hover:bg-white/5"
             data-testid="google-ads-ping-btn"
+            title="Legacy Ads API creds check — will FAIL post-Data-Manager migration (expected)"
           >
             {gadsPingRunning ? (
               <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Pinging…</>
             ) : (
-              <><CheckCircle2 className="w-3.5 h-3.5 mr-2" /> Ping API</>
+              <><CheckCircle2 className="w-3.5 h-3.5 mr-2" /> Legacy Ping</>
+            )}
+          </Button>
+
+          <Button
+            onClick={runDmPing}
+            disabled={dmPingRunning || !gadsStatus?.configured}
+            variant="outline"
+            size="sm"
+            className="border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200"
+            data-testid="data-manager-ping-btn"
+            title="Verify OAuth token has the datamanager scope"
+          >
+            {dmPingRunning ? (
+              <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Checking…</>
+            ) : (
+              <><CheckCircle2 className="w-3.5 h-3.5 mr-2" /> DM Auth Check</>
+            )}
+          </Button>
+
+          <Button
+            onClick={runDmValidateAdhoc}
+            disabled={dmValidateRunning || !gadsStatus?.configured}
+            variant="outline"
+            size="sm"
+            className="border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200"
+            data-testid="data-manager-validate-btn"
+            title="Dry-run a payload against Data Manager (never records a real conversion)"
+          >
+            {dmValidateRunning ? (
+              <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Validating…</>
+            ) : (
+              <><CheckCircle2 className="w-3.5 h-3.5 mr-2" /> DM Pipe Test</>
             )}
           </Button>
 
@@ -642,7 +720,7 @@ export default function AttributionTab() {
           >
             {gadsPingResult.ok ? (
               <>
-                <div className="font-semibold text-emerald-300 mb-1">✓ Connected</div>
+                <div className="font-semibold text-emerald-300 mb-1">✓ Legacy Ads API connected</div>
                 <div className="text-white/60">
                   Accessible customers:{" "}
                   <span className="font-mono text-white/85">
@@ -652,8 +730,87 @@ export default function AttributionTab() {
               </>
             ) : (
               <>
-                <div className="font-semibold mb-1">✗ Ping failed</div>
+                <div className="font-semibold mb-1">✗ Legacy ping failed</div>
                 <div className="text-white/70 leading-relaxed">{gadsPingResult.error}</div>
+                <div className="mt-2 pt-2 border-t border-white/10 text-white/50 text-[10px] leading-relaxed">
+                  Note: Post-Data-Manager migration, this button&apos;s underlying Ads API endpoint
+                  requires the <code>adwords</code> scope while our refresh token now has the
+                  <code> datamanager</code> scope. Failure here is <strong>expected</strong> — use the
+                  <em> DM Auth Check</em> and <em>DM Pipe Test</em> buttons above to verify the new pipe.
+                </div>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {/* Data Manager auth-check result panel */}
+        {dmPingResult ? (
+          <div
+            className={cn(
+              "mt-3 rounded-lg border p-3 text-[11px]",
+              dmPingResult.ok && dmPingResult.has_datamanager_scope
+                ? "border-emerald-500/40 bg-emerald-500/[0.08] text-emerald-100"
+                : "border-red-500/30 bg-red-500/[0.06] text-red-200",
+            )}
+            data-testid="data-manager-ping-result"
+          >
+            {dmPingResult.ok && dmPingResult.has_datamanager_scope ? (
+              <>
+                <div className="font-semibold text-emerald-300 mb-1">✓ Data Manager auth OK</div>
+                <div className="text-white/60 space-y-0.5">
+                  <div>Scope: <span className="font-mono text-white/85">{dmPingResult.scope}</span></div>
+                  <div>Expires in: <span className="font-mono text-white/85">{dmPingResult.expires_in}s</span></div>
+                  <div>Token: <span className="font-mono text-white/85">{dmPingResult.token_masked}</span></div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="font-semibold mb-1">✗ Data Manager auth failed</div>
+                <div className="text-white/70 leading-relaxed">{dmPingResult.error || dmPingResult.note}</div>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {/* Data Manager pipe-test (validateOnly) result panel */}
+        {dmValidateResult ? (
+          <div
+            className={cn(
+              "mt-3 rounded-lg border p-3 text-[11px]",
+              dmValidateResult.ok
+                ? "border-emerald-500/40 bg-emerald-500/[0.08] text-emerald-100"
+                : "border-red-500/30 bg-red-500/[0.06] text-red-200",
+            )}
+            data-testid="data-manager-validate-result"
+          >
+            {dmValidateResult.ok ? (
+              <>
+                <div className="font-semibold text-emerald-300 mb-1">
+                  ✓ Data Manager pipe verified (validateOnly)
+                </div>
+                <div className="text-white/60 space-y-0.5">
+                  <div>
+                    HTTP: <span className="font-mono text-white/85">{dmValidateResult.http_status}</span>
+                  </div>
+                  <div>
+                    Request ID:{" "}
+                    <span className="font-mono text-white/85">{dmValidateResult.request_id}</span>
+                  </div>
+                  <div className="text-white/45 text-[10px] mt-1">
+                    Google accepted the payload schema, OAuth token, and destination.
+                    No real conversion was recorded — flip <em>Target</em> to PROFIT + do
+                    a live $5 click to confirm end-to-end attribution.
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="font-semibold mb-1">
+                  ✗ Data Manager pipe failed · HTTP {dmValidateResult.http_status || "?"}
+                </div>
+                <div className="text-white/70 leading-relaxed">
+                  {JSON.stringify(dmValidateResult.response, null, 2).slice(0, 400)}
+                </div>
               </>
             )}
           </div>
