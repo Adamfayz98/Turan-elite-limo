@@ -2,6 +2,27 @@
 
 > Last refreshed: July 3, 2026 — iter 63 (Promo Health dashboard + dynamic booking chip)
 
+## 🚀 Google Ads offline conversions — MIGRATED to Data Manager API (Feb 2026 — iter 64)
+
+**Why:** Google deprecated `UploadClickConversions` in the Google Ads API for this account (surfaced by iter-52 testing agent). All server-side offline conversion uploads had been silently failing.
+
+**What changed (backend-only, zero frontend impact):**
+- `/app/backend/routes/google_ads.py` — rewrote the upload core to hit `https://datamanager.googleapis.com/v1/events:ingest` via direct REST (`google-auth` + `requests`), replacing the deprecated `ConversionUploadService.upload_click_conversions`.
+- OAuth scope changed from `.../auth/adwords` → `.../auth/datamanager`. Same `client_id` / `client_secret`; a NEW `GOOGLE_ADS_REFRESH_TOKEN` must be minted with the datamanager scope (one-time consent step).
+- Payload now uses Data Manager `Event` schema: `destinations[].operatingAccountProduct=GOOGLE_ADS`, `events[].userIdentifiers.googleClickId`, `items[].value`, `eventMetadata.transactionId` (= booking id → dedup key).
+- Added `validate_only` support so operators can dry-run REAL bookings through Google's validator without recording a conversion.
+- Legacy read-side endpoints (`ping`, `inspect-action`) unchanged — reads via the Ads API are not deprecated.
+
+**New admin endpoints:**
+- `POST /api/admin/google-ads/dm-ping` — refreshes the OAuth token and confirms it has the `datamanager` scope. Returns actionable error text if the operator forgot to re-authorize.
+- `POST /api/admin/google-ads/dm-validate/{booking_id}` — dry-run a real historical booking through Data Manager. Returns Google's raw response body untruncated. **Does NOT** stamp the booking as uploaded — safe to run repeatedly.
+- `POST /api/admin/google-ads/dm-validate-adhoc` — dry-run with an operator-supplied gclid + value (no booking record needed). Used to verify the pipe before any historical data exists.
+
+**Signature-preserving:** `upload_booking_to_google_ads(booking_id, *, force=False, validate_only=False)` — Stripe webhook + payments.py callers unchanged.
+
+**Status:** ✅ Code complete. ⚠️ Blocked on operator re-authorizing OAuth grant with the `datamanager` scope to mint a new refresh token. Once updated, `/dm-ping` will return `has_datamanager_scope: true` and `/dm-validate/{booking_id}` will return HTTP 200 + `requestId`.
+
+
 ## 📱 Twilio A2P rejection fix — SMS consent now VOLUNTARY (Feb 2026 — iter 50)
 
 **Rejection reason:** "consent cannot be a required condition for service or transaction completion" — Section 3 of the campaign submission literally said "Consent is required to submit the form" and the frontend enforced it.

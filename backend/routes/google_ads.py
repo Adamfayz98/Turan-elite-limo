@@ -1,11 +1,21 @@
 """
 Google Ads server-side offline conversion uploads.
 
-Replaces the manual CSV upload flow — Stripe webhook fires a background
-task that POSTs the paid booking to Google Ads directly, using the stored
-`utm.gclid` on the booking. Idempotent: every uploaded booking stamps
-`google_ads_conversion_uploaded=true` so retries and double-webhooks
-never double-count.
+Migrated Feb-2026 from the deprecated `UploadClickConversions` in the
+Google Ads API to Google's new **Data Manager API** (`events:ingest`).
+Same OAuth2 creds (client_id / client_secret / refresh_token), but the
+transport is now a direct REST POST to
+`https://datamanager.googleapis.com/v1/events:ingest` — no SDK, no
+developer-token header on the upload path.
+
+Stripe webhook fires a background task that POSTs the paid booking to
+Data Manager using the stored `utm.gclid` on the booking. Idempotent:
+every uploaded booking stamps `google_ads_conversion_uploaded=true` so
+retries and double-webhooks never double-count.
+
+`validate_only=True` runs the payload through Google's dry-run validator
+without ingesting — used by the `dm-validate` diagnostic endpoint to
+prove the pipe works with real data before flipping to a live test.
 
 The `GOOGLE_ADS_ACTIVE_CONVERSION_ACTION_ID` env var controls which
 conversion action new uploads target — starts pointed at the Test action
@@ -18,9 +28,11 @@ from __future__ import annotations
 import logging
 import os
 import json
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Any
 
+import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 
@@ -171,6 +183,171 @@ def _active_conversion_action_resource() -> str:
     return f"customers/{customer_id}/conversionActions/{action_id}"
 
 
+# --------- Data Manager API — OAuth2 + REST client ---------
+
+DATA_MANAGER_INGEST_URL = "https://datamanager.googleapis.com/v1/events:ingest"
+_GOOGLE_ADS_OAUTH_SCOPE = "https://www.googleapis.com/auth/datamanager"
+_GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+
+
+def _get_data_manager_access_token() -> str:
+    """Exchange the stored refresh_token for a fresh OAuth2 access token.
+
+    Reuses the same Google OAuth client we've been using for the legacy
+    Ads API — no new consent screen, no new credentials. The scope
+    `.../auth/adwords` is what Data Manager expects for events routed to
+    the `GOOGLE_ADS` operating product per Data Manager's OAuth guide.
+
+    Raises HTTPException(500) with a clear message when env vars are
+    missing or the refresh call fails, so the admin UI can surface config
+    gaps immediately (same pattern as `_get_google_ads_client`).
+    """
+    required = [
+        "GOOGLE_ADS_CLIENT_ID",
+        "GOOGLE_ADS_CLIENT_SECRET",
+        "GOOGLE_ADS_REFRESH_TOKEN",
+        "GOOGLE_ADS_CUSTOMER_ID",
+    ]
+    missing = [k for k in required if not os.environ.get(k)]
+    if missing:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Google Ads Data Manager env vars missing: {', '.join(missing)}",
+        )
+
+    try:
+        from google.oauth2.credentials import Credentials  # type: ignore
+        from google.auth.transport.requests import Request as GoogleAuthRequest  # type: ignore
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"google-auth library not installed: {e}",
+        )
+
+    creds = Credentials(
+        token=None,
+        refresh_token=os.environ["GOOGLE_ADS_REFRESH_TOKEN"],
+        client_id=os.environ["GOOGLE_ADS_CLIENT_ID"],
+        client_secret=os.environ["GOOGLE_ADS_CLIENT_SECRET"],
+        token_uri=_GOOGLE_TOKEN_URI,
+        scopes=[_GOOGLE_ADS_OAUTH_SCOPE],
+    )
+    try:
+        creds.refresh(GoogleAuthRequest())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"OAuth token refresh failed: {e}")
+    if not creds.token:
+        raise HTTPException(status_code=502, detail="OAuth refresh returned no access_token")
+    return creds.token
+
+
+def _build_data_manager_payload(
+    booking: dict,
+    *,
+    validate_only: bool = False,
+) -> dict:
+    """Map a booking doc → Data Manager `events:ingest` payload.
+
+    Payload shape follows Data Manager's `Event` resource spec:
+      - destinations[]: routes the event to a specific Google Ads
+        conversion action via operatingAccountProduct + operatingAccountId
+        + conversionAction resource name
+      - events[]: one Event per conversion, carrying eventTime,
+        transactionId (booking id → dedup key), userIdentifiers
+        (googleClickId), and items[] (value + currency)
+      - validateOnly: top-level dry-run flag — Google validates schema,
+        auth, and audit rules but does NOT record the conversion when True
+
+    Raises ValueError when a required booking field is missing so upstream
+    callers can persist the reason as an upload_error.
+    """
+    utm = booking.get("utm") or {}
+    gclid = (utm.get("gclid") or "").strip()
+    if not gclid:
+        raise ValueError(f"booking {booking.get('id')} has no gclid")
+
+    gross, profit = _booking_gross_and_profit(booking)
+    if profit <= 0:
+        raise ValueError(f"booking {booking.get('id')} has no positive value")
+
+    when_iso = booking.get("paid_at") or booking.get("created_at") or \
+        datetime.now(timezone.utc).isoformat()
+    # Data Manager wants ISO-8601 UTC with a `Z` suffix (RFC 3339)
+    try:
+        dt = datetime.fromisoformat(when_iso.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        event_time = dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        event_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    customer_id = os.environ["GOOGLE_ADS_CUSTOMER_ID"].replace("-", "").strip()
+    conversion_action_resource = _active_conversion_action_resource()
+
+    return {
+        "destinations": [
+            {
+                "operatingAccountProduct": "GOOGLE_ADS",
+                "operatingAccountId": customer_id,
+                "conversionAction": conversion_action_resource,
+            }
+        ],
+        "events": [
+            {
+                "eventMetadata": {
+                    "eventTime": event_time,
+                    "transactionId": str(booking.get("id")),
+                },
+                "userIdentifiers": {
+                    "googleClickId": gclid,
+                },
+                "items": [
+                    {
+                        "value": float(profit),
+                        "currencyCode": "USD",
+                    }
+                ],
+            }
+        ],
+        "validateOnly": bool(validate_only),
+    }
+
+
+async def _post_data_manager_ingest(payload: dict) -> tuple[int, dict, str]:
+    """POST a payload to Data Manager's events:ingest endpoint.
+
+    Returns (http_status, response_json_or_error_dict, raw_body_text).
+    Never raises for HTTP errors — instead returns the status + body so the
+    caller can persist the exact failure reason (same pattern as the old
+    proto-based diagnostics: we keep the paper trail no matter what).
+    """
+    token = _get_data_manager_access_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    def _do_post():
+        return requests.post(
+            DATA_MANAGER_INGEST_URL,
+            headers=headers,
+            json=payload,
+            timeout=15,
+        )
+
+    try:
+        resp = await asyncio.to_thread(_do_post)
+    except requests.RequestException as e:
+        return 0, {"error": f"network error: {e}"}, ""
+
+    raw = resp.text or ""
+    try:
+        body = resp.json() if raw else {}
+    except Exception:
+        body = {"raw": raw[:2000]}
+    return resp.status_code, body, raw
+
+
 # --------- Booking → ClickConversion mapping ---------
 
 def _booking_gross_and_profit(b: dict) -> tuple[float, float]:
@@ -249,17 +426,27 @@ def _build_click_conversion(client, booking: dict, conversion_action_resource: s
 
 # --------- Upload core (idempotent) ---------
 
-async def upload_booking_to_google_ads(booking_id: str, *, force: bool = False) -> dict:
-    """Upload a single booking as an offline conversion. Idempotent:
-    if the booking already has google_ads_conversion_uploaded=True and force
-    is False, returns a no-op. Marks the booking with upload metadata on
-    success or failure so operators can audit history in the DB.
+async def upload_booking_to_google_ads(
+    booking_id: str,
+    *,
+    force: bool = False,
+    validate_only: bool = False,
+) -> dict:
+    """Upload a single booking as an offline conversion via **Data Manager**.
+
+    Idempotent: if the booking already has google_ads_conversion_uploaded=True
+    and force is False, returns a no-op. Marks the booking with upload
+    metadata on success or failure so operators can audit history in the DB.
+
+    `validate_only=True` runs the payload through Google's dry-run validator
+    — schema/auth/destination checks only, NO conversion recorded, and the
+    booking is NOT stamped as uploaded (so a subsequent live call still fires).
     """
     b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
     if not b:
         return {"ok": False, "booking_id": booking_id, "error": "booking not found"}
 
-    if b.get("google_ads_conversion_uploaded") and not force:
+    if b.get("google_ads_conversion_uploaded") and not force and not validate_only:
         return {"ok": True, "booking_id": booking_id, "skipped": "already_uploaded"}
 
     # Internal-test exclusion — bookings whose customer email matches an
@@ -267,13 +454,16 @@ async def upload_booking_to_google_ads(booking_id: str, *, force: bool = False) 
     # uploaded as conversions. This keeps Adam's own test bookings + admin
     # QA runs + affiliate-partner test purchases out of Smart Bidding's
     # training data, where they'd inflate value and skew optimization.
-    excluded_raw = os.environ.get("GOOGLE_ADS_EXCLUDED_EMAILS", "").strip()
-    if excluded_raw:
-        excluded = {e.strip().lower() for e in excluded_raw.split(",") if e.strip()}
-        email = (b.get("email") or "").strip().lower()
-        if email and email in excluded:
-            logger.info(f"[google_ads] skipping booking {booking_id}: email {email} is in excluded list")
-            return {"ok": True, "booking_id": booking_id, "skipped": "excluded_email"}
+    # (validate_only bypasses this so operators can still dry-run against
+    # excluded emails for pipeline verification.)
+    if not validate_only:
+        excluded_raw = os.environ.get("GOOGLE_ADS_EXCLUDED_EMAILS", "").strip()
+        if excluded_raw:
+            excluded = {e.strip().lower() for e in excluded_raw.split(",") if e.strip()}
+            email = (b.get("email") or "").strip().lower()
+            if email and email in excluded:
+                logger.info(f"[google_ads] skipping booking {booking_id}: email {email} is in excluded list")
+                return {"ok": True, "booking_id": booking_id, "skipped": "excluded_email"}
 
     # Resolve gclid from ALL possible sources — booking.utm, forward join
     # (booking.quote_request_id → quote), or reverse join (quote.booking_id ==
@@ -282,7 +472,6 @@ async def upload_booking_to_google_ads(booking_id: str, *, force: bool = False) 
     effective_utm, _parent_qid = await _resolve_booking_quote_utm(b)
     resolved_gclid = (effective_utm.get("gclid") or "").strip()
     if not resolved_gclid:
-        # No gclid anywhere — nothing to send to Google Ads. Not an error.
         return {"ok": True, "booking_id": booking_id, "skipped": "no_gclid"}
     # Stamp the resolved utm on the booking (best-effort) so subsequent
     # aggregations don't need to re-do the reverse lookup.
@@ -293,73 +482,76 @@ async def upload_booking_to_google_ads(booking_id: str, *, force: bool = False) 
     except Exception:
         pass
 
+    # Build the Data Manager payload
     try:
-        client = _get_google_ads_client()
-    except HTTPException as e:
-        # config error — persist so admin UI can flag it
-        await _mark_upload_result(booking_id, ok=False, error=str(e.detail))
-        return {"ok": False, "booking_id": booking_id, "error": str(e.detail)}
-
-    conversion_action_resource = _active_conversion_action_resource()
-    try:
-        cc = _build_click_conversion(client, b, conversion_action_resource)
+        payload = _build_data_manager_payload(b, validate_only=validate_only)
     except Exception as e:
-        await _mark_upload_result(booking_id, ok=False, error=f"build failed: {e}")
+        if not validate_only:
+            await _mark_upload_result(booking_id, ok=False, error=f"build failed: {e}")
         return {"ok": False, "booking_id": booking_id, "error": str(e)}
 
-    upload_service = client.get_service("ConversionUploadService")
-    customer_id = os.environ["GOOGLE_ADS_CUSTOMER_ID"].replace("-", "").strip()
+    # POST to Data Manager
     try:
-        # Sync SDK — offload to a thread so we don't block the event loop.
-        import asyncio
-        response = await asyncio.to_thread(
-            upload_service.upload_click_conversions,
-            customer_id=customer_id,
-            conversions=[cc],
-            partial_failure=True,
-        )
+        status, body, raw_text = await _post_data_manager_ingest(payload)
+    except HTTPException as e:
+        if not validate_only:
+            await _mark_upload_result(booking_id, ok=False, error=str(e.detail))
+        return {"ok": False, "booking_id": booking_id, "error": str(e.detail)}
     except Exception as e:
-        err = f"upload_click_conversions failed: {e}"
+        err = f"data_manager_ingest failed: {e}"
         logger.exception(err)
-        await _mark_upload_result(booking_id, ok=False, error=err[:500])
+        if not validate_only:
+            await _mark_upload_result(booking_id, ok=False, error=err[:500])
         return {"ok": False, "booking_id": booking_id, "error": err}
 
-    # Serialize the full response ONCE so we can persist it on both success
-    # and failure branches — this is the only paper trail we get for
-    # diagnosing "silent success" cases downstream in Google's reporting.
-    raw_response = _proto_to_dict(response)
-    logger.info(f"[google_ads] booking {booking_id} raw response: {json.dumps(raw_response)[:2000]}")
+    logger.info(f"[google_ads/dm] booking {booking_id} status={status} body={json.dumps(body)[:2000]}")
 
-    # Google returns partial_failure_error on batch-level failures even
-    # when the batch had only one item.
-    pf = getattr(response, "partial_failure_error", None)
-    if pf and getattr(pf, "message", None):
-        err = f"partial_failure: {pf.message}"
-        logger.warning(f"[google_ads] booking {booking_id}: {err}")
-        await _mark_upload_result(booking_id, ok=False, error=err[:500], raw_response=raw_response)
-        return {"ok": False, "booking_id": booking_id, "error": err, "raw_response": raw_response}
+    # Data Manager returns 200 with a requestId on success (for both
+    # live AND validate_only calls). Non-2xx → treat as failure.
+    ok = 200 <= status < 300
+    request_id = body.get("requestId") if isinstance(body, dict) else None
 
-    # Success — result may be empty struct if the row failed silently.
-    results = list(getattr(response, "results", []) or [])
-    if not results or not getattr(results[0], "gclid", None):
-        err = "no result returned (row likely rejected — check conversion action & gclid)"
-        logger.warning(f"[google_ads] booking {booking_id}: {err}")
-        await _mark_upload_result(booking_id, ok=False, error=err, raw_response=raw_response)
-        return {"ok": False, "booking_id": booking_id, "error": err, "raw_response": raw_response}
+    # Persist paper trail — same shape as before (raw_response),
+    # + jobId slot repurposed to hold requestId for the Data Manager era.
+    raw_response = {
+        "http_status": status,
+        "response": body,
+        "request_id": request_id,
+        "validate_only": bool(validate_only),
+        "endpoint": "datamanager.googleapis.com/v1/events:ingest",
+    }
 
+    if not ok:
+        err = f"data_manager http_{status}: {json.dumps(body)[:400]}"
+        logger.warning(f"[google_ads/dm] booking {booking_id}: {err}")
+        if not validate_only:
+            await _mark_upload_result(booking_id, ok=False, error=err[:500], raw_response=raw_response)
+        return {
+            "ok": False,
+            "booking_id": booking_id,
+            "http_status": status,
+            "error": err,
+            "raw_response": raw_response,
+        }
+
+    # Success — for validate_only, do NOT stamp the booking as uploaded.
     gross, profit = _booking_gross_and_profit(b)
-    await _mark_upload_result(
-        booking_id,
-        ok=True,
-        conversion_action=conversion_action_resource,
-        gross=gross,
-        profit=profit,
-        raw_response=raw_response,
-    )
+    if not validate_only:
+        await _mark_upload_result(
+            booking_id,
+            ok=True,
+            conversion_action=_active_conversion_action_resource(),
+            gross=gross,
+            profit=profit,
+            raw_response=raw_response,
+        )
     return {
         "ok": True,
         "booking_id": booking_id,
-        "conversion_action": conversion_action_resource,
+        "validate_only": bool(validate_only),
+        "http_status": status,
+        "request_id": request_id,
+        "conversion_action": _active_conversion_action_resource(),
         "value_uploaded": profit,
         "raw_response": raw_response,
     }
@@ -403,12 +595,23 @@ async def _mark_upload_result(
     if raw_response is not None:
         # Keep only the last-attempt's raw response to bound doc size — this
         # is diagnostic data, not an audit log. Also stash a short pointer to
-        # the response's job_id so operators can correlate with Google's
-        # conversion-import history page.
+        # the response's requestId (Data Manager era) or legacy jobId so
+        # operators can correlate with Google's conversion-import history page.
         upd["google_ads_last_raw_response"] = raw_response
-        job_id = raw_response.get("jobId") if isinstance(raw_response, dict) else None
-        if job_id:
-            upd["google_ads_last_job_id"] = str(job_id)
+        req_id = None
+        if isinstance(raw_response, dict):
+            # Data Manager era: top-level request_id we stashed
+            req_id = raw_response.get("request_id")
+            if not req_id:
+                # Data Manager response envelope
+                inner = raw_response.get("response") or {}
+                if isinstance(inner, dict):
+                    req_id = inner.get("requestId")
+            if not req_id:
+                # Legacy Ads API era: jobId
+                req_id = raw_response.get("jobId")
+        if req_id:
+            upd["google_ads_last_job_id"] = str(req_id)
     try:
         await db.bookings.update_one({"id": booking_id}, {"$set": upd})
     except Exception as e:
@@ -453,14 +656,19 @@ async def google_ads_status(_: dict = Depends(require_admin)):
         "active_is_profit": active_id == profit_id,
         "test_conversion_action_id": test_id,
         "profit_conversion_action_id": profit_id,
+        # Data Manager migration marker — POST /dm-ping to verify scope.
+        "conversion_upload_api": "data_manager_v1",
+        "data_manager_endpoint": DATA_MANAGER_INGEST_URL,
+        "required_oauth_scope": _GOOGLE_ADS_OAUTH_SCOPE,
     }
 
 
 @router.post("/admin/google-ads/ping")
 async def google_ads_ping(_: dict = Depends(require_admin)):
-    """Actually calls Google — lists accessible customers as a cheap creds
-    check. Confirms developer token + refresh token + client id/secret are
-    all valid without touching conversion data.
+    """Actually calls Google — lists accessible customers via the legacy
+    Ads API as a cheap creds check (still valid, reads aren't deprecated).
+    Confirms developer token + refresh token + client id/secret are all
+    intact without touching conversion data.
     """
     try:
         client = _get_google_ads_client()
@@ -474,6 +682,52 @@ async def google_ads_ping(_: dict = Depends(require_admin)):
         raise
     except Exception as e:
         logger.exception("google_ads_ping failed")
+        return {"ok": False, "error": str(e)[:500]}
+
+
+@router.post("/admin/google-ads/dm-ping")
+async def data_manager_ping(_: dict = Depends(require_admin)):
+    """Data-Manager-side creds check. Refreshes the OAuth token against the
+    `datamanager` scope — will fail with `invalid_scope` until the operator
+    mints a NEW refresh_token that includes
+    `https://www.googleapis.com/auth/datamanager` in its grant.
+
+    Use this to confirm the new refresh token works BEFORE running any
+    dm-validate call against a real booking.
+    """
+    try:
+        tok = _get_data_manager_access_token()
+        # Sanity-inspect the token's actual scope via Google's tokeninfo
+        # endpoint — proves the token has datamanager scope, not just adwords.
+        info = await asyncio.to_thread(
+            lambda: requests.get(
+                "https://oauth2.googleapis.com/tokeninfo",
+                params={"access_token": tok},
+                timeout=8,
+            )
+        )
+        info_body = {}
+        try:
+            info_body = info.json()
+        except Exception:
+            info_body = {"raw": info.text[:400]}
+        has_dm = "datamanager" in (info_body.get("scope") or "")
+        return {
+            "ok": has_dm,
+            "token_masked": f"{tok[:12]}…{tok[-6:]}",
+            "scope": info_body.get("scope"),
+            "expires_in": info_body.get("expires_in"),
+            "has_datamanager_scope": has_dm,
+            "note": (
+                "has_datamanager_scope=false means the refresh_token was minted "
+                "without the datamanager scope. Re-authorize via OAuth Playground "
+                "and update GOOGLE_ADS_REFRESH_TOKEN in backend/.env."
+            ) if not has_dm else "Ready for Data Manager ingestion.",
+        }
+    except HTTPException as e:
+        return {"ok": False, "error": str(e.detail)}
+    except Exception as e:
+        logger.exception("data_manager_ping failed")
         return {"ok": False, "error": str(e)[:500]}
 
 
@@ -945,3 +1199,67 @@ async def silent_drop_audit(_: dict = Depends(require_admin)):
             "raw_response": b.get("google_ads_last_raw_response"),
         })
     return {"count": len(rows), "rows": rows}
+
+
+
+# --------- Data Manager API — validate-only / dry-run diagnostic ---------
+
+@router.post("/admin/google-ads/dm-validate/{booking_id}")
+async def dm_validate_booking(booking_id: str, _: dict = Depends(require_admin)):
+    """Dry-run a booking through Data Manager's `validateOnly=true` mode.
+
+    Google validates schema, auth, destination config, and audit rules
+    against a REAL booking payload (real gclid, real amount, real conversion
+    action) — but does NOT record the conversion, does NOT stamp the
+    booking, and does NOT affect Smart Bidding.
+
+    Use this to prove the migration pipe works end-to-end before spending
+    real money on a live $5 self-click test. A 200 response with a
+    `requestId` means: your OAuth token is valid, your customer id + action
+    resource are valid, your payload schema is accepted, and Google is
+    ready to ingest. It does NOT prove the conversion will appear in your
+    reporting UI — for that, you still need one live click that ends in a
+    booking, then wait ~24h for Google's attribution pipeline.
+
+    Returns the full raw Data Manager response body in the HTTP response.
+    """
+    return await upload_booking_to_google_ads(booking_id, force=True, validate_only=True)
+
+
+class DataManagerTestPayload(BaseModel):
+    gclid: str
+    value: float = 5.0
+    currency: str = "USD"
+
+
+@router.post("/admin/google-ads/dm-validate-adhoc")
+async def dm_validate_adhoc(
+    payload: DataManagerTestPayload,
+    _: dict = Depends(require_admin),
+):
+    """Dry-run Data Manager with an operator-supplied gclid + value.
+
+    Useful when there is no historical booking to point at yet, or when
+    you want to validate the pipe with an obviously-fake gclid to see how
+    Google surfaces rejection errors. This never touches a booking record.
+    """
+    now = datetime.now(timezone.utc)
+    fake_booking = {
+        "id": f"adhoc-{int(now.timestamp())}",
+        "utm": {"gclid": payload.gclid},
+        "paid_amount": float(payload.value),
+        "affiliate_cost": 0.0,
+        "paid_at": now.isoformat(),
+    }
+    try:
+        pl = _build_data_manager_payload(fake_booking, validate_only=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    status, body, _raw = await _post_data_manager_ingest(pl)
+    return {
+        "ok": 200 <= status < 300,
+        "http_status": status,
+        "request_id": body.get("requestId") if isinstance(body, dict) else None,
+        "response": body,
+        "payload_sent": pl,
+    }
