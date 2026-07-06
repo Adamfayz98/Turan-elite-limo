@@ -47,9 +47,15 @@ def _proto_to_dict(msg: Any) -> Any:
         from google.protobuf.json_format import MessageToDict
         # For proto-plus classes, the underlying protobuf is at msg._pb
         pb = getattr(msg, "_pb", msg)
-        return MessageToDict(pb, preserving_proto_field_name=True, including_default_value_fields=False)
-    except Exception:
-        pass
+        # protobuf 5.x renamed `including_default_value_fields` to
+        # `always_print_fields_with_no_presence`. Default is False for both
+        # versions, so we just drop the kwarg — MessageToDict returns the
+        # populated fields either way, which is what we want for diag data.
+        return MessageToDict(pb, preserving_proto_field_name=True)
+    except Exception as e:
+        # Log this once — silent fallback is exactly the state that made the
+        # iter-52 silent-drop invisible for a while.
+        logger.warning(f"[google_ads] _proto_to_dict fell back to str() for {type(msg).__name__}: {e}")
     # Fallback — try each common shape
     if isinstance(msg, (str, int, float, bool)):
         return msg
