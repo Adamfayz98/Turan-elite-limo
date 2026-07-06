@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import logging
 import os
+import json
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -31,6 +32,35 @@ logger = logging.getLogger(__name__)
 import server as _server  # noqa: E402
 db = _server.db
 require_admin = _server.require_admin
+
+
+def _proto_to_dict(msg: Any) -> Any:
+    """Convert a proto-plus message (or nested repeated field) to a JSON-safe
+    dict — used to persist and inspect raw Google Ads API responses. Falls
+    back to str() for anything the SDK can't natively serialize so we never
+    lose diagnostic data to a serialization error.
+    """
+    if msg is None:
+        return None
+    # proto-plus messages expose `.__class__.to_json()` (uses google.protobuf.json_format)
+    try:
+        from google.protobuf.json_format import MessageToDict
+        # For proto-plus classes, the underlying protobuf is at msg._pb
+        pb = getattr(msg, "_pb", msg)
+        return MessageToDict(pb, preserving_proto_field_name=True, including_default_value_fields=False)
+    except Exception:
+        pass
+    # Fallback — try each common shape
+    if isinstance(msg, (str, int, float, bool)):
+        return msg
+    if isinstance(msg, list):
+        return [_proto_to_dict(x) for x in msg]
+    if isinstance(msg, dict):
+        return {k: _proto_to_dict(v) for k, v in msg.items()}
+    try:
+        return str(msg)
+    except Exception:
+        return None
 
 
 # --------- Bidirectional booking ↔ quote linkage resolver ---------
@@ -288,22 +318,28 @@ async def upload_booking_to_google_ads(booking_id: str, *, force: bool = False) 
         await _mark_upload_result(booking_id, ok=False, error=err[:500])
         return {"ok": False, "booking_id": booking_id, "error": err}
 
+    # Serialize the full response ONCE so we can persist it on both success
+    # and failure branches — this is the only paper trail we get for
+    # diagnosing "silent success" cases downstream in Google's reporting.
+    raw_response = _proto_to_dict(response)
+    logger.info(f"[google_ads] booking {booking_id} raw response: {json.dumps(raw_response)[:2000]}")
+
     # Google returns partial_failure_error on batch-level failures even
     # when the batch had only one item.
     pf = getattr(response, "partial_failure_error", None)
     if pf and getattr(pf, "message", None):
         err = f"partial_failure: {pf.message}"
         logger.warning(f"[google_ads] booking {booking_id}: {err}")
-        await _mark_upload_result(booking_id, ok=False, error=err[:500])
-        return {"ok": False, "booking_id": booking_id, "error": err}
+        await _mark_upload_result(booking_id, ok=False, error=err[:500], raw_response=raw_response)
+        return {"ok": False, "booking_id": booking_id, "error": err, "raw_response": raw_response}
 
     # Success — result may be empty struct if the row failed silently.
     results = list(getattr(response, "results", []) or [])
     if not results or not getattr(results[0], "gclid", None):
         err = "no result returned (row likely rejected — check conversion action & gclid)"
         logger.warning(f"[google_ads] booking {booking_id}: {err}")
-        await _mark_upload_result(booking_id, ok=False, error=err)
-        return {"ok": False, "booking_id": booking_id, "error": err}
+        await _mark_upload_result(booking_id, ok=False, error=err, raw_response=raw_response)
+        return {"ok": False, "booking_id": booking_id, "error": err, "raw_response": raw_response}
 
     gross, profit = _booking_gross_and_profit(b)
     await _mark_upload_result(
@@ -312,12 +348,14 @@ async def upload_booking_to_google_ads(booking_id: str, *, force: bool = False) 
         conversion_action=conversion_action_resource,
         gross=gross,
         profit=profit,
+        raw_response=raw_response,
     )
     return {
         "ok": True,
         "booking_id": booking_id,
         "conversion_action": conversion_action_resource,
         "value_uploaded": profit,
+        "raw_response": raw_response,
     }
 
 
@@ -329,9 +367,16 @@ async def _mark_upload_result(
     gross: Optional[float] = None,
     profit: Optional[float] = None,
     error: Optional[str] = None,
+    raw_response: Optional[dict] = None,
 ) -> None:
     """Persist upload outcome onto the booking so admin UI can show history
     and operators can audit failures.
+
+    `raw_response` — the full Google Ads UploadClickConversionsResponse
+    serialized to a dict via _proto_to_dict. Preserved on BOTH success and
+    failure so operators can diagnose "silent success" cases where the API
+    echoed back the row but the downstream reporting pipeline dropped it
+    (common when the conversion action isn't set up as Import→Clicks type).
     """
     now = datetime.now(timezone.utc).isoformat()
     upd: dict = {"google_ads_last_upload_at": now}
@@ -349,6 +394,15 @@ async def _mark_upload_result(
             "google_ads_upload_status": "failed",
             "google_ads_upload_error": (error or "")[:500],
         })
+    if raw_response is not None:
+        # Keep only the last-attempt's raw response to bound doc size — this
+        # is diagnostic data, not an audit log. Also stash a short pointer to
+        # the response's job_id so operators can correlate with Google's
+        # conversion-import history page.
+        upd["google_ads_last_raw_response"] = raw_response
+        job_id = raw_response.get("jobId") if isinstance(raw_response, dict) else None
+        if job_id:
+            upd["google_ads_last_job_id"] = str(job_id)
     try:
         await db.bookings.update_one({"id": booking_id}, {"$set": upd})
     except Exception as e:
@@ -714,3 +768,174 @@ async def admin_switch_active_action(
         raise HTTPException(status_code=500, detail=f"{src_key} not set in env")
     os.environ["GOOGLE_ADS_ACTIVE_CONVERSION_ACTION_ID"] = new_id
     return {"ok": True, "target": payload.target, "active_conversion_action_id": new_id}
+
+
+
+# --------- Diagnostic endpoints (Iteration 52 — silent-drop root cause) ---------
+
+@router.get("/admin/google-ads/inspect-action")
+async def inspect_conversion_action(
+    action_id: str = Query(..., description="Numeric conversion action ID, e.g. 7671967367"),
+    _: dict = Depends(require_admin),
+):
+    """Query Google Ads' ConversionActionService for the actual metadata of a
+    conversion action so operators can verify it is SET UP to receive
+    click-conversion uploads.
+
+    An action can exist at the API level (return a valid resource name) AND
+    accept API upload requests (return a "success" response with the row
+    echoed back) but STILL silently drop every uploaded conversion because
+    its `type` isn't `UPLOAD_CLICKS`, its `status` isn't `ENABLED`, or its
+    Import wizard was never completed in the Ads UI. This endpoint reads
+    the truth directly from Google so we stop guessing.
+
+    Returns type / status / category / origin / primary_for_goal / include_in_conversions_metric
+    plus a `verdict` field summarizing whether the action can currently
+    receive offline click uploads.
+    """
+    try:
+        client = _get_google_ads_client()
+    except HTTPException as e:
+        raise e
+    customer_id = os.environ["GOOGLE_ADS_CUSTOMER_ID"].replace("-", "").strip()
+    ga_service = client.get_service("GoogleAdsService")
+    query = (
+        "SELECT conversion_action.id, conversion_action.name, "
+        "conversion_action.type, conversion_action.status, conversion_action.origin, "
+        "conversion_action.category, conversion_action.primary_for_goal, "
+        "conversion_action.include_in_conversions_metric, "
+        "conversion_action.click_through_lookback_window_days, "
+        "conversion_action.view_through_lookback_window_days, "
+        "conversion_action.attribution_model_settings.attribution_model, "
+        "conversion_action.value_settings.default_value, "
+        "conversion_action.value_settings.default_currency_code, "
+        "conversion_action.counting_type "
+        "FROM conversion_action "
+        f"WHERE conversion_action.id = {action_id}"
+    )
+    import asyncio
+    try:
+        stream = await asyncio.to_thread(
+            ga_service.search,
+            customer_id=customer_id,
+            query=query,
+        )
+        rows = list(stream)
+    except Exception as e:
+        logger.exception(f"inspect_conversion_action failed for {action_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Google Ads API error: {e}")
+
+    if not rows:
+        return {
+            "action_id": action_id,
+            "found": False,
+            "verdict": "action_not_found",
+            "explanation": (
+                "Google returned zero rows for this conversion_action.id. Either the ID is wrong, "
+                "the action was deleted, or the linked customer_id (GOOGLE_ADS_CUSTOMER_ID) doesn't own it."
+            ),
+        }
+
+    ca = rows[0].conversion_action
+    action_dict = _proto_to_dict(ca) or {}
+
+    # Enum names — proto-plus returns them as int values by default; use
+    # .name for readability. Wrap in try because some SDK versions serialize
+    # enums as strings already.
+    def _enum_name(pb_val):
+        try:
+            return pb_val.name
+        except AttributeError:
+            return str(pb_val)
+
+    type_name = _enum_name(ca.type_)
+    status_name = _enum_name(ca.status)
+    origin_name = _enum_name(ca.origin)
+    category_name = _enum_name(ca.category)
+
+    # Verdict — can this action receive server-side click conversion uploads?
+    #   type_ MUST be UPLOAD_CLICKS (not WEBPAGE, APP_INSTALL, APP_IN_APP_ACTION, PHONE_CALL_FROM_ADS, etc.)
+    #   status MUST be ENABLED (not REMOVED, HIDDEN)
+    #   include_in_conversions_metric SHOULD be True so it counts in reports
+    can_receive = type_name == "UPLOAD_CLICKS" and status_name == "ENABLED"
+    verdict_bits = []
+    if type_name != "UPLOAD_CLICKS":
+        verdict_bits.append(
+            f"type is '{type_name}', must be 'UPLOAD_CLICKS' (i.e. Import → Other data sources → Track clicks). "
+            "Recreate the conversion action with source=Import, type=Clicks."
+        )
+    if status_name != "ENABLED":
+        verdict_bits.append(
+            f"status is '{status_name}', must be 'ENABLED'. If it shows 'Inactive / Set up import' in the "
+            "Ads UI, the Import wizard was never completed — click into the action and finish the setup."
+        )
+    if ca.include_in_conversions_metric is False:
+        verdict_bits.append(
+            "include_in_conversions_metric is False — action exists but won't count in Ads reports. "
+            "Toggle it back on in the action settings."
+        )
+
+    return {
+        "action_id": action_id,
+        "found": True,
+        "name": ca.name,
+        "type": type_name,
+        "status": status_name,
+        "origin": origin_name,
+        "category": category_name,
+        "primary_for_goal": ca.primary_for_goal,
+        "include_in_conversions_metric": ca.include_in_conversions_metric,
+        "click_through_lookback_window_days": ca.click_through_lookback_window_days,
+        "view_through_lookback_window_days": ca.view_through_lookback_window_days,
+        "counting_type": _enum_name(ca.counting_type),
+        "default_value": ca.value_settings.default_value,
+        "default_currency": ca.value_settings.default_currency_code,
+        "attribution_model": _enum_name(ca.attribution_model_settings.attribution_model),
+        "verdict": "ready_to_receive" if can_receive else "not_ready",
+        "verdict_reasons": verdict_bits,
+        "raw": action_dict,
+    }
+
+
+@router.post("/admin/google-ads/reupload-with-diag/{booking_id}")
+async def reupload_with_diagnostics(booking_id: str, _: dict = Depends(require_admin)):
+    """Force-re-upload a booking to Google Ads AND return the FULL raw API
+    response in the HTTP body — untruncated. Use this when a booking that
+    already shows google_ads_conversion_uploaded=True in Mongo is missing
+    from the Ads UI (silent-drop root-cause investigation).
+
+    Sets force=True so it bypasses the idempotency guard and always attempts
+    a fresh upload.
+    """
+    result = await upload_booking_to_google_ads(booking_id, force=True)
+    return result
+
+
+@router.get("/admin/google-ads/silent-drop-audit")
+async def silent_drop_audit(_: dict = Depends(require_admin)):
+    """List every booking marked as google_ads_conversion_uploaded=True and
+    surface their raw stored responses — the single-view diagnostic for the
+    "we uploaded 2, Ads shows 0" investigation.
+    """
+    rows = []
+    async for b in db.bookings.find(
+        {"google_ads_conversion_uploaded": True},
+        {"_id": 0, "id": 1, "email": 1, "created_at": 1, "utm": 1,
+         "google_ads_conversion_action": 1, "google_ads_conversion_value": 1,
+         "google_ads_last_upload_at": 1, "google_ads_last_raw_response": 1,
+         "google_ads_last_job_id": 1, "google_ads_upload_error": 1},
+    ):
+        gclid = (b.get("utm") or {}).get("gclid") or ""
+        rows.append({
+            "booking_id": b["id"],
+            "email": b.get("email"),
+            "created_at": b.get("created_at"),
+            "gclid": gclid,
+            "gclid_looks_real": bool(gclid) and len(gclid) >= 30 and gclid[:2] in ("EA", "Cj", "CJ", "CN", "EN", "CI", "CL"),
+            "conversion_action_sent": b.get("google_ads_conversion_action"),
+            "value_sent": b.get("google_ads_conversion_value"),
+            "job_id": b.get("google_ads_last_job_id"),
+            "last_upload_at": b.get("google_ads_last_upload_at"),
+            "raw_response": b.get("google_ads_last_raw_response"),
+        })
+    return {"count": len(rows), "rows": rows}
