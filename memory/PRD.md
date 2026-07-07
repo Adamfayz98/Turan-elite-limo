@@ -1,6 +1,31 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: July 3, 2026 — iter 63 (Promo Health dashboard + dynamic booking chip)
+> Last refreshed: July 7, 2026 — iter 53 (Admin inquiries clickable + Pay-After-Ride driver-assign + Web↔Mobile trip sync)
+
+## 🛠️ Three admin/customer bug fixes (Jul 7, 2026 — iter 53)
+
+**Reported by owner:**
+1. Admin Inquiries tab rows not clickable — long messages truncated at 2 lines, no way to read full text.
+2. New SUV booking made via **Book Now, Pay After Ride** could not be dispatched — Assign Driver button hidden because payment_status is `card_on_file` (not `paid`).
+3. Booking made on web (guest checkout, email only) did not appear in the mobile app's Trips page after signing into mobile with the same email.
+
+**Fixes shipped:**
+
+Frontend (`/app/frontend/src/pages/AdminDashboard.jsx`):
+- Line 798 gate: `payment_status === "paid"` → `(payment_status === "paid" || payment_status === "card_on_file")`. Assign Driver button now appears for Pay-After-Ride bookings once the SetupIntent succeeds (card verified & on file). Abandoned checkouts (no SetupIntent success) remain blocked as intended.
+- Added `openInquiry(c)` helper + `inquiryDetail` state. Contact rows now `cursor-pointer` with `onClick={openInquiry}`; clicking auto-marks the inquiry as read (idempotent). Per-row Delete/Mark-read buttons use `stopPropagation` so they don't open the detail modal.
+- New `<Dialog data-testid="inquiry-detail-dialog">` at the bottom of the component showing full name, email (mailto link), phone (tel link), subject, whitespace-preserved full message body, and a "Reply via email" button that pre-populates a `mailto:` with `Re: <subject>`.
+
+Backend (`/app/backend/server.py` + `/app/backend/routes/customer.py`):
+- New helper `_link_guest_bookings_by_email(customer_id, email)` in server.py — idempotent MongoDB update that stamps `customer_id` onto any guest bookings where the email matches (case-insensitive regex) and `customer_id` is null/missing. Never raises — degrades gracefully.
+- Hooked into all customer auth entry points: `/customer/signup`, `/customer/login`, `/customer/oauth/apple` (skipped for Apple private relay emails), `/customer/oauth/google`.
+- `/customer/trips` — expanded query to `$or: [{customer_id: cid}, {email: <lowered>, customer_id: {$in: [null, cid]}}]` (belt-and-suspenders in case backfill misses an edge case). Also runs an inline `_link_guest_bookings_by_email` on every call to keep the DB linkage clean.
+- `/customer/bookings/{id}` — same union query, plus auto-stamps `customer_id` on the accessed booking so future queries succeed by the primary path.
+
+**Deferred (per owner request):** Anti-fraud gibberish/keyboard-mash heuristics for quote requests. Owner is manually filtering fake leads for now.
+
+**Testing:** iter 53 test report (`/app/test_reports/iteration_53.json`) — Backend 6/6 pytest pass (`/app/backend/tests/test_iter53_guest_backfill.py`). Frontend: all 3 UI fixes verified via admin JWT-injected UI test.
+
 
 ## 🚀 Google Ads offline conversions — MIGRATED to Data Manager API (Feb 2026 — iter 64)
 

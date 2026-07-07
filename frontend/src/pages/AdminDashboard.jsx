@@ -56,6 +56,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -1218,22 +1219,26 @@ export default function AdminDashboard() {
             <DialogTitle className="font-serif text-2xl">
               Inquiry from {inquiryDetail?.name || "—"}
             </DialogTitle>
-            <p className="text-xs text-white/55 mt-1">
-              Received{" "}
-              {inquiryDetail?.created_at
-                ? new Date(inquiryDetail.created_at).toLocaleString(undefined, {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  })
-                : "—"}
-              {inquiryDetail?.status && (
-                <Badge
-                  className={`${STATUS_COLOR[inquiryDetail.status] || STATUS_COLOR.new} border rounded-full ml-2 text-[10px]`}
-                >
-                  {inquiryDetail.status}
-                </Badge>
-              )}
-            </p>
+            <DialogDescription asChild>
+              <div className="text-xs text-white/55 mt-1 flex items-center gap-2 flex-wrap">
+                <span>
+                  Received{" "}
+                  {inquiryDetail?.created_at
+                    ? new Date(inquiryDetail.created_at).toLocaleString(undefined, {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })
+                    : "—"}
+                </span>
+                {inquiryDetail?.status && (
+                  <Badge
+                    className={`${STATUS_COLOR[inquiryDetail.status] || STATUS_COLOR.new} border rounded-full text-[10px]`}
+                  >
+                    {inquiryDetail.status}
+                  </Badge>
+                )}
+              </div>
+            </DialogDescription>
           </DialogHeader>
 
           {inquiryDetail && (
