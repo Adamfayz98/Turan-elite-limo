@@ -1,8 +1,34 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: July 7, 2026 — iter 53 (Admin inquiries clickable + Pay-After-Ride driver-assign + Web↔Mobile trip sync)
+> Last refreshed: July 7, 2026 — iter 53b (M&G fee $35, airport auto-detect, admin trip-edit for paid bookings)
 
-## 🛠️ Three admin/customer bug fixes (Jul 7, 2026 — iter 53)
+## 💵 Meet & Greet fee bumped $25 → $35 + UX (Jul 7, 2026 — iter 53b)
+
+Aligned with industry benchmarks (Blacklane ~$35; Bay Area premium peers $30-40). Fully automated end-to-end:
+- Backend Pydantic default + startup seed + one-time migration (guarded by `meet_greet_fee_migrated_v2` flag) — updates existing DB row from $25 → $35 idempotently; skips docs where admin has overridden the fee.
+- Admin Settings UI default updated to $35.
+- Removed misleading "Complimentary meet & greet" copy from `ServiceFeatures.jsx` (replaced with "60-min complimentary wait time" which IS accurate).
+- Fee flows into `quote_amount` at booking creation → Stripe charges auto-stay in sync (no changes to payment layer needed).
+- **Airport auto-detect** in `BookingForm.jsx`: when pickup OR drop-off contains SFO/OAK/SJC/SMF/LAX/JFK/LGA/etc. or "airport"/"terminal" keywords, auto-sets Service Type to "Airport Transfer" — revealing the Flight Number field and Meet & Greet toggle without the customer needing to click the dropdown. Only fires when Service Type is currently empty (respects explicit user choice).
+
+## ✏️ Admin edit for paid / card_on_file bookings (Jul 7, 2026 — iter 53b)
+
+Common ops need: customer texts dispatch "I gave you the wrong flight number" AFTER paying. The customer-facing `/modify` endpoint refuses paid bookings, forcing a phone call. New admin path fixes this cleanly.
+
+Backend (`/app/backend/routes/admin.py`):
+- `PATCH /api/admin/bookings/{booking_id}/details` — edits ANY trip field (flight_number, pickup date/time, pickup/drop-off, vehicle_type, passengers, luggage_count, child_seat_count, meet_and_greet, hours, notes) regardless of `payment_status`. Blocks only for `status=='cancelled'`.
+- Writes an `edit_history` audit array on every change with per-field before/after diff, `at`, `by` (admin email), and `recomputed_quote` flag.
+- `recompute_quote` (default OFF) — usually admin keeps the agreed price even if trip details shift; opt-in when the change is material (major route change).
+- `notify_customer` (default OFF) — optionally emails the customer their updated trip sheet via the standard confirmation template.
+- Auto-re-SMSes the driver with `[UPDATED]` prefix if flight/date/time/pickup/dropoff changed AND a driver is assigned.
+
+Frontend:
+- New `/app/frontend/src/components/admin/EditBookingDialog.jsx` — compact edit form surfacing dispatch's most-common edits (Flight # is prominent when service_type == "Airport Transfer").
+- "Edit trip" button in `BookingDetailsDialog.jsx` header opens the sub-dialog.
+- Diff-only submission — only fields that actually changed hit the API. No-change requests return `{no_changes: true}` idempotently.
+- Data-testids: `open-edit-booking-btn`, `edit-booking-dialog`, `edit-flight-number`, `edit-pickup-date`, `edit-pickup-time`, `edit-pickup-location`, `edit-dropoff-location`, `edit-vehicle-type`, `edit-passengers`, `edit-luggage`, `edit-hours`, `edit-meet-and-greet`, `edit-child-seats`, `edit-notes`, `edit-recompute-toggle`, `edit-notify-toggle`, `edit-save-btn`.
+
+## 🛠️ Three owner-reported bug fixes (Jul 7, 2026 — iter 53)
 
 **Reported by owner:**
 1. Admin Inquiries tab rows not clickable — long messages truncated at 2 lines, no way to read full text.

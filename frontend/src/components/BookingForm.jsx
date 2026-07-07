@@ -160,6 +160,21 @@ export default function BookingForm() {
     }).catch(() => {});
   }, []);
 
+  // Auto-detect airport in pickup/drop-off and pre-select Service Type = "Airport
+  // Transfer" so the Flight Number field and the Meet & Greet toggle reveal
+  // themselves without the customer needing to know to click the Service Type
+  // dropdown. Only fires when service_type is currently empty — respects an
+  // explicit choice if the customer has already picked something else.
+  useEffect(() => {
+    if (form.service_type) return; // don't clobber explicit selection
+    const AIRPORT_RE = /\b(airport|international terminal|terminal [12345abc]|sfo|oak|sjc|smf|lax|jfk|lga|ewr|ord|mia|sea|den|las|phx|dfw|atl|bos|iad|dca|hnl|pdx)\b/i;
+    const p = (form.pickup_location || "").toLowerCase();
+    const d = (form.dropoff_location || "").toLowerCase();
+    if (AIRPORT_RE.test(p) || AIRPORT_RE.test(d)) {
+      setForm((f) => (f.service_type ? f : { ...f, service_type: "Airport Transfer" }));
+    }
+  }, [form.pickup_location, form.dropoff_location, form.service_type]);
+
   // Pre-fill from URL query params (used by FloatingQuoteWidget on landing pages
   // and referral redirects). Runs once on mount.
   useEffect(() => {

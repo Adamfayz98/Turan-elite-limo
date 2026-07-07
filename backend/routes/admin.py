@@ -2183,6 +2183,155 @@ async def update_booking_status(
     return Booking(**result)
 
 
+class AdminBookingEditRequest(BaseModel):
+    """Admin edit for a booking's TRIP DETAILS — works regardless of payment
+    status (unlike the customer-facing /modify endpoint, which blocks once
+    paid). Common use case: customer texts dispatch that they gave the wrong
+    flight number after already paying. Admin edits it here.
+
+    Does NOT recompute the fare unless `recompute_quote=True`. Passing it in
+    is opt-in — admins usually want to keep the agreed price even if the
+    trip details shift a little.
+    """
+    flight_number: Optional[str] = None
+    pickup_date: Optional[str] = None   # YYYY-MM-DD
+    pickup_time: Optional[str] = None   # HH:MM (24h)
+    pickup_location: Optional[str] = None
+    dropoff_location: Optional[str] = None
+    vehicle_type: Optional[str] = None
+    passengers: Optional[int] = Field(None, ge=1, le=60)
+    luggage_count: Optional[int] = Field(None, ge=0, le=30)
+    child_seat_count: Optional[int] = Field(None, ge=0, le=6)
+    meet_and_greet: Optional[bool] = None
+    notes: Optional[str] = None
+    hours: Optional[float] = Field(None, ge=1, le=24)
+    recompute_quote: bool = False
+    notify_customer: bool = False  # if True, email the customer their updated trip sheet
+
+
+@router.patch("/admin/bookings/{booking_id}/details")
+async def admin_edit_booking_details(
+    booking_id: str,
+    payload: AdminBookingEditRequest,
+    request: Request,
+    admin: dict = Depends(require_admin),
+):
+    """Edit trip details on a booking — works for paid, card_on_file, and
+    unpaid bookings alike. Stamps an edit_history audit trail entry so we
+    can always see who changed what.
+    """
+    b = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if b.get("status") == "cancelled":
+        raise HTTPException(status_code=400, detail="Cancelled bookings cannot be edited.")
+
+    # Collect only fields the admin actually passed
+    incoming = payload.model_dump(exclude_unset=True)
+    incoming.pop("recompute_quote", None)
+    incoming.pop("notify_customer", None)
+
+    if not incoming:
+        return {"ok": True, "no_changes": True, "message": "Nothing to update."}
+
+    # Build the diff so edit_history captures a per-field before/after
+    diff: list[dict] = []
+    update_doc: dict = {}
+    for k, v in incoming.items():
+        old = b.get(k)
+        # Normalize string strip so trailing whitespace doesn't create fake diffs
+        if isinstance(v, str):
+            v = v.strip()
+        if v != old:
+            update_doc[k] = v
+            diff.append({"field": k, "old": old, "new": v})
+
+    if not diff:
+        return {"ok": True, "no_changes": True, "message": "Values match — nothing changed."}
+
+    # Optional: re-compute the fare (usually left off — admin keeps the agreed price)
+    if payload.recompute_quote:
+        merged = {**b, **update_doc}
+        merged.pop("quote_amount", None)
+        try:
+            new_amt = await _compute_quote_amount(merged)
+            if new_amt is not None:
+                old_amt = b.get("quote_amount")
+                if float(new_amt) != float(old_amt or 0):
+                    update_doc["quote_amount"] = round(float(new_amt), 2)
+                    diff.append({"field": "quote_amount", "old": old_amt, "new": update_doc["quote_amount"]})
+        except Exception as e:
+            logger.warning(f"Admin edit quote recompute failed for {booking_id}: {e}")
+
+    # Clear stale geocode coords if pickup/dropoff strings changed
+    if "pickup_location" in update_doc:
+        update_doc["pickup_coord"] = None
+    if "dropoff_location" in update_doc:
+        update_doc["dropoff_coord"] = None
+
+    # Audit trail
+    now_iso = datetime.now(timezone.utc).isoformat()
+    admin_email = admin.get("sub") or ""
+    update_doc["last_edited_at"] = now_iso
+    update_doc["last_edited_by_admin_email"] = admin_email
+
+    await db.bookings.update_one(
+        {"id": booking_id},
+        {
+            "$set": update_doc,
+            "$push": {
+                "edit_history": {
+                    "at": now_iso,
+                    "by": admin_email,
+                    "diff": diff,
+                    "recomputed_quote": bool(payload.recompute_quote),
+                }
+            },
+        },
+    )
+
+    updated = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+
+    # Optional: email the customer their updated trip sheet
+    if payload.notify_customer and updated and updated.get("email"):
+        try:
+            client_origin = _frontend_origin_from_request(request)
+            manage_url = (
+                f"{client_origin}/manage/{updated.get('manage_token')}"
+                if updated.get("manage_token") else None
+            )
+            html = render_confirmation_email(updated, manage_url=manage_url)
+            await send_email(
+                to=updated["email"],
+                subject=f"Trip details updated — {updated.get('confirmation_number','')}",
+                html=html,
+                bcc=[SUPPORT_EMAIL] if SUPPORT_EMAIL else None,
+            )
+        except Exception as e:
+            logger.warning(f"Admin-edit customer notify email failed (non-fatal): {e}")
+
+    # If a driver has been assigned already, resend the dispatch SMS so they see
+    # the updated details (common with flight number changes).
+    if updated and updated.get("driver_phone") and updated.get("driver_token") and (
+        "flight_number" in update_doc
+        or "pickup_date" in update_doc
+        or "pickup_time" in update_doc
+        or "pickup_location" in update_doc
+        or "dropoff_location" in update_doc
+    ):
+        try:
+            client_origin = _frontend_origin_from_request(request)
+            driver_url = f"{client_origin}/driver/{updated['driver_token']}"
+            await sms_service.send_sms(
+                updated["driver_phone"],
+                f"[UPDATED] {sms_service.render_driver_dispatch_sms(updated, driver_url)}",
+            )
+        except Exception as e:
+            logger.warning(f"Admin-edit driver re-notify SMS failed (non-fatal): {e}")
+
+    return {"ok": True, "changed": [d["field"] for d in diff], "booking": updated}
+
+
 @router.delete("/admin/bookings/{booking_id}")
 async def delete_booking(booking_id: str, _: dict = Depends(require_admin)):
     res = await db.bookings.delete_one({"id": booking_id})

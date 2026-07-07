@@ -31,8 +31,10 @@ import {
   AlertTriangle,
   Loader2,
   CreditCard,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import EditBookingDialog from "@/components/admin/EditBookingDialog";
 
 function fmt12h(t) {
   if (!t || !t.includes(":")) return t || "";
@@ -81,6 +83,7 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
   const [extraChargeDescription, setExtraChargeDescription] = useState("");
   const [chargingExtra, setChargingExtra] = useState(false);
   const [chargingPayLater, setChargingPayLater] = useState(false);
+  const [editing, setEditing] = useState(false);
   if (!booking) return null;
   const b = booking;
   const formattedDate = b.pickup_date
@@ -377,8 +380,19 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
             <DialogTitle className="font-serif text-2xl">
               {b.full_name}
             </DialogTitle>
-            <div className="text-xs text-white/55 font-mono">
-              #{b.confirmation_number || b.id?.slice(0, 8)}
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="open-edit-booking-btn"
+                onClick={() => setEditing(true)}
+                className="bg-transparent border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10 rounded-full h-8 px-3 text-xs"
+              >
+                <Pencil className="w-3 h-3 mr-1.5" /> Edit trip
+              </Button>
+              <div className="text-xs text-white/55 font-mono">
+                #{b.confirmation_number || b.id?.slice(0, 8)}
+              </div>
             </div>
           </div>
           {receivedAt && (
@@ -1046,6 +1060,12 @@ export default function BookingDetailsDialog({ booking, open, onClose, onChanged
           </div>
         )}
       </DialogContent>
+      <EditBookingDialog
+        booking={b}
+        open={editing}
+        onClose={() => setEditing(false)}
+        onSaved={() => onChanged?.()}
+      />
     </Dialog>
   );
 }
