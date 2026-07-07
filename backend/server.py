@@ -2837,7 +2837,7 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     deposit_percent: int = Field(100, ge=0, le=100)
     currency: str = "usd"
-    meet_greet_fee: float = Field(25.0, ge=0)
+    meet_greet_fee: float = Field(35.0, ge=0)
     cancellation_tiers: List[dict] = Field(
         default_factory=lambda: [
             {"hours_before_pickup": 24, "refund_percent": 100},
@@ -4395,7 +4395,7 @@ async def startup_seed():
                 "key": "global",
                 "deposit_percent": 100,
                 "currency": "usd",
-                "meet_greet_fee": 25.0,
+                "meet_greet_fee": 35.0,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
         },
@@ -4405,10 +4405,35 @@ async def startup_seed():
     try:
         await db.settings.update_one(
             {"key": "global", "meet_greet_fee": {"$exists": False}},
-            {"$set": {"meet_greet_fee": 25.0}},
+            {"$set": {"meet_greet_fee": 35.0}},
         )
     except Exception as e:
         logger.warning(f"meet_greet_fee backfill skipped: {e}")
+    # One-time migration (v2): bump legacy $25 M&G fee to the new $35 industry-
+    # aligned rate. Guarded by a flag so admin overrides are never clobbered.
+    try:
+        await db.settings.update_one(
+            {
+                "key": "global",
+                "meet_greet_fee_migrated_v2": {"$ne": True},
+                "meet_greet_fee": 25.0,
+            },
+            {
+                "$set": {
+                    "meet_greet_fee": 35.0,
+                    "meet_greet_fee_migrated_v2": True,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+        )
+        # Also stamp the migration flag on any doc where fee is already != 25
+        # (admin already overrode) so we don't retry every restart.
+        await db.settings.update_one(
+            {"key": "global", "meet_greet_fee_migrated_v2": {"$ne": True}},
+            {"$set": {"meet_greet_fee_migrated_v2": True}},
+        )
+    except Exception as e:
+        logger.warning(f"meet_greet_fee $25->$35 migration skipped: {e}")
 
     # One-time migration: set default service_fee_percent to 3.5% on legacy docs
     # that either don't have the field or have it at 0 (was the prior default).

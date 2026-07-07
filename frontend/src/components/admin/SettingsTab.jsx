@@ -13,7 +13,7 @@ export default function SettingsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState({
-    deposit_percent: 100, currency: "usd", meet_greet_fee: 25, service_fee_percent: 0,
+    deposit_percent: 100, currency: "usd", meet_greet_fee: 35, service_fee_percent: 0,
     per_stop_fee: 15,
     cancellation_tiers: [{hours_before_pickup: 24, refund_percent: 100}, {hours_before_pickup: 6, refund_percent: 50}, {hours_before_pickup: 0, refund_percent: 0}],
     safety_review_threshold: 1500,

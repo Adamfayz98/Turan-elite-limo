@@ -6,7 +6,7 @@ const COLUMNS = [
     title: "Hourly Transportation",
     items: [
       "Flight tracking included",
-      "Complimentary meet & greet",
+      "60-min complimentary wait time",
       "24/7 live dispatch",
       "Easy account setup & payment",
       "Email confirmation for every reservation",
