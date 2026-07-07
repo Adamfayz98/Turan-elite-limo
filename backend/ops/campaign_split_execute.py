@@ -38,8 +38,17 @@ from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.errors import GoogleAdsException
 from google.api_core import protobuf_helpers
 
-# OLD adwords-scoped refresh token (still valid — Google doesn't auto-revoke)
-ADWORDS_REFRESH_TOKEN = "***REDACTED_REVOKED_TOKEN***"
+# OLD adwords-scoped refresh token — READ FROM ENV, never hardcode.
+# The current GOOGLE_ADS_REFRESH_TOKEN in backend/.env is datamanager-scoped;
+# to run this migration script you must temporarily export the adwords-scoped
+# token (mint one via OAuth Playground with scope=adwords) as
+# GOOGLE_ADS_ADWORDS_REFRESH_TOKEN — never commit it to any file.
+ADWORDS_REFRESH_TOKEN = os.environ.get("GOOGLE_ADS_ADWORDS_REFRESH_TOKEN", "")
+if not ADWORDS_REFRESH_TOKEN:
+    raise RuntimeError(
+        "GOOGLE_ADS_ADWORDS_REFRESH_TOKEN env var required. Export it in "
+        "the shell before running this script; do not commit it to source."
+    )
 
 CFG = {
     "developer_token": os.environ["GOOGLE_ADS_DEVELOPER_TOKEN"],
