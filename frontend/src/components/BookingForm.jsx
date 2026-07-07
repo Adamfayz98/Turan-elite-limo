@@ -600,6 +600,7 @@ export default function BookingForm() {
                     <PlacesAutocompleteInput
                       label={`Additional stop #${i + 1}`}
                       testId={`booking-stop-${i}`}
+                      strict={false}
                       value={stop.value}
                       onChange={(v) => updateStop(stop.id, v)}
                       placeholder="123 Market St, San Francisco"
@@ -624,6 +625,7 @@ export default function BookingForm() {
                 label="Drop-off location"
                 testId="booking-dropoff"
                 required
+                strict={false}
                 value={form.dropoff_location}
                 onChange={update("dropoff_location")}
                 placeholder="Four Seasons San Francisco"

@@ -451,6 +451,7 @@ export default function QuoteRequestDialog({
                       <PlacesAutocompleteInput
                         label={`Stop ${i + 1}`}
                         testId={`qr-stop-${i}`}
+                        strict={false}
                         value={stop}
                         onChange={(v) => setStops((s) => s.map((x, idx) => (idx === i ? v : x)))}
                         placeholder={`Stop ${i + 1} address`}
@@ -484,6 +485,7 @@ export default function QuoteRequestDialog({
               <PlacesAutocompleteInput
                 label="Drop-off / destination *"
                 testId="qr-dropoff"
+                strict={false}
                 value={form.dropoff_location}
                 onChange={(v) => setForm((s) => ({ ...s, dropoff_location: v }))}
                 placeholder="Where you're going — SFO, hotel, event venue"

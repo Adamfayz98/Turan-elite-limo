@@ -116,6 +116,7 @@ export default function QuickQuoteTab() {
             <PlacesAutocompleteInput
               label="Drop-off location"
               testId="quick-quote-dropoff"
+              strict={false}
               value={form.dropoff_location}
               onChange={(v) => setForm((s) => ({ ...s, dropoff_location: v }))}
               placeholder="1 Hacker Way, Menlo Park"

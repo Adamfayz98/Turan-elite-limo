@@ -18,6 +18,7 @@ export default function PlacesAutocompleteInput({
   testId,
   required = false,
   placeholder,
+  strict = true,
 }) {
   const [internal, setInternal] = useState(value || "");
   const [predictions, setPredictions] = useState([]);
@@ -47,7 +48,7 @@ export default function PlacesAutocompleteInput({
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const { data } = await api.get("/places/autocomplete", { params: { input: q } });
+        const { data } = await api.get("/places/autocomplete", { params: { input: q, strict } });
         setPredictions(data.predictions || []);
         setOpen((data.predictions || []).length > 0);
         setActiveIdx(-1);
@@ -58,7 +59,7 @@ export default function PlacesAutocompleteInput({
       }
     }, 350);
     return () => debounceRef.current && clearTimeout(debounceRef.current);
-  }, [internal]);
+  }, [internal, strict]);
 
   // Click outside to close
   useEffect(() => {

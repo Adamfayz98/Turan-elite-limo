@@ -403,8 +403,21 @@ GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 
 
 @api_router.get("/places/autocomplete")
-async def places_autocomplete(input: str = "", session: Optional[str] = None):
-    """Proxy to Google Places Autocomplete with NorCal/Bay Area location bias."""
+async def places_autocomplete(
+    input: str = "",
+    session: Optional[str] = None,
+    strict: bool = True,
+):
+    """Proxy to Google Places Autocomplete with NorCal/Bay Area location bias.
+
+    `strict=true` (default) — hard-restricts predictions to a 250 km circle
+    around SF. Use this for PICKUP addresses so customers outside our service
+    area can't accidentally book a chauffeur we can't dispatch.
+
+    `strict=false` — soft location bias (still favors NorCal predictions when
+    ambiguous) but returns any US address. Use this for DROP-OFF and return
+    addresses since we happily drive customers to LA, Reno, Tahoe, Vegas, etc.
+    """
     q = (input or "").strip()
     if len(q) < 2:
         return {"predictions": []}
@@ -413,18 +426,16 @@ async def places_autocomplete(input: str = "", session: Optional[str] = None):
     params = {
         "input": q,
         "key": GOOGLE_MAPS_API_KEY,
-        # Hard-restrict autocomplete to Northern California so customers in
-        # LA/SD/etc can't accidentally book a trip we can't fulfill.
-        # strictbounds=true tells Google: only return predictions whose
-        # bounding box intersects the location+radius window. Center = SF,
-        # radius = 250 km (covers Napa/Sonoma north, Sacramento east,
-        # Monterey/Carmel/Pebble Beach south, and comfortably includes all
-        # Bay Area suburbs).
         "location": "37.7749,-122.4194",
         "radius": "250000",
-        "strictbounds": "true",
         "components": "country:us",
     }
+    if strict:
+        # Hard-restrict to a 250 km circle around SF (Napa/Sonoma north,
+        # Sacramento east, Monterey/Carmel/Pebble Beach south).
+        params["strictbounds"] = "true"
+    # No strictbounds → Google returns any US result but still ranks NorCal
+    # predictions higher because of the location+radius bias.
     if session:
         params["sessiontoken"] = session
     try:
