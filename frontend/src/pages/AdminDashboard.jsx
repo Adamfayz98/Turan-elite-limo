@@ -131,6 +131,7 @@ export default function AdminDashboard() {
   const [bookings, setBookings] = useState([]);
   const [bookingsSearch, setBookingsSearch] = useState("");
   const [contacts, setContacts] = useState([]);
+  const [inquiryDetail, setInquiryDetail] = useState(null);
   const [quoteRequests, setQuoteRequests] = useState([]);
   const [stats, setStats] = useState(null);
   const adminEmail = localStorage.getItem("turon_admin_email") || "admin";
@@ -344,6 +345,14 @@ export default function AdminDashboard() {
       fetchAll();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    }
+  };
+
+  const openInquiry = (c) => {
+    setInquiryDetail(c);
+    if (c && c.status !== "read") {
+      // Fire-and-forget mark-as-read. Don't block modal open on this.
+      api.patch(`/admin/contacts/${c.id}`, { status: "read" }).then(fetchAll).catch(() => {});
     }
   };
 
@@ -795,7 +804,7 @@ export default function AdminDashboard() {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2 flex-wrap">
                           {b.trip_status && <DriverStatusPill status={b.trip_status} />}
-                          {(b.status === "confirmed" || b.status === "pending") && b.payment_status === "paid" && (
+                          {(b.status === "confirmed" || b.status === "pending") && (b.payment_status === "paid" || b.payment_status === "card_on_file") && (
                             <AssignDriverDialog booking={b} onAssigned={fetchAll} />
                           )}
                           {b.status === "pending" && (
@@ -929,7 +938,8 @@ export default function AdminDashboard() {
                     <TableRow
                       key={c.id}
                       data-testid={`contact-row-${c.id}`}
-                      className="border-white/5 hover:bg-white/5"
+                      onClick={() => openInquiry(c)}
+                      className="border-white/5 hover:bg-white/5 cursor-pointer"
                     >
                       <TableCell>
                         <div className="text-white font-medium">{c.name}</div>
@@ -945,7 +955,7 @@ export default function AdminDashboard() {
                           {c.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-2">
                           {c.status !== "read" && (
                             <Button
@@ -1195,6 +1205,105 @@ export default function AdminDashboard() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Inquiry detail modal — full name/email/phone/subject/message + Reply-by-email */}
+      <Dialog open={!!inquiryDetail} onOpenChange={(open) => !open && setInquiryDetail(null)}>
+        <DialogContent
+          data-testid="inquiry-detail-dialog"
+          className="bg-[#0A0A0A] border-[#1F1F1F] text-white max-w-2xl"
+        >
+          <DialogHeader>
+            <DialogTitle className="font-serif text-2xl">
+              Inquiry from {inquiryDetail?.name || "—"}
+            </DialogTitle>
+            <p className="text-xs text-white/55 mt-1">
+              Received{" "}
+              {inquiryDetail?.created_at
+                ? new Date(inquiryDetail.created_at).toLocaleString(undefined, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })
+                : "—"}
+              {inquiryDetail?.status && (
+                <Badge
+                  className={`${STATUS_COLOR[inquiryDetail.status] || STATUS_COLOR.new} border rounded-full ml-2 text-[10px]`}
+                >
+                  {inquiryDetail.status}
+                </Badge>
+              )}
+            </p>
+          </DialogHeader>
+
+          {inquiryDetail && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/50">Email</div>
+                  <a
+                    href={`mailto:${inquiryDetail.email}`}
+                    data-testid="inquiry-detail-email-link"
+                    className="text-[#D4AF37] hover:underline text-sm break-all"
+                  >
+                    {inquiryDetail.email || "—"}
+                  </a>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/50">Phone</div>
+                  {inquiryDetail.phone ? (
+                    <a
+                      href={`tel:${inquiryDetail.phone}`}
+                      data-testid="inquiry-detail-phone-link"
+                      className="text-[#D4AF37] hover:underline text-sm"
+                    >
+                      {inquiryDetail.phone}
+                    </a>
+                  ) : (
+                    <span className="text-white/40 text-sm">—</span>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-white/50">Subject</div>
+                <div className="text-white text-sm mt-1">{inquiryDetail.subject || "—"}</div>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-white/50 mb-1">
+                  Message
+                </div>
+                <div
+                  data-testid="inquiry-detail-message"
+                  className="text-white/85 text-sm leading-relaxed whitespace-pre-wrap rounded-lg border border-[#1F1F1F] bg-[#0E0E0E] p-4 max-h-[50vh] overflow-y-auto"
+                >
+                  {inquiryDetail.message || "(no message)"}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 pt-3 border-t border-[#1F1F1F]">
+                <Button
+                  variant="outline"
+                  onClick={() => setInquiryDetail(null)}
+                  className="bg-transparent border-white/20 hover:bg-white/10 rounded-full h-9 px-4"
+                >
+                  Close
+                </Button>
+                {inquiryDetail.email && (
+                  <a
+                    href={`mailto:${inquiryDetail.email}?subject=${encodeURIComponent(
+                      "Re: " + (inquiryDetail.subject || "Your inquiry — Turan Elite Limo"),
+                    )}`}
+                    data-testid="inquiry-detail-reply-btn"
+                    className="inline-flex items-center gap-2 rounded-full h-9 px-5 bg-[#D4AF37] hover:bg-[#c69f2f] text-black font-medium text-sm"
+                  >
+                    <Mail className="w-3.5 h-3.5" /> Reply via email
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </main>

@@ -3728,6 +3728,35 @@ class SocialLoginRequest(BaseModel):
     referred_by_code: Optional[str] = Field(None, max_length=40)
 
 
+async def _link_guest_bookings_by_email(customer_id: str, email: Optional[str]) -> int:
+    """Attach any guest bookings (customer_id null/missing) with a matching
+    email to the newly-authenticated customer. Idempotent — safe to call on
+    every login/signup/social login. Returns the number of rows linked.
+
+    This closes the web-vs-mobile gap: a customer books on the website as a
+    guest (email only, no customer_id), then signs into the mobile app with
+    the same email — this backfill makes those bookings appear in
+    /customer/trips going forward.
+    """
+    if not (customer_id and email):
+        return 0
+    try:
+        result = await db.bookings.update_many(
+            {
+                "email": {"$regex": f"^{re.escape(email.strip())}$", "$options": "i"},
+                "$or": [{"customer_id": None}, {"customer_id": {"$exists": False}}],
+            },
+            {"$set": {"customer_id": customer_id, "customer_id_linked_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        n = result.modified_count or 0
+        if n:
+            logger.info(f"Linked {n} guest booking(s) to customer_id={customer_id} via email={email}")
+        return n
+    except Exception as e:
+        logger.warning(f"Guest booking backfill failed for customer={customer_id} email={email}: {e}")
+        return 0
+
+
 async def _login_or_link_social(
     provider: str,
     provider_user_id: str,

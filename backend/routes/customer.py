@@ -61,6 +61,8 @@ async def customer_signup(payload: CustomerSignupRequest):
         logger.warning(f"ensure_referral_code on signup failed for {cid}: {e}")
     # Fire welcome email — fire-and-forget, never blocks signup.
     asyncio.create_task(_send_welcome_email_safe(doc))
+    # Link any prior guest bookings made with this email (web booking → mobile signup path).
+    await _link_guest_bookings_by_email(cid, email)
     token = create_customer_token(cid, email)
     return CustomerAuthResponse(token=token, user=_customer_to_profile(doc))
 
@@ -71,6 +73,8 @@ async def customer_login(payload: CustomerLoginRequest):
     user = await db.customers.find_one({"email": email}, {"_id": 0})
     if not user or not verify_password(payload.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    # Link any guest bookings made under this email before mobile signin.
+    await _link_guest_bookings_by_email(user["id"], email)
     token = create_customer_token(user["id"], email)
     return CustomerAuthResponse(token=token, user=_customer_to_profile(user))
 
@@ -92,6 +96,9 @@ async def customer_oauth_apple(payload: SocialLoginRequest):
         is_private_email=is_private,
         referred_by_code=payload.referred_by_code,
     )
+    # Link any prior guest bookings under this email (skip Apple private relay).
+    if not is_private:
+        await _link_guest_bookings_by_email(customer["id"], customer.get("email"))
     token = create_customer_token(customer["id"], customer["email"])
     return CustomerAuthResponse(token=token, user=_customer_to_profile(customer))
 
@@ -113,6 +120,8 @@ async def customer_oauth_google(payload: SocialLoginRequest):
         is_private_email=False,
         referred_by_code=payload.referred_by_code,
     )
+    # Link any prior guest bookings made under this Google email.
+    await _link_guest_bookings_by_email(customer["id"], customer.get("email"))
     token = create_customer_token(customer["id"], customer["email"])
     return CustomerAuthResponse(token=token, user=_customer_to_profile(customer))
 
@@ -577,8 +586,21 @@ async def customer_book_and_pay(
 @router.get("/customer/trips", response_model=List[CustomerTripSummary])
 async def customer_trips(claims: dict = Depends(require_customer)):
     cid = claims.get("customer_id")
+    email = (claims.get("sub") or "").strip().lower()
+    # Belt-and-suspenders: also match by email in case a guest booking's
+    # customer_id linkage hasn't been backfilled yet (older JWTs from before
+    # the backfill was added, or edge cases where the login-time backfill
+    # was interrupted). If we find matches this way, do a live link now.
+    if email:
+        await _link_guest_bookings_by_email(cid, email)
+    query = {"$or": [{"customer_id": cid}]}
+    if email:
+        query["$or"].append({
+            "email": {"$regex": f"^{re.escape(email)}$", "$options": "i"},
+            "customer_id": {"$in": [None, cid]},
+        })
     cursor = db.bookings.find(
-        {"customer_id": cid},
+        query,
         {"_id": 0, "id": 1, "confirmation_number": 1, "pickup_date": 1, "pickup_time": 1,
          "pickup_location": 1, "dropoff_location": 1, "vehicle_type": 1, "quote_amount": 1,
          "status": 1, "payment_status": 1, "trip_status": 1, "created_at": 1},
@@ -591,9 +613,26 @@ async def customer_trips(claims: dict = Depends(require_customer)):
 async def customer_booking_detail(booking_id: str, claims: dict = Depends(require_customer)):
     """For the deep-link return — confirm payment and show trip details."""
     cid = claims.get("customer_id")
-    b = await db.bookings.find_one({"id": booking_id, "customer_id": cid}, {"_id": 0})
+    email = (claims.get("sub") or "").strip().lower()
+    query = {"id": booking_id, "$or": [{"customer_id": cid}]}
+    if email:
+        query["$or"].append({
+            "email": {"$regex": f"^{re.escape(email)}$", "$options": "i"},
+            "customer_id": {"$in": [None, cid]},
+        })
+    b = await db.bookings.find_one(query, {"_id": 0})
     if not b:
         raise HTTPException(status_code=404, detail="Trip not found")
+    # If accessed via email match and customer_id isn't linked yet, backfill it now
+    if not b.get("customer_id") and email:
+        try:
+            await db.bookings.update_one(
+                {"id": booking_id},
+                {"$set": {"customer_id": cid, "customer_id_linked_at": datetime.now(timezone.utc).isoformat()}},
+            )
+            b["customer_id"] = cid
+        except Exception as e:
+            logger.warning(f"Inline link on detail fetch failed for {booking_id}: {e}")
     # If payment is still 'pending' but Stripe says paid, sync it.
     if b.get("payment_status") == "pending" and b.get("payment_session_id"):
         api_key = os.environ.get("STRIPE_API_KEY", "")
