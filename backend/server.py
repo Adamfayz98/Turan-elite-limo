@@ -413,13 +413,15 @@ async def places_autocomplete(input: str = "", session: Optional[str] = None):
     params = {
         "input": q,
         "key": GOOGLE_MAPS_API_KEY,
-        # Hard-restrict autocomplete to the SF Bay Area so customers in LA/SD/etc
-        # can't accidentally book a trip we can't fulfill. strictbounds=true tells
-        # Google: only return predictions whose bounding box intersects the
-        # location+radius window. Center = SF, radius = 130 km (covers Napa to
-        # Monterey to Sacramento).
+        # Hard-restrict autocomplete to Northern California so customers in
+        # LA/SD/etc can't accidentally book a trip we can't fulfill.
+        # strictbounds=true tells Google: only return predictions whose
+        # bounding box intersects the location+radius window. Center = SF,
+        # radius = 250 km (covers Napa/Sonoma north, Sacramento east,
+        # Monterey/Carmel/Pebble Beach south, and comfortably includes all
+        # Bay Area suburbs).
         "location": "37.7749,-122.4194",
-        "radius": "130000",
+        "radius": "250000",
         "strictbounds": "true",
         "components": "country:us",
     }
