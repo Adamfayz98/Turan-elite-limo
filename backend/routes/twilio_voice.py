@@ -96,7 +96,10 @@ async def twilio_voice_incoming(
     To: str = Form(""),                      # noqa: N803
     CallSid: str = Form(""),                 # noqa: N803
 ):
-    """AI answers first with a warm greeting and listens."""
+    """FLOW (iter 57.1): Ring the human dispatcher FIRST for the "premium
+    hand-picked" feel. Only if the dispatcher doesn't pick up within ~20 sec
+    does the AI take over — so the AI only ever catches calls we'd otherwise
+    miss. If no ADMIN_PHONE is configured we skip straight to the AI."""
     # Seed the session so subsequent turns have context.
     try:
         await db.voice_call_sessions.update_one(
@@ -113,19 +116,101 @@ async def twilio_voice_incoming(
     except Exception as e:
         logger.warning(f"voice session seed failed: {e}")
 
-    greeting = (
-        "Thanks for calling Turan Elite Limo. I'm your AI concierge — "
-        "I can quote a ride, book you in, or connect you with our dispatcher. "
+    admin = sms_service.admin_phone()
+    if not admin:
+        # No dispatcher number configured — go straight to AI so the caller
+        # isn't left listening to silence.
+        try:
+            await ai_receptionist.append_turn(
+                db, CallSid, "system",
+                "no ADMIN_PHONE configured — AI answered directly",
+            )
+        except Exception:
+            pass
+        greeting = (
+            "Thanks for calling Turan Elite Limo. I'm your AI concierge — "
+            "I can quote a ride, book you in, or take a message. How can I help?"
+        )
+        gather_url = _action_url(request, "/twilio/voice/gather")
+        return _twiml(
+            "<Response>"
+            + _gather(gather_url, greeting)
+            + _fallback_no_input()
+            + "</Response>"
+        )
+
+    # Human-first: ring dispatcher for ~20 sec, then hand off to
+    # /twilio/voice/dispatcher-unavailable which spins up the AI.
+    transfer_action = _action_url(request, "/twilio/voice/dispatcher-unavailable")
+    return _twiml(
+        "<Response>"
+        f'<Dial timeout="20" action="{transfer_action}" method="POST" '
+        f'answerOnBridge="true">{admin}</Dial>'
+        "</Response>"
+    )
+
+
+@router.post("/twilio/voice/dispatcher-unavailable")
+async def twilio_voice_dispatcher_unavailable(
+    request: Request,
+    From: str = Form(""),                    # noqa: N803
+    CallSid: str = Form(""),                 # noqa: N803
+    DialCallStatus: str = Form(""),          # noqa: N803
+    DialCallDuration: str = Form(""),        # noqa: N803
+):
+    """Twilio fires this after our initial <Dial> to the dispatcher completes.
+    - completed & long enough → dispatcher answered, we're done.
+    - anything else (no-answer, busy, failed, canceled) → AI takes over."""
+    try:
+        duration = int(DialCallDuration or "0")
+    except (TypeError, ValueError):
+        duration = 0
+
+    logger.info(
+        f"voice dispatcher-unavailable: call_sid={CallSid} status={DialCallStatus!r} duration={duration}"
+    )
+
+    if DialCallStatus == "completed" and duration >= 5:
+        # Successful live pickup — nothing else to do.
+        try:
+            await ai_receptionist.append_turn(
+                db, CallSid, "system",
+                f"dispatcher answered live ({duration}s) — no AI involvement",
+            )
+        except Exception:
+            pass
+        return _twiml("<Response><Hangup/></Response>")
+
+    # Dispatcher couldn't take it — log the missed call so ops can call back.
+    try:
+        await db.missed_calls.insert_one({
+            "from": From,
+            "call_sid": CallSid,
+            "dial_status": DialCallStatus,
+            "reason": "dispatcher_unavailable_ai_took_over",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        await ai_receptionist.append_turn(
+            db, CallSid, "system",
+            f"dispatcher unavailable ({DialCallStatus}) — AI answering",
+        )
+    except Exception as e:
+        logger.warning(f"dispatcher-unavailable logging failed: {e}")
+
+    # AI takes over with the exact tone the user asked for.
+    ai_greeting = (
+        "Thanks for calling Turan Elite Limo. Our team is assisting other "
+        "clients right now, but I'm your AI concierge — I can get you an "
+        "instant quote, text you a booking link, or take a message. "
         "How can I help?"
     )
     gather_url = _action_url(request, "/twilio/voice/gather")
-    body = (
+    return _twiml(
         "<Response>"
-        + _gather(gather_url, greeting)
+        + _gather(gather_url, ai_greeting)
         + _fallback_no_input()
         + "</Response>"
     )
-    return _twiml(body)
 
 
 # ============================================================================
