@@ -191,6 +191,8 @@ class BookingCreate(BaseModel):
     additional_stops: List[str] = Field(default_factory=list)
     return_trip: bool = False
     return_location: Optional[str] = ""
+    return_date: Optional[str] = None    # YYYY-MM-DD; required when return_trip=True
+    return_time: Optional[str] = None    # HH:MM 24h; required when return_trip=True
     vehicle_type: str
     notes: Optional[str] = ""
     hours: Optional[int] = Field(None, ge=2, le=24)  # required only for Hourly Chauffeur, min 2 hours
@@ -235,6 +237,8 @@ class Booking(BaseModel):
     additional_stops: List[str] = Field(default_factory=list)
     return_trip: bool = False
     return_location: str = ""
+    return_date: Optional[str] = None
+    return_time: Optional[str] = None
     vehicle_type: str
     notes: str = ""
     hours: Optional[int] = None
@@ -693,6 +697,11 @@ class QuoteRequest(BaseModel):
     # Number of child seats — $20/seat added to every vehicle's quote so the
     # customer sees the correctly-inclusive fare on the picker cards.
     child_seat_count: int = Field(0, ge=0, le=6)
+    # ---- Round-trip pricing (both legs priced separately, summed into the quote) ----
+    return_trip: bool = False
+    return_location: Optional[str] = ""   # if empty, defaults to pickup_location
+    return_date: Optional[str] = None     # YYYY-MM-DD (informational; surge still uses pickup_date)
+    return_time: Optional[str] = None     # HH:MM (informational)
 
 
 class VehicleQuote(BaseModel):
@@ -743,6 +752,11 @@ class QuoteResponse(BaseModel):
     additional_stops_count: Optional[int] = None
     service_fee_percent: Optional[float] = None  # current %; included in each quote's price already
     service_fee_amount_sample: Optional[float] = None  # the $ fee applied to the cheapest priced vehicle (for display)
+    # ---- Round-trip fields (only populated when the request was round_trip=true) ----
+    round_trip: bool = False
+    return_leg_miles: Optional[float] = None       # miles of the return leg
+    total_round_trip_miles: Optional[float] = None # leg1 + leg2 (== distance_miles + return_leg_miles)
+    return_leg_resolved: Optional[str] = None      # resolved address of the return leg drop-off
 
 
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -903,10 +917,16 @@ def _build_quotes(
     surge_flat: float = 0.0,
     addon_flat: float = 0.0,
     addon_tags: Optional[List[str]] = None,
+    return_miles: float = 0.0,
 ) -> List[VehicleQuote]:
+    """Price the trip. If return_miles > 0 the quote is priced as a round trip
+    (2 legs): each leg = base_fare + per_mile × leg_miles, then combined.
+    Surge multiplier and flat add-ons apply once to the combined total.
+    """
     quotes: List[VehicleQuote] = []
     has_event = surge_mult != 1.0 or surge_flat > 0
     addon_tags = addon_tags or []
+    is_round_trip = return_miles > 0
     for vt in VEHICLE_TYPES:
         cfg = pricing_map.get(vt)
         if cfg is None or cfg.get("call_only"):
@@ -915,8 +935,19 @@ def _build_quotes(
         if distance_miles is None:
             quotes.append(VehicleQuote(vehicle_type=vt, message="Enter pickup & drop-off for an estimate"))
             continue
-        raw = float(cfg["base"]) + float(cfg["per_mile"]) * distance_miles
-        price = max(raw, float(cfg["minimum"]))
+        base = float(cfg["base"])
+        per_mile = float(cfg["per_mile"])
+        minimum = float(cfg["minimum"])
+        # Leg 1
+        leg1_raw = base + per_mile * distance_miles
+        leg1 = max(leg1_raw, minimum)
+        # Leg 2 (return) — separate base + per-mile, capped at same minimum
+        if is_round_trip:
+            leg2_raw = base + per_mile * return_miles
+            leg2 = max(leg2_raw, minimum)
+            price = leg1 + leg2
+        else:
+            price = leg1
         if surcharge > 0:
             price += surcharge
         if has_event:
@@ -926,6 +957,8 @@ def _build_quotes(
             price += addon_flat
         price = round(price, 2)
         tags = []
+        if is_round_trip:
+            tags.append("round trip · 2 legs")
         if surcharge > 0:
             tags.append("long-distance area")
         if has_event:
@@ -1360,6 +1393,22 @@ async def quote_ride(payload: QuoteRequest):
     miles = round(miles, 1)
     duration_minutes = round((miles * 1.4) / 32.0 * 60.0 + 8.0, 0)
 
+    # ---- Round-trip: compute leg 2 miles (dropoff → return_location, or → pickup) ----
+    return_miles = 0.0
+    return_leg_resolved: Optional[str] = None
+    if payload.return_trip:
+        return_addr = (payload.return_location or "").strip() or payload.pickup_location
+        return_coord = await _geocode(return_addr)
+        if return_coord:
+            leg2 = _haversine_miles(dropoff["lat"], dropoff["lon"], return_coord["lat"], return_coord["lon"])
+            return_miles = round(leg2, 1)  # haversine to match leg 1 pricing convention
+            return_leg_resolved = return_coord.get("display")
+        else:
+            # If we can't geocode the return location, assume it mirrors leg 1
+            # so the customer still sees a fair round-trip estimate.
+            return_miles = miles
+            return_leg_resolved = return_addr
+
     # Zone surcharge: legacy keyword-short OR new outside-radius
     zones = await _load_zones()
     matched_zone = _select_surcharge_zone(
@@ -1389,6 +1438,7 @@ async def quote_ride(payload: QuoteRequest):
             surge_flat=surge_flat,
             addon_flat=addon_flat_total,
             addon_tags=addon_tags,
+            return_miles=return_miles,
         ),
         fallback=False,
         surcharge_applied=surcharge_info,
@@ -1397,6 +1447,10 @@ async def quote_ride(payload: QuoteRequest):
         per_stop_fee=per_stop_fee if per_stop_fee > 0 else None,
         stop_fee_total=stop_fee_total if stop_fee_total > 0 else None,
         additional_stops_count=stops_count or None,
+        round_trip=payload.return_trip and return_miles > 0,
+        return_leg_miles=return_miles if return_miles > 0 else None,
+        total_round_trip_miles=round(miles + return_miles, 1) if return_miles > 0 else None,
+        return_leg_resolved=return_leg_resolved,
     ), settings.service_fee_percent))
 
 
@@ -2976,6 +3030,19 @@ async def _compute_quote_amount(booking: dict) -> Optional[float]:
         if stop_coords:
             miles = _route_total_miles(pickup, stop_coords, dropoff)
     price = max(float(cfg["base"]) + float(cfg["per_mile"]) * miles, float(cfg["minimum"]))
+    # Round trip: add leg 2 as a second priced leg (base + per-mile, capped at minimum)
+    if booking.get("return_trip"):
+        return_addr = (booking.get("return_location") or "").strip() or booking["pickup_location"]
+        return_coord = await _geocode(return_addr)
+        leg2_miles = (
+            _haversine_miles(dropoff["lat"], dropoff["lon"], return_coord["lat"], return_coord["lon"])
+            if return_coord else miles
+        )
+        leg2_price = max(
+            float(cfg["base"]) + float(cfg["per_mile"]) * leg2_miles,
+            float(cfg["minimum"]),
+        )
+        price += leg2_price
     # Apply zone surcharge if applicable (same rule as live /quote endpoint)
     zones = await _load_zones()
     matched_zone = _select_surcharge_zone(

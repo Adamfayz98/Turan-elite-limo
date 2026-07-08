@@ -81,6 +81,8 @@ const initialForm = {
   child_seat_count: 0,
   return_trip: false,
   return_location: "",
+  return_date: "",
+  return_time: "",
   vehicle_type: "",
   notes: "",
   hours: "",
@@ -244,6 +246,10 @@ export default function BookingForm() {
           additional_stops_count: cleanStops.length,
           additional_stops: cleanStops,
           child_seat_count: Number(form.child_seat_count) || 0,
+          return_trip: !!form.return_trip,
+          return_location: form.return_location || "",
+          return_date: form.return_date || null,
+          return_time: form.return_time || null,
         });
         setQuote(data);
         setOutOfArea(null);
@@ -264,7 +270,7 @@ export default function BookingForm() {
       }
     }, 1100);
     return () => quoteTimer.current && clearTimeout(quoteTimer.current);
-  }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours, form.meet_and_greet, form.child_seat_count, date, stops]);
+  }, [form.pickup_location, form.dropoff_location, form.service_type, form.hours, form.meet_and_greet, form.child_seat_count, form.return_trip, form.return_location, form.return_date, date, stops]);
 
   const addStop = () => setStops((s) => [...s, { id: newStopId(), value: "" }]);
   const removeStop = (id) => setStops((s) => s.filter((x) => x.id !== id));
@@ -431,8 +437,13 @@ export default function BookingForm() {
       return toast.error("Please enter your flight number so we can track your arrival.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim()))
       return toast.error("Please enter a valid email — your confirmation goes there.");
-    if (form.return_trip && !form.return_location.trim())
-      return toast.error("Please enter a return drop-off location.");
+    // Return location is optional — defaults to pickup on the backend.
+    if (form.return_trip && !form.return_date)
+      return toast.error("Please pick a return date.");
+    if (form.return_trip && !form.return_time)
+      return toast.error("Please pick a return time.");
+    if (form.return_trip && form.return_date && form.pickup_date && form.return_date < form.pickup_date)
+      return toast.error("Return date cannot be before the pickup date.");
     setSubmitting(true);
     try {
       const payload = {
@@ -442,7 +453,9 @@ export default function BookingForm() {
         child_seat_count: Number(form.child_seat_count) || 0,
         child_seat: (Number(form.child_seat_count) || 0) > 0,
         additional_stops: stops.map((s) => s.value.trim()).filter(Boolean),
-        return_location: form.return_trip ? form.return_location : "",
+        return_location: form.return_trip ? (form.return_location || form.pickup_location) : "",
+        return_date: form.return_trip ? form.return_date : null,
+        return_time: form.return_trip ? form.return_time : null,
         pickup_date: format(date, "yyyy-MM-dd"),
         meet_and_greet: form.service_type === "Airport Transfer" && !!form.meet_and_greet,
         flight_number:
@@ -928,17 +941,58 @@ export default function BookingForm() {
           </div>
 
           {form.return_trip && (
-            <div className="mt-4">
-              <Label className="text-white/80 text-xs uppercase tracking-wider">
-                Return drop-off location
-              </Label>
-              <Input
-                data-testid="booking-return-location"
-                className={cn(inputCls, "mt-2")}
+            <div className="mt-4 space-y-4 rounded-xl border border-[#D4AF37]/25 bg-[#0E0E0E] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-[#D4AF37] text-xs uppercase tracking-[0.25em] font-medium">
+                    Return leg
+                  </div>
+                  <p className="text-white/60 text-xs mt-1">
+                    Priced as a second leg (base + per-mile). Both legs are combined into your total.
+                  </p>
+                </div>
+                <div className="text-[10px] uppercase tracking-widest text-[#D4AF37]/70 border border-[#D4AF37]/30 rounded-full px-2 py-1">
+                  Round trip
+                </div>
+              </div>
+              <PlacesAutocompleteInput
+                label="Return drop-off location"
+                testId="booking-return-location"
+                strict={false}
                 value={form.return_location}
-                onChange={(e) => update("return_location")(e.target.value)}
-                placeholder="Same as pickup, or new address"
+                onChange={update("return_location")}
+                placeholder="Defaults to your original pickup address"
               />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-white/80 text-xs uppercase tracking-wider">
+                    Return date
+                  </Label>
+                  <Input
+                    data-testid="booking-return-date"
+                    type="date"
+                    className={cn(inputCls, "mt-2")}
+                    min={form.pickup_date || undefined}
+                    value={form.return_date}
+                    onChange={(e) => update("return_date")(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-white/80 text-xs uppercase tracking-wider">
+                    Return time
+                  </Label>
+                  <Input
+                    data-testid="booking-return-time"
+                    type="time"
+                    className={cn(inputCls, "mt-2")}
+                    value={form.return_time}
+                    onChange={(e) => update("return_time")(e.target.value)}
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-white/45 leading-relaxed">
+                Leave the address empty if the return drops off at the same place you were picked up.
+              </p>
             </div>
           )}
 
@@ -958,6 +1012,10 @@ export default function BookingForm() {
               {quote?.pricing_mode === "hourly" ? (
                 <span className="text-sm text-white/70">
                   {quote.hours} hr · {quote.included_miles} miles included
+                </span>
+              ) : quote?.round_trip ? (
+                <span className="text-sm text-white/70" data-testid="quote-round-trip-miles">
+                  Round trip · leg 1 ~{quote.distance_miles} mi + leg 2 ~{quote.return_leg_miles} mi = ~{quote.total_round_trip_miles} mi total
                 </span>
               ) : (
                 quote?.distance_miles != null && (
