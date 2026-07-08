@@ -695,7 +695,7 @@ export default function BookingForm() {
             </div>
 
             {/* Long-distance one-way advisory */}
-            {routeMiles != null && routeMiles > 100 && !form.return_trip && !longTripBannerDismissed && (
+            {routeMiles != null && routeMiles > 150 && !form.return_trip && !longTripBannerDismissed && (
               <div
                 data-testid="long-trip-banner"
                 className="md:col-span-2 flex items-start gap-3 rounded-xl border border-[#D4AF37]/40 bg-[#D4AF37]/10 px-4 py-3"
