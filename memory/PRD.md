@@ -1,6 +1,30 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: July 7, 2026 — iter 53b (M&G fee $35, airport auto-detect, admin trip-edit for paid bookings)
+> Last refreshed: July 7, 2026 — iter 54 (Round-trip pricing + return date/time + pickup/dropoff autocomplete split)
+
+## 🔁 Round-trip pricing + Autocomplete geo-restriction split (Jul 7, 2026 — iter 54)
+
+Two customer-blocking issues fixed together after a real Monterey booking got stuck:
+
+**Autocomplete geo-restriction — asymmetric by direction:**
+- Bumped restrictive circle from 130 km → 250 km (covers Napa/Sonoma/Sacramento/Monterey/Carmel/Pebble Beach). Previously "1000 Aguajito Rd, Monterey" fell outside the 130 km strictbounds and produced ZERO_RESULTS.
+- Added `strict` query param to `/api/places/autocomplete` (defaults to true for backwards compat).
+  - **Pickup** uses `strict=true` — hard-restricted so LA/SD/Vegas customers can't book a pickup we can't fulfill.
+  - **Drop-off, additional stops, return location** use `strict=false` — biased to NorCal but returns any US address so we can legitimately chauffeur to LA/Reno/Tahoe/Vegas.
+- Files: `/app/backend/server.py` `places_autocomplete` (~line 405); `/app/frontend/src/components/PlacesAutocompleteInput.jsx` (accepts `strict` prop); `/app/frontend/src/components/BookingForm.jsx` (drop-off + stops pass `strict=false`); `/app/frontend/src/components/QuoteRequestDialog.jsx` (dropoff + stops); `/app/frontend/src/components/admin/QuickQuoteTab.jsx` (dropoff).
+
+**Round-trip: priced as 2 legs, collects return date/time:**
+- `_build_quotes` accepts `return_miles`. When > 0, each vehicle is priced as `(base + per_mile × leg1) + (base + per_mile × leg2)` — both legs capped at minimum independently, then combined. Surge + zone surcharge + add-ons apply once to the combined total.
+- `QuoteRequest` gets `return_trip`, `return_location`, `return_date`, `return_time`. If `return_location` is empty, backend defaults to `pickup_location` — perfect for the common "SFO → hotel → SFO" pattern.
+- `QuoteResponse` gets `round_trip: bool`, `return_leg_miles`, `total_round_trip_miles`, `return_leg_resolved` — frontend uses these to render the round-trip summary chip.
+- `BookingCreate` + `Booking` models gain `return_date`, `return_time` for persistence.
+- `_compute_quote_amount` (used at booking creation + admin edit re-price) mirrors the round-trip pricing so the stored `quote_amount` on a round-trip booking is 2×.
+- Frontend `BookingForm.jsx`: return-leg reveals a gold-bordered block with:
+  - Return drop-off (PlacesAutocompleteInput, `strict=false`, defaults to pickup if empty)
+  - Return date (with `min={pickup_date}` browser-enforced)
+  - Return time
+- Quote summary chip renders `Round trip · leg 1 ~X mi + leg 2 ~Y mi = ~Z mi total` when round-trip. Data-testids: `booking-return-location`, `booking-return-date`, `booking-return-time`, `quote-round-trip-miles`.
+- Verified: SFO → 1000 Aguajito Rd, Monterey → SFO = $944.12 Executive Sedan (one-way was $472.05). Round-trip ratio 1.999-2.000× across all 3 vehicle classes.
 
 ## 💵 Meet & Greet fee bumped $25 → $35 + UX (Jul 7, 2026 — iter 53b)
 
