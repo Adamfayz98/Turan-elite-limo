@@ -56,10 +56,14 @@ async def _resolve_charge_amount(
 
     # Locked-in booking: quote_amount is already POST-discount. Just apply
     # deposit_percent — nothing else.
+    # Tolerance uses max(0.5, discount_amount * 0.05) so a tiny referral
+    # credit (e.g. $0.50) can still be detected as locked-in without a
+    # $1 slop mistaking it for a legacy booking.
+    tol = max(0.5, stored_discount * 0.05)
     is_locked_in = (
         stored_discount > 0
         and orig_ride > 0
-        and abs(float(quote_amount) + stored_discount - orig_ride) < 1.0
+        and abs(float(quote_amount) + stored_discount - orig_ride) < tol
     )
     if is_locked_in:
         # Amount to charge = post-discount quote × deposit_percent.
