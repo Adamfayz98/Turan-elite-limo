@@ -154,6 +154,14 @@ export default function BookingForm() {
   // Hidden entirely when no active promo is flagged for the banner.
   const [firstRidePromo, setFirstRidePromo] = useState(null);
 
+  // Long-distance one-way advisory. When RouteMap reports > 100 mi and the
+  // customer hasn't checked round-trip, we surface a dismissible banner
+  // recommending they book the return leg on the same reservation — solves
+  // the real-world problem of the return-trip form choking on a further-out
+  // pickup address that our autocomplete can't hard-bias.
+  const [routeMiles, setRouteMiles] = useState(null);
+  const [longTripBannerDismissed, setLongTripBannerDismissed] = useState(false);
+
   useEffect(() => {
     api.get("/options").then((r) => setOptions(r.data)).catch(() => {});
     api.get("/pricing/wait-rates").then((r) => setWaitPolicy(r.data)).catch(() => {});
@@ -682,8 +690,52 @@ export default function BookingForm() {
                 pickup={form.pickup_location}
                 dropoff={form.dropoff_location}
                 stops={stops.map((s) => s.value).filter(Boolean)}
+                onRouteSummary={({ miles }) => setRouteMiles(miles)}
               />
             </div>
+
+            {/* Long-distance one-way advisory */}
+            {routeMiles != null && routeMiles > 100 && !form.return_trip && !longTripBannerDismissed && (
+              <div
+                data-testid="long-trip-banner"
+                className="md:col-span-2 flex items-start gap-3 rounded-xl border border-[#D4AF37]/40 bg-[#D4AF37]/10 px-4 py-3"
+              >
+                <div className="mt-0.5 h-8 w-8 shrink-0 rounded-full bg-[#D4AF37]/20 grid place-items-center">
+                  <span className="text-[#D4AF37] text-base">↔</span>
+                </div>
+                <div className="flex-1 text-sm text-white/85 leading-relaxed">
+                  <div className="font-medium text-white">
+                    Long trip — book the return leg now?
+                  </div>
+                  <div className="text-white/70 text-xs mt-0.5">
+                    Your route is ~{Math.round(routeMiles)} miles. If you&apos;re planning to come back,
+                    add the return leg here — bookings started from far-out pickups sometimes glitch
+                    when we can&apos;t find the address, and it&apos;s cheaper to lock both legs in one reservation.
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="long-trip-add-return"
+                    onClick={() => {
+                      update("return_trip")(true);
+                      // Prefill the return leg as a mirror of the outbound
+                      if (!form.return_location) update("return_location")(form.pickup_location || "");
+                    }}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-[#D4AF37] px-3 py-1.5 text-xs font-medium text-black hover:bg-[#B3922E] transition"
+                  >
+                    Add return trip
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  data-testid="long-trip-dismiss"
+                  onClick={() => setLongTripBannerDismissed(true)}
+                  aria-label="Dismiss"
+                  className="p-1 text-white/50 hover:text-white transition"
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+            )}
 
             <div>
               <Label className="text-white/80 text-xs uppercase tracking-wider">Pickup date</Label>

@@ -2,6 +2,34 @@
 
 > Last refreshed: July 7, 2026 — iter 55 (Promo overcharge recurrence — root cause fixed)
 
+## Iter 57.2 — Route-map fix, long-trip advisor, AI caller memory (Feb 8, 2026)
+
+**1. Fixed the "blank/black route map on long distances" bug** (`/app/frontend/src/components/RouteMap.jsx`)
+- Root cause was two-layered: (a) `stops = []` default prop created a new array reference on every render → the recompute-route `useEffect` fired every keystroke → concurrent DirectionsService calls resolved out-of-order → a stale short-distance response would wipe the freshly-drawn long-distance polyline. (b) Custom dark map style painted highways at `#3A3A3A` on `#0E0E0E` base — at low zoom levels (fitting a 170-mile SF→Big Sur route) the entire viewport read as solid black + a hairline gold stroke that was hard to see.
+- Fix: added a request-sequence counter (`requestSeqRef`) so late replies are discarded; changed `stops` dep to a serialised `stopsKey` string; bumped highway color to `#4A4A4A` + landscape to `#141414` for contrast; bumped polyline `strokeWeight` 4→5 with `strokeOpacity` 0.9→0.95. Also added an explicit `fitBounds` call so long routes always zoom to fit.
+- Verified: SFO→1000 Aguajito Rd Monterey (106.6 mi) draws instantly, SFO→Big Sur (170+ mi) draws instantly.
+- **Confirmed no distance restriction on drop-off** — backend `places_autocomplete` uses `strict=false` for drop-off so LA, Reno, Tahoe, Vegas etc. all resolve.
+
+**2. Long-distance one-way advisory banner** (`BookingForm.jsx`)
+- When RouteMap reports > 100 mi AND the round-trip toggle is off AND the banner hasn't been dismissed, a gold-bordered banner surfaces beneath the map: *"Long trip — book the return leg now? Your route is ~N miles..."*
+- One-click **Add return trip** button flips `return_trip` to true + prefills `return_location` with the pickup address. Auto-dismisses once acted on.
+- Dismiss `×` button hides it for the session (state, not DB).
+- New callback `onRouteSummary({miles, seconds})` on `<RouteMap>` cleanly surfaces the computed distance to any parent.
+
+**3. AI receptionist gains caller memory** (`ai_receptionist.py`)
+- On the first turn of a fresh call, `_lookup_caller_profile(caller_number)` runs one query against `voice_call_sessions` (prior-call count) + one against `bookings` (last 3 rides) keyed on the caller's phone number.
+- If ANY history exists → injected as a one-time system fact for the current LLM turn: caller's name, usual pickup, preferred vehicle, and the hint *"greet them by first name if known, ask if they want the same trip as last time."*
+- Verified end-to-end: a fresh call from a phone matching an existing booking got the reply *"Hi Sarah, thanks for calling Turan Elite. Would you like the same trip as last time, or should I help with a new ride?"*
+- Zero perf overhead for first-time callers (only runs on first turn; guarded by `not session["history"]`).
+
+**4. AI receptionist flow flipped** (from prior iter — recap)
+- Was: AI answers first, offers to transfer.
+- Now: Dial `ADMIN_PHONE` (+1-415-•••-9587) for 20 sec → if unanswered, AI takes over. Customer-facing Twilio number (+1-877-•••-5205) unchanged.
+
+**Verified UI** with two playwright screenshots (SFO→Monterey and SFO→Big Sur). Both routes render with the gold polyline + long-trip banner appears + "Add return trip" prefills return_location.
+
+
+
 ## 📞 AI Phone Receptionist — Twilio + GPT-5.4 voice concierge (Feb 8, 2026 — iter 57)
 
 Turned the passive "dispatcher-first, missed-call-SMS-fallback" flow into a **live AI phone concierge** that answers every call, quotes instant prices, texts booking links, and only hands off to a human when the caller asks or the AI hits its limits.

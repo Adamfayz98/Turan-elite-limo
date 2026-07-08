@@ -197,12 +197,28 @@ async def get_ai_reply(
     if not session.get("history"):
         session["history"] = []
 
+    # Look up the caller's previous interactions (bookings + past calls) so the
+    # concierge can greet repeat callers by name and reference their usual trip.
+    # First-call callers get zero enrichment (no perf overhead, no risk).
+    caller_profile = None
+    if not session["history"]:  # only on the very first turn of the current call
+        try:
+            caller_profile = await _lookup_caller_profile(db, caller_number, call_sid)
+        except Exception as e:
+            logger.warning(f"caller-profile lookup failed for {caller_number}: {e}")
+
     turn_input = user_speech or ""
     if extra_context:
         # System-injected context (e.g. "The quote for SFO→Napa Luxury SUV
         # came back as $340"). Feed it as a synthetic user turn labelled so
         # the model treats it as ground truth.
         turn_input = f"[system fact: {extra_context}]\n\n{turn_input}".strip()
+
+    # Inject caller profile as a one-time system fact so the AI can personalise
+    # the very first response ("Welcome back, Sarah — your usual pickup is SFO?").
+    if caller_profile and caller_profile.get("has_history"):
+        profile_note = _format_caller_profile_for_ai(caller_profile)
+        turn_input = f"[caller profile: {profile_note}]\n\n{turn_input}".strip()
 
     raw = await _run_llm(SYSTEM_PROMPT, session["history"], turn_input)
     parsed = _parse_llm_json(raw)
@@ -211,6 +227,12 @@ async def get_ai_reply(
     session["history"].append({"role": "user", "content": user_speech or "", "ts": datetime.now(timezone.utc).isoformat()})
     if extra_context:
         session["history"].append({"role": "system_fact", "content": extra_context, "ts": datetime.now(timezone.utc).isoformat()})
+    if caller_profile and caller_profile.get("has_history"):
+        session["history"].append({
+            "role": "system_fact",
+            "content": f"caller profile: {caller_profile.get('name') or 'repeat caller'} — {caller_profile.get('previous_calls_count')} prior calls, {caller_profile.get('bookings_count')} bookings",
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
     session["history"].append({
         "role": "assistant",
         "content": parsed.get("reply", ""),
@@ -220,6 +242,73 @@ async def get_ai_reply(
     })
     await _save_session(db, session)
     return parsed
+
+
+async def _lookup_caller_profile(db, caller_number: str, current_call_sid: str) -> dict:
+    """Return whatever we know about this caller from prior interactions.
+    Cheap query — one hit on `voice_call_sessions` + one on `bookings`."""
+    if not caller_number:
+        return {"has_history": False}
+
+    prior_calls = await db.voice_call_sessions.count_documents({
+        "from": caller_number,
+        "call_sid": {"$ne": current_call_sid},
+    })
+    bookings_cursor = db.bookings.find(
+        {"phone": caller_number},
+        {"_id": 0, "full_name": 1, "pickup_location": 1, "dropoff_location": 1,
+         "vehicle_type": 1, "created_at": 1, "status": 1},
+    ).sort("created_at", -1).limit(3)
+    bookings = await bookings_cursor.to_list(3)
+
+    if prior_calls == 0 and not bookings:
+        return {"has_history": False}
+
+    name = None
+    if bookings:
+        name = bookings[0].get("full_name")
+    usual_pickup = bookings[0].get("pickup_location") if bookings else None
+    usual_vehicle = bookings[0].get("vehicle_type") if bookings else None
+
+    return {
+        "has_history": True,
+        "name": name,
+        "previous_calls_count": prior_calls,
+        "bookings_count": len(bookings),
+        "usual_pickup": usual_pickup,
+        "usual_vehicle": usual_vehicle,
+        "recent_bookings": [
+            {
+                "pickup": b.get("pickup_location"),
+                "dropoff": b.get("dropoff_location"),
+                "vehicle": b.get("vehicle_type"),
+                "status": b.get("status"),
+                "when": b.get("created_at"),
+            } for b in bookings
+        ],
+    }
+
+
+def _format_caller_profile_for_ai(p: dict) -> str:
+    """One-line summary of caller history the AI can use to personalise
+    the opening turn. Kept short — the AI already has the SYSTEM_PROMPT
+    and a full booking history is noise."""
+    parts = []
+    if p.get("name"):
+        parts.append(f"caller name is {p['name']}")
+    if p.get("bookings_count"):
+        parts.append(f"{p['bookings_count']} prior bookings")
+        if p.get("usual_pickup"):
+            parts.append(f"usual pickup {p['usual_pickup']}")
+        if p.get("usual_vehicle"):
+            parts.append(f"prefers {p['usual_vehicle']}")
+    if p.get("previous_calls_count"):
+        parts.append(f"{p['previous_calls_count']} prior calls")
+    hint = (
+        " — greet them by first name if known, ask if they want the same trip as last time. "
+        "Keep it warm and brief; don't recite their whole history back at them."
+    )
+    return ("; ".join(parts) + hint) if parts else "repeat caller (no name on file)"
 
 
 async def append_turn(db, call_sid: str, role: str, content: str, meta: Optional[dict] = None) -> None:

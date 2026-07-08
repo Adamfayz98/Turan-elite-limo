@@ -31,10 +31,15 @@ const TURAN_DARK_STYLE = [
   { elementType: "labels.text.stroke", stylers: [{ color: "#0E0E0E" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#9AA0A6" }] },
   { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#D4AF37" }] },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#222222" }] },
-  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#3A3A3A" }] },
+  // Roads: kept dark but a shade lighter than the base so the gold polyline
+  // still contrasts at low zoom levels (SF→LA, SF→Big Sur, etc.). Was #222/#3A3A3A
+  // which made the whole map read as solid black when zoomed out to fit a 300-mile route.
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2A2A2A" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#4A4A4A" }] },
+  { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#3A3A3A" }] },
   { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#888888" }] },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0a0a0a" }] },
+  { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#141414" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#050B18" }] },
   { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
   { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
 ];
@@ -49,10 +54,11 @@ const TURAN_DARK_STYLE = [
  * Address-string input only — we don't need lat/lng because Directions API
  * geocodes internally. Keeps the prop surface trivial.
  */
-export default function RouteMap({ pickup, dropoff, stops = [] }) {
+export default function RouteMap({ pickup, dropoff, stops = [], onRouteSummary }) {
   const mapDivRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const rendererRef = useRef(null);
+  const requestSeqRef = useRef(0); // rolling request id to discard stale replies
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState(null); // { distance, duration }
@@ -61,6 +67,13 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
     process.env.REACT_APP_GOOGLE_MAPS_BROWSER_KEY ||
     process.env.REACT_APP_GOOGLE_MAPS_API_KEY ||
     "";
+
+  // Stops is a new array reference every render (default `stops = []`), which
+  // caused the "recompute on every keystroke" bug that made long-distance
+  // routes flash black — Google was returning stale results OUT OF ORDER
+  // (the last-arrived response wiped the correctly-drawn polyline).
+  // Serialising to a string gives us a stable dep signature.
+  const stopsKey = (stops || []).filter(Boolean).join("|");
 
   // Extracted so the boot effect can trigger the first route directly, and
   // the address-change effect can trigger subsequent routes. Kept above both
@@ -72,6 +85,10 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
       return;
     }
     if (!window.google?.maps || !rendererRef.current) return;
+    // Bump the request id so any earlier in-flight route callback discards
+    // itself when it returns. Prevents a stale short-distance response from
+    // overwriting a fresh long-distance one on the map.
+    const mySeq = ++requestSeqRef.current;
     setLoading(true);
     setError("");
     const svc = new window.google.maps.DirectionsService();
@@ -86,6 +103,9 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
         travelMode: window.google.maps.TravelMode.DRIVING,
       },
       (res, status) => {
+        // Discard if a newer request has been fired since (protects the map
+        // from stale replies overwriting the current route).
+        if (mySeq !== requestSeqRef.current) return;
         setLoading(false);
         if (status !== "OK" || !res) {
           setError(
@@ -97,13 +117,34 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
           return;
         }
         rendererRef.current.setDirections(res);
+        // Snap the viewport to the polyline bounds — for long-distance rides
+        // this is what actually makes the route visible after the initial
+        // zoom=10 center on SF.
+        try {
+          const bounds = res.routes?.[0]?.bounds;
+          if (bounds && mapInstanceRef.current) {
+            mapInstanceRef.current.fitBounds(bounds, 40);
+          }
+        } catch (e) {
+          // fitBounds is best-effort; DirectionsRenderer's default fit still works
+        }
         const legs = res.routes?.[0]?.legs || [];
         const totalMeters = legs.reduce((a, l) => a + (l.distance?.value || 0), 0);
         const totalSeconds = legs.reduce((a, l) => a + (l.duration?.value || 0), 0);
+        const miles = totalMeters / 1609.344;
         setSummary({
-          distanceText: `${(totalMeters / 1609.344).toFixed(1)} mi`,
+          distanceText: `${miles.toFixed(1)} mi`,
           durationText: humanDuration(totalSeconds),
         });
+        // Surface the computed distance so the parent form can render
+        // context-aware banners (e.g. "long distance — consider round trip").
+        if (typeof onRouteSummary === "function") {
+          try {
+            onRouteSummary({ miles, seconds: totalSeconds });
+          } catch (e) {
+            // never let the consumer crash the map
+          }
+        }
       },
     );
   };
@@ -133,8 +174,11 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
           suppressMarkers: false,
           polylineOptions: {
             strokeColor: "#D4AF37",
-            strokeWeight: 4,
-            strokeOpacity: 0.9,
+            strokeWeight: 5,
+            strokeOpacity: 0.95,
+            // A thin black backdrop makes the gold polyline pop even when the
+            // route zoom is low enough that the road becomes 1-2px wide.
+            geodesic: true,
           },
         });
         // Kick off the initial route computation now that the renderer is
@@ -151,10 +195,12 @@ export default function RouteMap({ pickup, dropoff, stops = [] }) {
     };
   }, [apiKey, pickup, dropoff]);
 
-  // Recompute the route any time addresses change.
+  // Recompute the route any time addresses OR waypoints change. Uses
+  // `stopsKey` (a serialised string) rather than the raw array so
+  // reference-inequality doesn't fire this effect on every render.
   useEffect(() => {
     _computeRoute(pickup, dropoff, stops);
-  }, [pickup, dropoff, stops]);
+  }, [pickup, dropoff, stopsKey]);
 
   // Skeleton state — show nothing until BOTH addresses are filled so the
   // form doesn't show an empty map slot when only pickup is set.
