@@ -2,6 +2,54 @@
 
 > Last refreshed: July 7, 2026 — iter 55 (Promo overcharge recurrence — root cause fixed)
 
+## 📞 AI Phone Receptionist — Twilio + GPT-5.4 voice concierge (Feb 8, 2026 — iter 57)
+
+Turned the passive "dispatcher-first, missed-call-SMS-fallback" flow into a **live AI phone concierge** that answers every call, quotes instant prices, texts booking links, and only hands off to a human when the caller asks or the AI hits its limits.
+
+**Call flow (matches user spec):**
+1. Twilio phone number routes inbound calls to `POST /api/twilio/voice/incoming`.
+2. AI greets with `Polly.Joanna` voice + `<Gather input="speech">`.
+3. Each caller utterance → `POST /api/twilio/voice/gather` → `ai_receptionist.get_ai_reply()` → GPT-5.4 (via Emergent LLM key) returns JSON `{reply, action, params}`.
+4. AI can:
+   - **Quote instantly** for Executive Sedan / First Class / Luxury SUV via internal `_build_quotes` (no HTTP hop). Speaks the price rounded to the nearest $5 for natural voice.
+   - **Send SMS booking link** with pickup/drop-off pre-filled (`/book?pickup=...&dropoff=...&vehicle=...`).
+   - **Send SMS quote-request link** for Sprinter / Limo / Party Bus / Coach (`/contact?...`) — "our team builds a custom quote".
+   - **Transfer to dispatcher** — `<Dial timeout="22">$ADMIN_PHONE</Dial>` with `action` pointing at `/api/twilio/voice/transfer-fail`. If unanswered, AI resumes with a smooth handoff line.
+   - **Answer info questions** — service area (SF Bay + Napa/Sonoma/Monterey/Reno-on-request), hours (24/7), Meet & Greet ($35 flat, Airport Transfer only), cancellation policy, WELCOME 20% first-ride promo.
+   - **Hang up** politely.
+5. Every turn (user speech + AI reply + side effects) persisted in `voice_call_sessions` collection keyed by CallSid.
+
+**Verified end-to-end via curl (5 scenarios):**
+- Executive Sedan SFO → Napa → "about two seventy-five" (correct, from live quote math)
+- "Text me the booking link" → SMS sent, confirmed to caller, transcript logged
+- Sprinter Van → correctly routes to quote_request SMS link (no bad quote)
+- "Speak to a human" → `<Dial>` admin, on no-answer AI takes over
+- "Do you have first-ride discounts?" → "use code WELCOME for 20% off at checkout"
+- "Do you go to Reno?" → "Yes, we can do long-distance rides to Reno on request. What date, pickup area, and vehicle would you like?"
+
+**Files:**
+- `/app/backend/ai_receptionist.py` (NEW — SYSTEM_PROMPT, session mgmt, `get_ai_reply`, `compute_ai_quote`, `build_booking_link`, `build_quote_request_link`)
+- `/app/backend/routes/twilio_voice.py` (REWRITTEN — full IVR: incoming → gather → dispatch action → transfer-fail; admin endpoints for missed_calls + voice_calls)
+
+**New admin endpoints (auth-gated):**
+- `GET /api/admin/voice-calls` — list AI-handled calls with full transcript
+- `GET /api/admin/voice-calls/{call_sid}` — single call detail
+- `GET /api/admin/missed-calls` — carrier + AI-fallback missed calls
+
+**Twilio Console setup (ONE-TIME, user must do this after deploy):**
+Phone Numbers → Manage → Active numbers → click your Turan number → set **"A CALL COMES IN"** webhook to `https://api.turanelitelimo.com/api/twilio/voice/incoming` (HTTP POST).
+
+**Voice / cost notes:**
+- Using `Polly.Joanna` (Twilio's warmer default voice — no extra API cost).
+- GPT-5.4 default model via Emergent LLM key. Each turn is ~1 LLM call. Quote turn = 2 calls (one to decide `action: quote`, one to announce the number after fetching the price).
+- Sessions expire naturally in Mongo (no TTL set yet — could add if abuse appears).
+
+**Compliance:**
+- SMS is only sent to callers who verbally asked for it (clear voice-consent record in the transcript). All SMS bodies include "Reply STOP to opt out."
+- Full transcript retention supports A2P audit if Twilio ever asks how consent was captured.
+
+
+
 ## 🚨 Double-discount pay_later_amount fix + P1 items (Feb 8, 2026 — iter 56)
 
 **Root cause of the "$462.44 vs $660.88" round-trip pricing bug:**
