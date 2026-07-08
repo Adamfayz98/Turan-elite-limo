@@ -217,7 +217,7 @@ def fetch_promo_assets(gads, cid, campaign_id, ad_group_id=None):
     linked = []
     # campaign-level
     q2 = f"""
-      SELECT campaign_asset.asset, campaign_asset.field_type
+      SELECT campaign.id, campaign_asset.asset, campaign_asset.field_type
       FROM campaign_asset
       WHERE campaign.id = {campaign_id}
         AND campaign_asset.field_type = 'PROMOTION'
@@ -231,7 +231,7 @@ def fetch_promo_assets(gads, cid, campaign_id, ad_group_id=None):
     # ad-group-level
     if ad_group_id:
         q3 = f"""
-          SELECT ad_group_asset.asset, ad_group_asset.field_type
+          SELECT ad_group.id, ad_group_asset.asset, ad_group_asset.field_type
           FROM ad_group_asset
           WHERE ad_group.id = {ad_group_id}
             AND ad_group_asset.field_type = 'PROMOTION'
