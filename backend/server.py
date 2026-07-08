@@ -3468,6 +3468,9 @@ class CustomInvoiceCreate(BaseModel):
     affiliate_cost: Optional[float] = Field(None, ge=0)  # what we pay them
     description: Optional[str] = Field(None, max_length=2000)
     internal_notes: Optional[str] = Field(None, max_length=2000)
+    # Payment mode: "pay_now" (Stripe checkout, default) or "pay_after"
+    # (Stripe setup mode — save card, charge after ride like /payments/checkout-setup).
+    payment_mode: Optional[str] = Field(default="pay_now", pattern=r"^(pay_now|pay_after)$")
 
 
 class CustomInvoice(BaseModel):
@@ -3488,9 +3491,14 @@ class CustomInvoice(BaseModel):
     profit: Optional[float] = None
     description: Optional[str] = None
     internal_notes: Optional[str] = None
-    status: str  # "sent" | "paid" | "expired" | "cancelled"
+    status: str  # "sent" | "paid" | "card_on_file" | "expired" | "cancelled"
     payment_link: Optional[str] = None
     stripe_session_id: Optional[str] = None
+    payment_mode: Optional[str] = "pay_now"   # pay_now | pay_after
+    stripe_customer_id: Optional[str] = None
+    stripe_payment_method_id: Optional[str] = None
+    stripe_payment_intent_id: Optional[str] = None
+    charged_at: Optional[str] = None
     created_at: str
     paid_at: Optional[str] = None
 
@@ -4738,6 +4746,15 @@ async def startup_seed():
             replace_existing=True,
             next_run_time=datetime.now(timezone.utc) + timedelta(seconds=150),
         )
+        # 1-hour pre-trip SMS heads-up (A2P 10DLC approved Feb 2026)
+        _scheduler.add_job(
+            _send_pretrip_1h_reminders,
+            "interval",
+            minutes=10,
+            id="pretrip_1h_reminder_sms",
+            replace_existing=True,
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=180),
+        )
         _scheduler.add_job(
             _send_winback_emails,
             "interval",
@@ -4796,6 +4813,20 @@ async def _send_pending_review_requests():
                     subject="How was your ride with TuranEliteLimo?",
                     html=html,
                 )
+                # Consent-gated SMS follow-up (A2P 10DLC approved Feb 2026).
+                # Email opens are ~20%; SMS opens are ~98% — this recovers the
+                # long tail of customers who never see the email.
+                try:
+                    first = (b.get("full_name") or "there").split()[0]
+                    sms_body = (
+                        f"Hi {first} — thanks for riding with Turan Elite Limo. "
+                        f"A quick star rating helps our chauffeurs a ton:\n"
+                        f"{links.get('google')}\n"
+                        f"Reply STOP to opt out."
+                    )
+                    await sms_service.send_customer_sms(b, sms_body)
+                except Exception as sms_err:
+                    logger.warning(f"Review-request SMS failed for {b.get('id')}: {sms_err}")
                 if sent_id is not None:
                     await db.bookings.update_one(
                         {"id": b["id"]},
@@ -4962,29 +4993,60 @@ def _render_payment_recovery_email(b: dict, manage_url: Optional[str]) -> str:
     name = (b.get("full_name") or "there").split()[0]
     cnum = b.get("confirmation_number") or ""
     pickup_when = f"{b.get('pickup_date','')} at {b.get('pickup_time','')}".strip()
+    cnum_html = f' <strong style="color:#D4AF37;">{cnum}</strong>' if cnum else ''
+    # Pay-after-ride bookings save a card at booking time; no money changes
+    # hands. Pay-now bookings must complete Stripe checkout to hold the
+    # reservation. Same job → completely different copy.
+    is_pay_later = b.get("payment_mode") == "pay_after_ride"
+    if is_pay_later:
+        headline = f"Hi {name}, save your card so we can hold your ride."
+        body_lead = (
+            f"We received your reservation request{cnum_html}"
+            f" for <strong>{pickup_when}</strong>. Nothing is charged today — we just need to "
+            f"verify a card on file so your chauffeur is locked in."
+        )
+        body_reassure = (
+            "Tap below to secure your ride in under 30 seconds. "
+            '<strong style="color:#fff;">You won\'t be charged until after the trip.</strong>'
+        )
+        btn_label = "SECURE MY RIDE"
+        trouble = (
+            "Trouble with the page? Reply to this email and we can send a fresh secure link, "
+            "or call us to arrange a phone booking."
+        )
+    else:
+        headline = f"Hi {name}, looks like your checkout got interrupted."
+        body_lead = (
+            f"We received your reservation request{cnum_html}"
+            f" for <strong>{pickup_when}</strong>, but we never received the payment confirmation — "
+            f"looks like the secure-checkout page didn't open for you."
+        )
+        body_reassure = "Tap the button below to finish booking. It only takes a moment."
+        btn_label = "FINISH PAYMENT"
+        trouble = (
+            "Trouble with the page? Just reply to this email and we'll send you a direct payment link, or "
+            "call us and we can take payment over the phone."
+        )
     btn = ""
     if manage_url:
         btn = (
             f'<a href="{manage_url}" style="display:inline-block;background:#D4AF37;'
             f'color:#0A0A0A;text-decoration:none;padding:14px 28px;border-radius:6px;'
-            f'font-weight:600;letter-spacing:.05em;margin:18px 0;">FINISH PAYMENT</a>'
+            f'font-weight:600;letter-spacing:.05em;margin:18px 0;">{btn_label}</a>'
         )
     return f"""
     <div style="font-family:Helvetica,Arial,sans-serif;background:#0A0A0A;color:#EDEDED;padding:32px;max-width:560px;margin:auto;">
       <div style="text-align:center;color:#D4AF37;letter-spacing:.3em;font-size:11px;margin-bottom:24px;">TURAN ELITE LIMO</div>
-      <h2 style="color:#FFF;font-weight:300;margin:0 0 16px;">Hi {name}, looks like your checkout got interrupted.</h2>
+      <h2 style="color:#FFF;font-weight:300;margin:0 0 16px;">{headline}</h2>
       <p style="color:#BFBFBF;line-height:1.6;">
-        We received your reservation request{f' <strong style="color:#D4AF37;">{cnum}</strong>' if cnum else ''}
-        for <strong>{pickup_when}</strong>, but we never received the payment confirmation —
-        looks like the secure-checkout page didn't open for you.
+        {body_lead}
       </p>
       <p style="color:#BFBFBF;line-height:1.6;">
-        Tap the button below to finish booking. It only takes a moment.
+        {body_reassure}
       </p>
       {btn}
       <p style="color:#888;font-size:12px;line-height:1.6;margin-top:24px;">
-        Trouble with the page? Just reply to this email and we'll send you a direct payment link, or
-        call us and we can take payment over the phone.
+        {trouble}
       </p>
       <div style="border-top:1px solid #1F1F1F;margin-top:28px;padding-top:16px;color:#666;font-size:11px;text-align:center;">
         TuranEliteLimo · Bay Area Chauffeur Service
@@ -5024,10 +5086,17 @@ async def _send_payment_recovery_emails():
             cnum = b.get("confirmation_number") or ""
             # 1) Recovery email to the customer
             try:
+                is_pay_later = b.get("payment_mode") == "pay_after_ride"
                 html = _render_payment_recovery_email(b, manage_url)
-                subject = (
-                    f"Quick fix: finish booking your ride{(' #' + cnum) if cnum else ''}"
-                )
+                if is_pay_later:
+                    subject = (
+                        f"Just one more step: save your card{(' for #' + cnum) if cnum else ''} — "
+                        f"nothing charged today"
+                    )
+                else:
+                    subject = (
+                        f"Quick fix: finish booking your ride{(' #' + cnum) if cnum else ''}"
+                    )
                 sent_id = await send_email(to=b["email"], subject=subject, html=html)
                 if sent_id is not None:
                     logger.info(f"Payment-recovery email sent for booking {b.get('id')}")
@@ -5056,17 +5125,25 @@ async def _send_payment_recovery_emails():
             # trips (Barbara's 1 AM SFO pickup). Same one-shot guard.
             try:
                 cust_phone = b.get("phone") or ""
-                if cust_phone and manage_url:
+                if cust_phone and manage_url and b.get("sms_consent"):
                     first = (b.get("full_name") or "there").split()[0]
                     when = f"{b.get('pickup_date','')} {b.get('pickup_time','')}".strip()
                     when_str = f" for {when}" if when else ""
-                    await sms_service.send_sms(
-                        cust_phone,
-                        f"Hi {first} — Turan Elite Limo. We saved your reservation"
-                        f"{when_str} but never got the payment confirmation. "
-                        f"Finish in 30 sec: {manage_url} "
-                        f"Need help? Reply here.",
-                    )
+                    if is_pay_later:
+                        sms_body = (
+                            f"Hi {first} — Turan Elite Limo. Your reservation"
+                            f"{when_str} needs a card on file — nothing is charged today. "
+                            f"Save your card in 30 sec: {manage_url} "
+                            f"Reply STOP to opt out."
+                        )
+                    else:
+                        sms_body = (
+                            f"Hi {first} — Turan Elite Limo. We saved your reservation"
+                            f"{when_str} but never got the payment confirmation. "
+                            f"Finish in 30 sec: {manage_url} "
+                            f"Reply STOP to opt out."
+                        )
+                    await sms_service.send_sms(cust_phone, sms_body)
                     logger.info(f"Payment-recovery SMS sent to customer for booking {b.get('id')}")
             except Exception as e:
                 logger.warning(f"Customer recovery SMS failed for {b.get('id')}: {e}")
@@ -5189,6 +5266,21 @@ async def _send_pretrip_reminders():
                     subject=f"Tomorrow's reservation · {b.get('confirmation_number','')}",
                     html=html,
                 )
+                # SMS reminder (A2P 10DLC approved). Consent-gated — customers
+                # who opted out of SMS get email only.
+                try:
+                    first = (b.get("full_name") or "there").split()[0]
+                    when_time = sms_service._fmt_12h(b.get("pickup_time", ""))
+                    pickup_short = (b.get("pickup_location") or "")[:60]
+                    sms_body = (
+                        f"Turan Elite Limo: Hi {first}, your ride is TOMORROW "
+                        f"at {when_time}. Pickup: {pickup_short}. "
+                        f"Chauffeur details coming soon. Manage: {manage_url}\n"
+                        f"Reply STOP to opt out."
+                    )
+                    await sms_service.send_customer_sms(b, sms_body)
+                except Exception as sms_err:
+                    logger.warning(f"pretrip SMS 24h for {b.get('id')} failed: {sms_err}")
                 await db.bookings.update_one(
                     {"id": b["id"]},
                     {"$set": {"pretrip_reminder_sent_at": now.isoformat()}},
@@ -5197,6 +5289,62 @@ async def _send_pretrip_reminders():
                 logger.warning(f"pretrip reminder for {b.get('id')} failed: {e}")
     except Exception as e:
         logger.warning(f"_send_pretrip_reminders failed: {e}")
+
+
+async def _send_pretrip_1h_reminders():
+    """Scheduled (every 10 min): find bookings whose pickup is 50-70 minutes
+    away and send a final "chauffeur is en route soon" SMS.
+
+    Uses `pretrip_1h_sent_at` for one-shot semantics so we don't spam.
+    SMS-only — customers already got a 24h email + this window is too tight
+    for an email to help anyway.
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        cursor = db.bookings.find(
+            {
+                "payment_status": {"$in": ["paid", "card_on_file"]},
+                "status": {"$in": ["confirmed", "pending"]},
+                "pretrip_1h_sent_at": {"$exists": False},
+                "cancellation_requested": {"$ne": True},
+            },
+            {"_id": 0},
+        ).limit(200)
+        bookings = await cursor.to_list(200)
+        for b in bookings:
+            iso = b.get("pickup_iso") or f"{b.get('pickup_date','')}T{b.get('pickup_time','')}:00"
+            try:
+                pickup_dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+                if pickup_dt.tzinfo is None:
+                    pickup_dt = pickup_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+            minutes_out = (pickup_dt - now).total_seconds() / 60.0
+            if not (50 <= minutes_out <= 70):
+                continue
+            try:
+                first = (b.get("full_name") or "there").split()[0]
+                when_time = sms_service._fmt_12h(b.get("pickup_time", ""))
+                driver = (b.get("driver_name") or "Your chauffeur").split(" ")[0]
+                driver_phone = b.get("driver_phone") or ""
+                plate = b.get("driver_plate") or ""
+                vehicle = b.get("vehicle_type") or "vehicle"
+                plate_str = f" (plate {plate})" if plate else ""
+                phone_str = f" · Text driver: {driver_phone}" if driver_phone else ""
+                sms_body = (
+                    f"Turan Elite Limo: Hi {first}, {driver} will be with you "
+                    f"at {when_time} today. Look for the {vehicle}{plate_str}."
+                    f"{phone_str}\nReply STOP to opt out."
+                )
+                await sms_service.send_customer_sms(b, sms_body)
+                await db.bookings.update_one(
+                    {"id": b["id"]},
+                    {"$set": {"pretrip_1h_sent_at": now.isoformat()}},
+                )
+            except Exception as e:
+                logger.warning(f"pretrip 1h SMS for {b.get('id')} failed: {e}")
+    except Exception as e:
+        logger.warning(f"_send_pretrip_1h_reminders failed: {e}")
 
 
 async def _send_winback_emails():
@@ -5314,6 +5462,7 @@ from routes import driver as _routes_driver  # noqa: E402
 from routes import payments as _routes_payments  # noqa: E402
 from routes import chat as _routes_chat  # noqa: E402
 from routes import google_ads as _routes_google_ads  # noqa: E402
+from routes import twilio_voice as _routes_twilio_voice  # noqa: E402
 
 api_router.include_router(_routes_admin.router)
 api_router.include_router(_routes_customer.router)
@@ -5321,6 +5470,7 @@ api_router.include_router(_routes_driver.router)
 api_router.include_router(_routes_payments.router)
 api_router.include_router(_routes_chat.router)
 api_router.include_router(_routes_google_ads.router)
+api_router.include_router(_routes_twilio_voice.router)
 
 # Final registration — MUST come after all api_router.include_router() calls
 # because FastAPI snapshots routes at the moment of include_router().

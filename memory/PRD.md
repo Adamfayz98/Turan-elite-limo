@@ -2,6 +2,47 @@
 
 > Last refreshed: July 7, 2026 — iter 55 (Promo overcharge recurrence — root cause fixed)
 
+## 🚨 Double-discount pay_later_amount fix + P1 items (Feb 8, 2026 — iter 56)
+
+**Root cause of the "$462.44 vs $660.88" round-trip pricing bug:**
+- `create_booking` (server.py L630) stores `quote_amount = ride_amount − discount` (POST-discount).
+- BUT `/payments/checkout-setup` and `/payments/checkout` treated `quote_amount` as PRE-discount and applied the discount ratio AGAIN → 30% off got applied twice → `pay_later_amount = 660.88 × 0.30 = $462.44` (wrong; should be $660.88).
+- Affected any promo booking on Pay-After-Ride; symptom was worst on round-trips because the discount dollar amount is larger.
+
+**Fix — one shared helper (`_resolve_charge_amount` in payments.py):**
+- Detects locked-in bookings via `abs(quote_amount + discount_amount − original_quote_amount) < 1.0`. For those, `pay_later_amount = quote_amount × deposit_percent%` (no re-application of discount).
+- Legacy bookings (`quote_amount == original_quote_amount`, pre-lock-in fix) still get the proportional discount ratio so we don't overcharge migration-era rows.
+- Migration script `/app/backend/migrations/fix_double_discount_pay_later.py` — dry-run + apply modes, stores previous value under `pay_later_amount_pre_migration` for audit. **Run this against production after deploy** to repair Adel's own test booking + any customer bookings with the wrong `pay_later_amount`.
+
+**Verified end-to-end:** Round-trip + WELCOME (20%) → quote $944.12 → stored `quote_amount=754.93` → `pay_later_amount=754.93` (was $603.94 pre-fix). One-way + promo: same PASS. Legacy pre-discount booking: still $175.74 on $219.67 quote. Thank-you page + confirmation email + PayBooking all read `pay_later_amount` directly → price now consistent everywhere.
+
+**P1 items shipped in same iteration:**
+1. **Admin billing-audit endpoint** — `GET /api/admin/billing-audit` returns 3 buckets: `overcharged`, `undercharged`, `pay_later_over_discounted`. UI-ready payload for a future admin refund-triage tab. (routes/admin.py)
+2. **Spam heuristic tuning** — `safety.py` now catches: keyboard-mash names (no vowels, 3+ repeat chars, `qwerty/asdf/zxcv/hjkl/test/1234`), invalid US phones (area code or exchange starts with 0/1, all-same-digit, sequential test patterns, wrong digit count), unstructured addresses (single token / no vowels in 6+ letters). Weights 15-30 each — spam quotes will now push past the "green" band.
+3. **Abandoned-checkout email + SMS differentiation** — `_render_payment_recovery_email` in server.py now branches on `booking.payment_mode`: pay-after gets "save your card, nothing charged today · SECURE MY RIDE" copy; pay-now keeps the "finish payment" copy. Customer SMS also branches. Subject line reflects flow.
+4. **Book Now, Pay Later custom invoices** — `CustomInvoiceCreate` gains `payment_mode: pay_now|pay_after`. In `pay_after` mode, admin creates a setup-mode Stripe Checkout Session that saves+validates the card (no charge). Webhook `_finalize_invoice_setup_session` flips invoice status to `card_on_file` + saves `stripe_customer_id`/`stripe_payment_method_id`. New endpoint `POST /admin/invoices/{id}/charge` does the off-session charge after the ride. Admin UI `InvoicesTab.jsx` gets a payment-mode dropdown + a "Charge $X" button on card_on_file invoices.
+5. **Twilio A2P 10DLC unblocked** — user confirmed A2P campaign approved. Enabled these customer-facing SMS flows:
+   - **24-hour pretrip reminder SMS** (added on top of existing email job, consent-gated).
+   - **1-hour pretrip reminder SMS** — new `_send_pretrip_1h_reminders` scheduler job (every 10 min, 50–70 min window), includes chauffeur name/plate/phone.
+   - **Post-ride review-request SMS** (added to existing review-request email job, consent-gated, links directly to the Google review URL).
+   - **Missed-call auto-SMS + call forwarding** — new `routes/twilio_voice.py`. `POST /api/twilio/voice/incoming` returns TwiML that dials `ADMIN_PHONE`; if unanswered, `POST /api/twilio/voice/status` logs the missed call to `missed_calls` collection and auto-SMS the caller with a book-online link. New admin endpoint `GET /api/admin/missed-calls`. **Ops step:** point the Twilio phone number's "A call comes in" webhook to `https://api.turanelitelimo.com/api/twilio/voice/incoming` (POST) once.
+
+**Files touched:**
+- `/app/backend/routes/payments.py` (`_resolve_charge_amount`, `_finalize_invoice_setup_session`, webhook branch)
+- `/app/backend/routes/admin.py` (`admin_billing_audit`, `_create_invoice_setup_session`, `admin_charge_invoice_card`, `payment_mode` on create)
+- `/app/backend/routes/twilio_voice.py` (NEW — Twilio voice webhooks)
+- `/app/backend/server.py` (`CustomInvoiceCreate.payment_mode`, `_render_payment_recovery_email` branching, pretrip 1h job + SMS to existing jobs, twilio_voice router include)
+- `/app/backend/safety.py` (new spam heuristics)
+- `/app/backend/migrations/fix_double_discount_pay_later.py` (NEW)
+- `/app/frontend/src/components/admin/InvoicesTab.jsx` (payment-mode dropdown, Charge button, card_on_file badge)
+
+**Deploy checklist for user:**
+1. Push to prod → the double-discount fix takes effect on all NEW bookings.
+2. Run migration: `MONGO_URL=... DB_NAME=... python -m backend.migrations.fix_double_discount_pay_later --dry-run` first, then `--apply` — repairs stuck `pay_later_amount` on Adel's own $462.44 booking + any customer bookings from the last day.
+3. In Twilio dashboard, set the phone number Voice webhook to `.../api/twilio/voice/missed-call` (only if user wants missed-call auto-SMS). Otherwise, the SMS flows (reminders + review request) will just work — no Twilio config change needed.
+
+
+
 ## 💰 Promo → Stripe overcharge recurrence — ROOT CAUSE fixed (Jul 7, 2026 — iter 55)
 
 **Recurring bug summary:** Customer sees discounted price on booking form ($630), but Stripe SetupIntent / thank-you page charges the full undiscounted price ($970). Adam reported this exact overcharge has been "fixed several times" — this iteration nails the underlying validation mismatch that keeps producing it.

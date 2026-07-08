@@ -482,6 +482,58 @@ async def score_submission(
             add("name_has_digits", "Name contains digits", 12)
         if re.search(r"[!@#$%^&*]", n):
             add("name_has_symbols", "Name contains symbols", 15)
+        # Keyboard mashing — no vowels at all in a name ≥ 4 chars is a huge tell
+        # (e.g., "sdfgh jklm", "qwerty asdf"). English names always contain at
+        # least one vowel per word.
+        letters = re.sub(r"[^A-Za-z]", "", n)
+        if len(letters) >= 4 and not re.search(r"[aeiouAEIOU]", letters):
+            add("name_no_vowels", "Name has no vowels (keyboard mash)", 30)
+        # Three consecutive identical chars is another mashing signal
+        if re.search(r"(.)\1{2,}", n.lower()):
+            add("name_repeat_chars", "Name contains 3+ repeated characters", 15)
+        # Common keyboard walk patterns
+        low = n.lower()
+        if any(w in low for w in ("qwerty", "asdf", "zxcv", "hjkl", "1234", "abcd", "test", "aaaa")):
+            add("name_keyboard_walk", "Name contains keyboard-walk pattern", 25)
+
+    # ----- Phone plausibility (US numbers) -----
+    if phone:
+        digits = re.sub(r"\D", "", phone)
+        # Strip US country code prefix
+        if len(digits) == 11 and digits.startswith("1"):
+            digits = digits[1:]
+        if len(digits) == 10:
+            area, exchange = digits[:3], digits[3:6]
+            # US area codes never start with 0 or 1 (NANP rule)
+            if area[0] in ("0", "1"):
+                add("phone_invalid_area", f"Invalid US area code {area}", 25)
+            # NXX exchange code (2nd triplet) also can't start with 0 or 1
+            if exchange[0] in ("0", "1"):
+                add("phone_invalid_exchange", f"Invalid US exchange code {exchange}", 20)
+            # All identical digits
+            if len(set(digits)) <= 1:
+                add("phone_all_same_digit", "Phone is all same digit", 30)
+            # Sequential pattern (123-456-7890 style)
+            if digits in ("1234567890", "0987654321"):
+                add("phone_sequential", "Phone is a sequential test pattern", 30)
+        elif digits and (len(digits) < 7 or len(digits) > 15):
+            add("phone_length_invalid", f"Phone digit count is {len(digits)}", 20)
+
+    # ----- Address plausibility -----
+    for label, addr in (("pickup", pickup_location), ("dropoff", dropoff_location)):
+        if not addr:
+            continue
+        cleaned = addr.strip()
+        # Real addresses have a digit (street number OR zip) AND at least one
+        # comma-separated component. "asdlfkjasdlfkj" or "test street" fail this.
+        has_digit = bool(re.search(r"\d", cleaned))
+        has_comma_or_multi_word = ("," in cleaned) or (len(cleaned.split()) >= 2)
+        if not has_digit and not has_comma_or_multi_word:
+            add(f"{label}_addr_unstructured", f"{label.title()} address is a single token", 15)
+        # Keyboard mash inside address
+        letters_only = re.sub(r"[^A-Za-z]", "", cleaned)
+        if len(letters_only) >= 6 and not re.search(r"[aeiouAEIOU]", letters_only):
+            add(f"{label}_addr_no_vowels", f"{label.title()} address has no vowels", 20)
 
     # ----- User-agent (bots / scripts) -----
     ua = (user_agent or "").lower()

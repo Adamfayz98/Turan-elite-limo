@@ -27,6 +27,243 @@ import server as _server  # noqa: E402
 globals().update({k: v for k, v in vars(_server).items() if not k.startswith("__")})
 
 
+async def _create_invoice_setup_session(
+    *,
+    client_email: str,
+    client_name: str,
+    amount: float,
+    trip_summary: str,
+    success_url: str,
+    cancel_url: str,
+    invoice_id: str,
+    invoice_number: str,
+) -> tuple[str, str, str]:
+    """Create a SETUP-mode Stripe Checkout Session for a custom invoice
+    (Book Now, Pay Later flow). Returns (checkout_url, session_id, customer_id).
+    """
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    async with httpx.AsyncClient(timeout=15.0) as cli:
+        # 1) Create (or fetch) a Stripe Customer so the saved card is chargeable later.
+        cust_payload = {
+            "email": client_email,
+            "name": client_name,
+            "metadata[invoice_id]": invoice_id,
+            "metadata[invoice_number]": invoice_number,
+        }
+        rc = await cli.post(
+            "https://api.stripe.com/v1/customers",
+            headers=headers,
+            data=cust_payload,
+        )
+        if rc.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Stripe customer create failed: {rc.status_code} {rc.text[:200]}",
+            )
+        customer_id = rc.json().get("id")
+        if not customer_id:
+            raise HTTPException(status_code=502, detail="Stripe returned no customer id")
+
+        # 2) Create SETUP-mode Checkout Session — collects card, charges $0.
+        sess_payload = {
+            "mode": "setup",
+            "customer": customer_id,
+            "success_url": f"{success_url}&session_id={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": cancel_url,
+            "payment_method_types[]": "card",
+            "metadata[kind]": "custom_invoice_setup",
+            "metadata[invoice_id]": invoice_id,
+            "metadata[invoice_number]": invoice_number,
+            "metadata[client_email]": client_email,
+            "metadata[client_name]": client_name,
+            "metadata[amount]": f"{amount:.2f}",
+            "setup_intent_data[description]": (
+                f"Invoice {invoice_number} · {trip_summary[:150]}"
+            ),
+            "setup_intent_data[metadata][invoice_id]": invoice_id,
+            "setup_intent_data[metadata][amount]": f"{amount:.2f}",
+        }
+        rs = await cli.post(
+            "https://api.stripe.com/v1/checkout/sessions",
+            headers=headers,
+            data=sess_payload,
+        )
+        if rs.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Stripe checkout setup failed: {rs.status_code} {rs.text[:200]}",
+            )
+        sj = rs.json()
+        return sj.get("url", ""), sj.get("id", ""), customer_id
+
+
+@router.post("/admin/invoices/{invoice_id}/charge")
+async def admin_charge_invoice_card(
+    invoice_id: str,
+    _: dict = Depends(require_admin),
+):
+    """Charge the saved card on a pay-after custom invoice off-session.
+
+    Prereq: invoice.status == "card_on_file" AND invoice.stripe_customer_id
+    AND invoice.stripe_payment_method_id (set by the /setup-webhook /
+    /finalize path after the client secures their card).
+    """
+    inv = await db.custom_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if inv.get("status") == "paid":
+        raise HTTPException(status_code=400, detail="Invoice already paid")
+    cust = inv.get("stripe_customer_id")
+    pm = inv.get("stripe_payment_method_id")
+    if not cust or not pm:
+        raise HTTPException(
+            status_code=400,
+            detail="No saved card on this invoice — client hasn't completed the secure-card step yet.",
+        )
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+    amount_cents = int(round(float(inv["amount"]) * 100))
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    data = {
+        "amount": str(amount_cents),
+        "currency": "usd",
+        "customer": cust,
+        "payment_method": pm,
+        "off_session": "true",
+        "confirm": "true",
+        "description": f"Invoice {inv.get('invoice_number','')} — ride completed",
+        "metadata[kind]": "custom_invoice_charge",
+        "metadata[invoice_id]": invoice_id,
+        "metadata[invoice_number]": inv.get("invoice_number", ""),
+    }
+    async with httpx.AsyncClient(timeout=20.0) as cli:
+        r = await cli.post(
+            "https://api.stripe.com/v1/payment_intents", headers=headers, data=data,
+        )
+    if r.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Stripe charge failed: {r.status_code} {r.text[:300]}",
+        )
+    pi = r.json()
+    now = datetime.now(timezone.utc).isoformat()
+    await db.custom_invoices.update_one(
+        {"id": invoice_id},
+        {"$set": {
+            "status": "paid",
+            "stripe_payment_intent_id": pi.get("id"),
+            "charged_at": now,
+            "paid_at": now,
+        }},
+    )
+    return {"charged": True, "amount": float(inv["amount"]), "stripe_payment_intent_id": pi.get("id")}
+
+
+
+@router.get("/admin/billing-audit")
+async def admin_billing_audit(_: dict = Depends(require_admin)):
+    """Return bookings where the amount actually charged (paid_amount /
+    pay_later_amount) does not match the locked-in quote_amount.
+
+    Used to identify customers who need a refund after a pricing bug (e.g.
+    the Feb 2026 double-discount bug on `/payments/checkout-setup`).
+
+    Categories returned:
+      - `overcharged`: paid_amount > quote_amount + $0.50
+      - `undercharged`: paid_amount < quote_amount − $0.50 and status=paid
+      - `pay_later_over_discounted`: locked-in booking whose pay_later_amount
+        is less than quote_amount by >5% (double-discount bug victims)
+    """
+    overcharged = []
+    undercharged = []
+    over_discounted = []
+
+    cursor = db.bookings.find({}, {
+        "_id": 0,
+        "id": 1,
+        "confirmation_number": 1,
+        "email": 1,
+        "full_name": 1,
+        "created_at": 1,
+        "quote_amount": 1,
+        "original_quote_amount": 1,
+        "discount_amount": 1,
+        "paid_amount": 1,
+        "pay_later_amount": 1,
+        "payment_status": 1,
+        "payment_mode": 1,
+        "refund_amount": 1,
+    })
+
+    async for b in cursor:
+        qa = float(b.get("quote_amount") or 0)
+        pa = float(b.get("paid_amount") or 0)
+        pla = float(b.get("pay_later_amount") or 0)
+        da = float(b.get("discount_amount") or 0)
+        oqa = float(b.get("original_quote_amount") or 0)
+        status = b.get("payment_status")
+        refund = float(b.get("refund_amount") or 0)
+
+        row = {
+            "id": b["id"],
+            "confirmation_number": b.get("confirmation_number"),
+            "email": b.get("email"),
+            "full_name": b.get("full_name"),
+            "created_at": b.get("created_at"),
+            "payment_status": status,
+            "payment_mode": b.get("payment_mode"),
+            "quote_amount": qa,
+            "original_quote_amount": oqa or None,
+            "discount_amount": da or None,
+            "paid_amount": pa or None,
+            "pay_later_amount": pla or None,
+            "refund_amount": refund or None,
+        }
+
+        # Paid but got charged more than the quote (with room for tips/wait-time).
+        if status == "paid" and qa > 0 and pa > 0 and pa - refund > qa + 0.5:
+            row["overcharge_delta"] = round(pa - refund - qa, 2)
+            overcharged.append(row)
+
+        # Paid but the amount is materially less than the quote (revenue leak / refunded).
+        if status == "paid" and qa > 0 and pa > 0 and pa - refund < qa - 0.5:
+            row["undercharge_delta"] = round(qa - (pa - refund), 2)
+            undercharged.append(row)
+
+        # Pay-after-ride cards on file where pay_later_amount got double-discounted.
+        is_locked_in = da > 0 and oqa > 0 and abs(qa + da - oqa) < 1.0
+        if is_locked_in and pla > 0 and pla < qa * 0.95:
+            row["expected_pay_later"] = qa
+            row["under_by"] = round(qa - pla, 2)
+            over_discounted.append(row)
+
+    # Newest first inside each bucket.
+    for bucket in (overcharged, undercharged, over_discounted):
+        bucket.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+
+    return {
+        "overcharged": overcharged,
+        "undercharged": undercharged,
+        "pay_later_over_discounted": over_discounted,
+        "summary": {
+            "overcharged_count": len(overcharged),
+            "undercharged_count": len(undercharged),
+            "pay_later_over_discounted_count": len(over_discounted),
+        },
+    }
+
+
+
 @router.post("/admin/bookings/{booking_id}/mark-read")
 async def admin_mark_booking_read(booking_id: str, _: dict = Depends(require_admin)):
     """Flip is_read=True on a booking so the admin UI stops highlighting it.
@@ -2429,22 +2666,42 @@ async def admin_create_invoice(
     success_url = f"{base}/invoice/{invoice_id}?success=1"
     cancel_url = f"{base}/invoice/{invoice_id}?cancelled=1"
 
-    checkout = _get_stripe_checkout(request)
-    session = await checkout.create_checkout_session(
-        CheckoutSessionRequest(
+    payment_mode = (payload.payment_mode or "pay_now").lower()
+
+    if payment_mode == "pay_after":
+        # SETUP-mode Stripe Checkout — collects & validates a card, charges $0.
+        # We charge the saved card later via /admin/invoices/{id}/charge.
+        session_url, session_id, customer_id = await _create_invoice_setup_session(
+            client_email=payload.client_email,
+            client_name=payload.client_name,
             amount=round(float(payload.amount), 2),
-            currency="usd",
+            trip_summary=trip_summary,
             success_url=success_url,
             cancel_url=cancel_url,
-            metadata={
-                "kind": "custom_invoice",
-                "invoice_id": invoice_id,
-                "invoice_number": invoice_number,
-                "client_email": payload.client_email,
-                "client_name": payload.client_name,
-            },
+            invoice_id=invoice_id,
+            invoice_number=invoice_number,
         )
-    )
+        session_obj = type("S", (), {"url": session_url, "session_id": session_id})()
+        stripe_customer_id_val = customer_id
+    else:
+        checkout = _get_stripe_checkout(request)
+        session = await checkout.create_checkout_session(
+            CheckoutSessionRequest(
+                amount=round(float(payload.amount), 2),
+                currency="usd",
+                success_url=success_url,
+                cancel_url=cancel_url,
+                metadata={
+                    "kind": "custom_invoice",
+                    "invoice_id": invoice_id,
+                    "invoice_number": invoice_number,
+                    "client_email": payload.client_email,
+                    "client_name": payload.client_name,
+                },
+            )
+        )
+        session_obj = session
+        stripe_customer_id_val = None
 
     profit = None
     if payload.affiliate_cost is not None:
@@ -2469,8 +2726,10 @@ async def admin_create_invoice(
         "description": payload.description or trip_summary,
         "internal_notes": payload.internal_notes,
         "status": "sent",
-        "payment_link": session.url,
-        "stripe_session_id": session.session_id,
+        "payment_link": session_obj.url,
+        "stripe_session_id": session_obj.session_id,
+        "payment_mode": payment_mode,
+        "stripe_customer_id": stripe_customer_id_val,
         "created_at": now,
         "paid_at": None,
     }

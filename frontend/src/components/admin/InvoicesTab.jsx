@@ -61,11 +61,14 @@ const EMPTY_FORM = {
   affiliate_cost: "",
   description: "",
   internal_notes: "",
+  payment_mode: "pay_now",
 };
 
 function statusBadge(s) {
   if (s === "paid")
     return { label: "Paid", icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30" };
+  if (s === "card_on_file")
+    return { label: "Card on File", icon: Circle, cls: "text-sky-400 bg-sky-500/10 border-sky-500/30" };
   if (s === "cancelled")
     return { label: "Cancelled", icon: XCircle, cls: "text-red-400 bg-red-500/10 border-red-500/30" };
   return { label: "Sent · Awaiting Payment", icon: Circle, cls: "text-[#D4AF37] bg-[#D4AF37]/10 border-[#D4AF37]/30" };
@@ -159,10 +162,12 @@ export default function InvoicesTab() {
       affiliate_cost: form.affiliate_cost ? Number(form.affiliate_cost) : null,
       description: form.description?.trim() || null,
       internal_notes: form.internal_notes?.trim() || null,
+      payment_mode: form.payment_mode || "pay_now",
     };
     try {
       const { data } = await api.post("/admin/invoices", payload);
-      toast.success(`Invoice ${data.invoice_number} created. Payment link emailed to ${data.client_email}.`);
+      const modeLabel = data.payment_mode === "pay_after" ? "Secure-card link" : "Payment link";
+      toast.success(`Invoice ${data.invoice_number} created. ${modeLabel} emailed to ${data.client_email}.`);
       setShowForm(false);
       setForm(EMPTY_FORM);
       await load();
@@ -199,6 +204,17 @@ export default function InvoicesTab() {
       await load();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to cancel");
+    }
+  };
+
+  const chargeInvoice = async (id, amount, num) => {
+    if (!confirm(`Charge $${Number(amount).toFixed(2)} to the saved card on invoice ${num}? The client will be charged off-session.`)) return;
+    try {
+      const { data } = await api.post(`/admin/invoices/${id}/charge`);
+      toast.success(`Charged $${Number(data.amount).toFixed(2)} · invoice ${num} now paid`);
+      await load();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to charge");
     }
   };
 
@@ -262,7 +278,7 @@ export default function InvoicesTab() {
         <div className="border border-dashed border-white/15 rounded-2xl p-10 text-center" data-testid="invoices-empty">
           <p className="text-white/55 text-sm">No invoices yet.</p>
           <p className="text-white/35 text-xs mt-2 max-w-md mx-auto">
-            Create one for phone-only quote requests like Cristina's Sacramento → Merced trip. Customer gets an email with a Stripe payment link.
+            Create one for phone-only quote requests like Cristina&apos;s Sacramento → Merced trip. Customer gets an email with a Stripe payment link.
           </p>
         </div>
       ) : (
@@ -353,6 +369,27 @@ export default function InvoicesTab() {
                         data-testid={`invoice-resend-${inv.id}`}
                       >
                         <Send className="w-3 h-3 mr-1.5" /> Resend
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                        onClick={() => cancelInvoice(inv.id, inv.invoice_number)}
+                        data-testid={`invoice-cancel-${inv.id}`}
+                      >
+                        <Ban className="w-3 h-3 mr-1.5" /> Cancel
+                      </Button>
+                    </>
+                  )}
+                  {inv.status === "card_on_file" && (
+                    <>
+                      <Button
+                        size="sm"
+                        className="bg-[#D4AF37] text-black hover:bg-[#B3922E]"
+                        onClick={() => chargeInvoice(inv.id, inv.amount, inv.invoice_number)}
+                        data-testid={`invoice-charge-${inv.id}`}
+                      >
+                        Charge ${Number(inv.amount).toFixed(2)}
                       </Button>
                       <Button
                         size="sm"
@@ -485,6 +522,33 @@ export default function InvoicesTab() {
                 placeholder="595"
                 className="bg-[#0E0E0E] border-[#27272A] mt-1"
               />
+            </div>
+            <div>
+              <Label className="text-white/70 text-xs">Payment mode</Label>
+              <Select
+                value={form.payment_mode}
+                onValueChange={(v) => setForm({ ...form, payment_mode: v })}
+              >
+                <SelectTrigger
+                  data-testid="invoice-input-payment-mode"
+                  className="bg-[#0E0E0E] border-[#27272A] mt-1"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0E0E0E] border-[#27272A] text-white">
+                  <SelectItem value="pay_now" data-testid="invoice-payment-mode-pay-now">
+                    Pay Now (charge card immediately)
+                  </SelectItem>
+                  <SelectItem value="pay_after" data-testid="invoice-payment-mode-pay-after">
+                    Book Now, Pay After Ride (save card, charge later)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-white/40 text-[10px] mt-1 leading-relaxed">
+                {form.payment_mode === "pay_after"
+                  ? "Client secures a card at booking; you charge it from this dashboard after the ride."
+                  : "Client pays via Stripe checkout now — reservation is confirmed once payment lands."}
+              </p>
             </div>
             <div>
               <Label className="text-white/70 text-xs">Affiliate (if brokered)</Label>

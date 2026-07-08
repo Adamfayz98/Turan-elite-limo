@@ -27,6 +27,92 @@ import server as _server  # noqa: E402
 globals().update({k: v for k, v in vars(_server).items() if not k.startswith("__")})
 
 
+async def _resolve_charge_amount(
+    booking: dict,
+    quote_amount: float,
+    deposit_percent: float,
+) -> tuple[float, float, float, "str | None"]:
+    """Compute the amount to actually charge for a booking, respecting any
+    locked-in promo discount WITHOUT double-applying it.
+
+    Returns: (original_amount, amount_to_charge, discount_amount, applied_promo_code).
+
+    Historical context — the double-discount bug (Feb 2026):
+      - `server.create_booking` stores `quote_amount = ride_amount − discount`
+        (POST-discount) whenever a promo locks in successfully.
+      - The old inline code here treated `quote_amount` as PRE-discount and
+        applied the discount ratio a second time → customers who saw
+        $660.88 on the booking form got a Stripe deposit of $462.44 (30%
+        off applied twice).
+      - This helper detects locked-in bookings (where
+        `quote_amount + discount_amount ≈ original_quote_amount`) and
+        uses `quote_amount` as-is. Legacy bookings — created before the
+        lock-in fix, where `quote_amount == original_quote_amount` — still
+        get the proportional discount so we don't accidentally overcharge
+        them mid-migration.
+    """
+    stored_discount = float(booking.get("discount_amount") or 0)
+    orig_ride = float(booking.get("original_quote_amount") or 0)
+
+    # Locked-in booking: quote_amount is already POST-discount. Just apply
+    # deposit_percent — nothing else.
+    is_locked_in = (
+        stored_discount > 0
+        and orig_ride > 0
+        and abs(float(quote_amount) + stored_discount - orig_ride) < 1.0
+    )
+    if is_locked_in:
+        # Amount to charge = post-discount quote × deposit_percent.
+        amount = round(float(quote_amount) * deposit_percent / 100.0, 2)
+        # For display we recompute the pre-discount deposit + the applied
+        # discount, so downstream (Stripe metadata, admin UI) still shows
+        # "original − savings" correctly.
+        original_amount = round(float(orig_ride) * deposit_percent / 100.0, 2)
+        discount_amount = round(original_amount - amount, 2)
+        if discount_amount < 0:
+            discount_amount = 0.0
+        applied_promo = booking.get("promo_code")
+        return original_amount, amount, discount_amount, applied_promo
+
+    # Legacy path #1: booking stored `discount_amount` but `quote_amount` is
+    # PRE-discount (older bookings from before the lock-in fix). Apply the
+    # proportional discount so `deposit_percent < 100` still works.
+    original_amount = round(float(quote_amount) * deposit_percent / 100.0, 2)
+    if stored_discount > 0 and orig_ride > 0:
+        discount_ratio = stored_discount / orig_ride
+        discount_amount = round(original_amount * discount_ratio, 2)
+        amount = round(original_amount - discount_amount, 2)
+        applied_promo = booking.get("promo_code")
+        if amount < 0.5:
+            amount = 0.5
+            discount_amount = round(original_amount - amount, 2)
+        return original_amount, amount, discount_amount, applied_promo
+
+    # Legacy path #2: no stored discount at all. Re-validate promo_code if
+    # any — matches the pre-refactor behaviour for in-flight bookings.
+    amount = original_amount
+    discount_amount = 0.0
+    applied_promo = None
+    code_raw = (booking.get("promo_code") or "").strip()
+    if code_raw:
+        promo = await _validate_promo_for_booking(
+            code_raw, original_amount, booking.get("email"), booking.get("vehicle_type"),
+        )
+        if promo.get("ok"):
+            discount_amount = round(promo["discount"], 2)
+            amount = round(original_amount - discount_amount, 2)
+            applied_promo = promo["code"]
+            if amount < 0.5:
+                amount = 0.5
+                discount_amount = round(original_amount - amount, 2)
+        else:
+            logger.warning(
+                f"Promo '{code_raw}' rejected at checkout for {booking.get('id')}: "
+                f"{promo.get('reason')}"
+            )
+    return original_amount, amount, discount_amount, applied_promo
+
+
 @router.post("/admin/bookings/{booking_id}/charge-mid-trip-stop")
 async def admin_charge_mid_trip_stop(
     booking_id: str,
@@ -116,55 +202,14 @@ async def create_payment_checkout(payload: CheckoutCreateRequest, request: Reque
         )
 
     settings = await _load_settings()
-    amount = round(float(quote_amount) * settings.deposit_percent / 100.0, 2)
+
+    # ----- Promo / discount resolution -----
+    # See _resolve_charge_amount for the double-discount bug it prevents.
+    original_amount, amount, discount_amount, applied_promo = (
+        await _resolve_charge_amount(booking, quote_amount, settings.deposit_percent)
+    )
     if amount < 0.5:
         raise HTTPException(status_code=400, detail="Amount too small to charge")
-
-    # ----- Promo (Phase 3) — trust the values locked in at booking creation -----
-    # NEW (Feb 2026): The customer-sees-$103/Stripe-charges-$147 bug was caused
-    # by re-validating the promo here, where a first_ride_only check could
-    # silently fail on a customer who had ANY prior booking and quietly fall
-    # through to the full price. Now the discount is validated + persisted at
-    # /bookings creation (see server.create_booking). If the booking has
-    # `discount_amount` stored, we trust it — that IS what the customer saw and
-    # what we charge. We only re-validate for legacy bookings created before
-    # this fix that never got the lock-in.
-    original_amount = amount
-    discount_amount = 0.0
-    applied_promo = None
-    stored_discount = float(booking.get("discount_amount") or 0)
-    if stored_discount > 0:
-        # Booking was locked-in at creation. Apply the same proportional discount
-        # to the deposit amount so deposit_percent < 100 still works correctly.
-        orig_ride = float(booking.get("original_quote_amount") or quote_amount)
-        if orig_ride > 0:
-            discount_ratio = stored_discount / orig_ride
-            discount_amount = round(original_amount * discount_ratio, 2)
-            amount = round(original_amount - discount_amount, 2)
-            applied_promo = booking.get("promo_code")
-            if amount < 0.5:
-                amount = 0.5
-                discount_amount = round(original_amount - amount, 2)
-    else:
-        # Legacy path — re-validate at checkout for bookings created before the
-        # lock-in fix. Same soft-fail behaviour as before to avoid breaking any
-        # in-flight bookings during the migration window.
-        code_raw = (booking.get("promo_code") or "").strip()
-        if code_raw:
-            promo = await _validate_promo_for_booking(
-                code_raw, original_amount, booking.get("email"), booking.get("vehicle_type"),
-            )
-            if promo.get("ok"):
-                discount_amount = round(promo["discount"], 2)
-                amount = round(original_amount - discount_amount, 2)
-                applied_promo = promo["code"]
-                if amount < 0.5:
-                    amount = 0.5
-                    discount_amount = round(original_amount - amount, 2)
-            else:
-                logger.warning(
-                    f"Promo '{code_raw}' rejected at checkout for {payload.booking_id}: {promo.get('reason')}"
-                )
 
     # Generate confirmation # on first checkout (so it's locked in even before payment)
     booking_updates = {"quote_amount": quote_amount}
@@ -598,6 +643,10 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
             md = (getattr(sess, "metadata", None) or {}) if sess else {}
             if isinstance(md, dict) and md.get("kind") == "custom_invoice" and event.payment_status == "paid":
                 await _maybe_mark_custom_invoice_paid(md, sid)
+            elif isinstance(md, dict) and md.get("kind") == "custom_invoice_setup":
+                # Pay-later invoice: setup mode complete, save card refs so
+                # admin can charge off-session after the ride.
+                await _finalize_invoice_setup_session(sid, md)
         except Exception as e:
             logging.getLogger(__name__).warning(f"Custom invoice webhook check failed: {e}")
         txn = await db.payment_transactions.find_one({"session_id": sid}, {"_id": 0})
@@ -1188,46 +1237,11 @@ async def create_payment_checkout_setup(payload: CheckoutCreateRequest, request:
         )
 
     settings = await _load_settings()
-    amount = round(float(quote_amount) * settings.deposit_percent / 100.0, 2)
+    original_amount, amount, discount_amount, applied_promo = (
+        await _resolve_charge_amount(booking, quote_amount, settings.deposit_percent)
+    )
     if amount < 0.5:
         raise HTTPException(status_code=400, detail="Amount too small to charge")
-
-    # Promo handling — trust the values locked in at booking creation.
-    # Mirrors /payments/checkout to keep pay-now and pay-after-ride flows in sync.
-    # See the long comment in create_payment_checkout for the billing-integrity
-    # rationale.
-    original_amount = amount
-    discount_amount = 0.0
-    applied_promo = None
-    stored_discount = float(booking.get("discount_amount") or 0)
-    if stored_discount > 0:
-        orig_ride = float(booking.get("original_quote_amount") or quote_amount)
-        if orig_ride > 0:
-            discount_ratio = stored_discount / orig_ride
-            discount_amount = round(original_amount * discount_ratio, 2)
-            amount = round(original_amount - discount_amount, 2)
-            applied_promo = booking.get("promo_code")
-            if amount < 0.5:
-                amount = 0.5
-                discount_amount = round(original_amount - amount, 2)
-    else:
-        # Legacy path for bookings created before the lock-in fix.
-        code_raw = (booking.get("promo_code") or "").strip()
-        if code_raw:
-            promo = await _validate_promo_for_booking(
-                code_raw, original_amount, booking.get("email"), booking.get("vehicle_type"),
-            )
-            if promo.get("ok"):
-                discount_amount = round(promo["discount"], 2)
-                amount = round(original_amount - discount_amount, 2)
-                applied_promo = promo["code"]
-                if amount < 0.5:
-                    amount = 0.5
-                    discount_amount = round(original_amount - amount, 2)
-            else:
-                logger.warning(
-                    f"Promo '{code_raw}' rejected at setup-checkout for {payload.booking_id}: {promo.get('reason')}"
-                )
 
     booking_updates = {
         "quote_amount": quote_amount,
@@ -1459,6 +1473,57 @@ async def _finalize_setup_session(session_id: str, client_origin: str | None = N
             except Exception as e:
                 logger.warning(f"Promo usage bump failed for {promo_used}: {e}")
     return "card_on_file"
+
+
+async def _finalize_invoice_setup_session(session_id: str, md: dict) -> None:
+    """Pay-later custom invoice: expand the SetupIntent, capture the saved
+    card + customer references onto the invoice document, mark status=card_on_file.
+    Idempotent — safe if the webhook fires more than once."""
+    invoice_id = (md or {}).get("invoice_id")
+    if not invoice_id:
+        return
+    inv = await db.custom_invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not inv:
+        return
+    if inv.get("status") in ("paid", "card_on_file"):
+        return
+    api_key = os.environ.get("STRIPE_API_KEY", "")
+    if not api_key:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as cli:
+            r = await cli.get(
+                f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
+                params={"expand[]": "setup_intent"},
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+    except Exception as e:
+        logger.warning(f"Invoice setup session lookup failed for {session_id}: {e}")
+        return
+    if r.status_code != 200:
+        logger.warning(f"Invoice setup session HTTP {r.status_code} for {session_id}")
+        return
+    sj = r.json()
+    if sj.get("status") != "complete":
+        return
+    si = sj.get("setup_intent") or {}
+    if isinstance(si, str):
+        return
+    pm_id = si.get("payment_method")
+    customer_id = si.get("customer") or sj.get("customer")
+    if not pm_id or not customer_id:
+        return
+    await db.custom_invoices.update_one(
+        {"id": invoice_id},
+        {"$set": {
+            "status": "card_on_file",
+            "stripe_customer_id": customer_id,
+            "stripe_payment_method_id": pm_id,
+            "card_secured_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    logger.info(f"Custom invoice {invoice_id}: card_on_file (pm={pm_id})")
+
 
 
 @router.post("/admin/bookings/{booking_id}/charge-pay-later")
