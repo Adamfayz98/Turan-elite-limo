@@ -573,6 +573,12 @@ export default function BookingForm() {
                 ? `${firstRidePromo.value}% off`
                 : `$${firstRidePromo.value} off`;
             const scope = firstRidePromo.first_ride_only ? "your first ride" : "your ride";
+            // First-ride-only promos require the code to be typed manually so
+            // we can validate the customer hasn't ridden before. Non-restricted
+            // promos can auto-apply at the quote engine level.
+            const applyHint = firstRidePromo.first_ride_only
+              ? `use code ${firstRidePromo.code || "at checkout"}`
+              : "applied automatically at checkout — no code needed";
             return (
               <div
                 data-testid="first-ride-banner"
@@ -580,7 +586,7 @@ export default function BookingForm() {
               >
                 <span className="font-semibold">{label} {scope}</span>
                 <span className="text-[#D4AF37]/70">·</span>
-                <span className="text-[#D4AF37]/85">applied automatically at checkout — no code needed</span>
+                <span className="text-[#D4AF37]/85">{applyHint}</span>
               </div>
             );
           })()}

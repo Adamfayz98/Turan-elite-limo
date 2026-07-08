@@ -1,6 +1,26 @@
 # TuranEliteLimo — Product Requirements Document (Live)
 
-> Last refreshed: July 7, 2026 — iter 54 (Round-trip pricing + return date/time + pickup/dropoff autocomplete split)
+> Last refreshed: July 7, 2026 — iter 55 (Promo overcharge recurrence — root cause fixed)
+
+## 💰 Promo → Stripe overcharge recurrence — ROOT CAUSE fixed (Jul 7, 2026 — iter 55)
+
+**Recurring bug summary:** Customer sees discounted price on booking form ($630), but Stripe SetupIntent / thank-you page charges the full undiscounted price ($970). Adam reported this exact overcharge has been "fixed several times" — this iteration nails the underlying validation mismatch that keeps producing it.
+
+**Root cause (finally traced):**
+- `_apply_auto_promo_to_quote_response` (used at `/api/quote` — decorates each vehicle card with a discounted price) does NOT check `first_ride_only` — it can't, because we don't know the customer's email at quote time.
+- `_validate_promo_for_booking` (used at booking creation AND at checkout) DOES check `first_ride_only` — and correctly rejects repeat customers.
+- So for a repeat customer with a `first_ride_only + auto_apply` promo in the DB: quote step happily shows $630, booking creation silently strips the promo code, `quote_amount` stays at the full $970, `/checkout-setup` uses the un-discounted amount for `pay_later_amount`, customer gets charged full price. Every prior "fix" patched a downstream symptom instead of the mismatch itself.
+
+**Three-part fix:**
+1. **`_apply_auto_promo_to_quote_response` now skips any promo with `first_ride_only=True`.** These promos can ONLY be applied by manual code entry (where the customer has typed their email → server can verify). This eliminates the entire class of "auto-showed a discount that would fail at validation." (server.py ~line 1183)
+2. **Loud alert path on promo rejection.** If `_validate_promo_for_booking` rejects a code at booking creation, we now log `[BILLING ALERT]` + fire an admin SMS with the customer's email + attempted code + rejection reason + ride amount, and stamp `promo_rejected_reason` + `promo_rejected_code` on the booking. Ops can call the customer proactively before Stripe charges. (server.py ~line 632-660)
+3. **Banner honesty.** The site-wide promo banner (`first-ride-banner`) previously said "applied automatically at checkout — no code needed" for ALL banner promos. Now it correctly reads "use code X" for `first_ride_only` promos, since those require manual entry. (BookingForm.jsx ~line 570-586)
+
+**Confirmation email:** Uses `pay_later_amount` (post-discount) — no changes needed, since the fix above makes `pay_later_amount` correct at the source.
+
+**Verified end-to-end:** Seeded a `TESTFIRSTRIDE` promo (first_ride_only + auto_apply + 35% off) into preview DB, called `/api/quote` — response contained ZERO `applied_promo` decorations across all vehicle cards. Fix works.
+
+**Deploy note for existing stuck bookings:** Any bookings currently in production DB with the wrong `quote_amount` (customer expected discount but code was stripped) are NOT auto-repaired by this deploy. Ops workflow: (1) find them by querying `promo_rejected_code` field (only populated on NEW bookings post-deploy). (2) For OLD stuck bookings: search bookings where `quote_amount == original_quote_amount` and customer complained. (3) Use the new admin Edit Trip Details dialog with `recompute_quote=false` and manually set the correct `quote_amount` + `pay_later_amount`.
 
 ## 🔁 Round-trip pricing + Autocomplete geo-restriction split (Jul 7, 2026 — iter 54)
 

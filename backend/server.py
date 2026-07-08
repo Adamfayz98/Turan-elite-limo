@@ -630,11 +630,35 @@ async def create_booking(payload: BookingCreate, request: Request):
                     doc["quote_amount"] = round(float(ride_amount) - disc, 2)
                     doc["promo_code"] = promo_check["code"]  # normalized
                 else:
-                    logger.warning(
-                        f"Promo '{doc['promo_code']}' rejected at booking creation "
-                        f"for {doc.get('email')}: {promo_check.get('reason')} — "
-                        f"stripping code so customer sees full price consistently."
+                    # Billing-integrity alert: the customer saw a discounted
+                    # price on the booking form (frontend auto-applied the
+                    # promo), but server-side validation just rejected the
+                    # code. If we quietly move on, the customer will get
+                    # charged the FULL price after Stripe — the exact
+                    # overcharge bug we've been chasing. Log LOUDLY + SMS
+                    # admin so we can proactively call the customer.
+                    rejection_reason = promo_check.get("reason") or "validation failed"
+                    logger.error(
+                        f"[BILLING ALERT] Promo '{doc.get('promo_code')}' REJECTED at "
+                        f"booking creation for {doc.get('email')} · ride=${ride_amount:.2f} · "
+                        f"reason={rejection_reason} · booking_id={doc.get('id')}. "
+                        f"Customer will now see the FULL price at checkout."
                     )
+                    # Fire-and-forget admin SMS so support can intervene before
+                    # the customer feels surprised at the price bump.
+                    try:
+                        cn_short = doc.get("confirmation_number") or (doc.get("id") or "")[:8]
+                        await send_admin_sms(
+                            f"⚠️ Promo rejected · #{cn_short}\n"
+                            f"{doc.get('email','?')} tried '{doc.get('promo_code','?')}'\n"
+                            f"Reason: {rejection_reason}\n"
+                            f"Ride ${ride_amount:.0f} — customer expected discount. Consider calling."
+                        )
+                    except Exception as sms_err:
+                        logger.warning(f"admin SMS on promo rejection failed: {sms_err}")
+                    # Record the rejection on the booking so ops can trace it
+                    doc["promo_rejected_reason"] = rejection_reason
+                    doc["promo_rejected_code"] = doc.get("promo_code")
                     doc.pop("promo_code", None)
             else:
                 # Can't compute ride price (call-for-quote vehicle) — leave the
@@ -1183,6 +1207,15 @@ async def _apply_auto_promo_to_quote_response(qr: "QuoteResponse") -> "QuoteResp
         async for r in db.promos.find({"active": True, "auto_apply": True}, {"_id": 0}):
             exp = r.get("expires_at")
             if exp and exp < now_iso:
+                continue
+            # Never auto-apply first-ride-only promos: at /quote time we don't
+            # have the customer's email, so we can't verify eligibility. If we
+            # applied blindly, repeat customers would see the discount on the
+            # booking form, then get charged the FULL price after Stripe
+            # (because _validate_promo_for_booking correctly rejects the code
+            # at booking creation once we have the email). See PRD iter 55 for
+            # the exact overcharge report that motivated this guard.
+            if r.get("first_ride_only"):
                 continue
             try:
                 p = Promo(**r)
