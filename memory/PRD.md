@@ -2,6 +2,26 @@
 
 > Last refreshed: July 7, 2026 — iter 55 (Promo overcharge recurrence — root cause fixed)
 
+## Iter 61 — Caller-ID pass-through on `<Dial>` (Feb 9, 2026)
+
+**Problem** (user Feb 9 report): "When someone calls the Twilio number and it forwards to my cell, my phone always shows the Twilio number as the caller ID — so I can't tell whether it's a client or someone I know. Before call forwarding, every call showed a different number."
+
+**Root cause:** Twilio's `<Dial>` defaults `callerId` to the "To" number of the incoming call — i.e., our Twilio number. So the dispatched cell always saw `+1-650-672-3520`.
+
+**Fix:** added `callerId="{original_caller_number}"` to both `<Dial>` verbs (the human-first ring at `/twilio/voice/incoming` and the AI-explicit-transfer path in `_dispatch_action`). Adam's cell now shows the actual caller's phone number on every ring, just like a direct call.
+
+**Edge cases handled** via new `_resolve_caller_id_for_dial(from_number)` helper:
+- Well-formed E.164 → pass through as-is
+- Anonymous/withheld/empty caller → fall back to Twilio number (Adam still knows it's a business call, no TwiML parse error)
+- Malformed non-E.164 → same fallback + info-level log
+
+Verified via curl-driven TwiML generation: 3/3 scenarios produce correct output.
+
+**Legal note** in code comment: pass-through of original caller ID during legitimate call forwarding is standard Twilio Voice usage (ToS §3.g). Destination carriers may still mark the call as "Spam Risk" if STIR/SHAKEN attestation is missing — that's a network-level display issue, not a TwiML issue.
+
+Files: `backend/routes/twilio_voice.py`.
+
+
 ## Iter 60 — AI Receptionist honesty, silent-hangup fix, model upgrade (Feb 9, 2026)
 
 User Feb 9 QA call surfaced 3 more bugs:

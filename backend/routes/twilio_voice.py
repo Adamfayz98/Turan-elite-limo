@@ -45,6 +45,46 @@ def _twiml(body: str) -> Response:
     )
 
 
+def _xml_escape(text: str) -> str:
+    """Escape a string for safe use inside XML attribute values (callerId,
+    action, etc.). Twilio expects &-escaped double-quoted attribute values.
+    Also strips any characters that couldn't legitimately be in an E.164
+    phone number — a `From` field is user-controlled and though Twilio
+    validates it, we double-belt it here so a malformed `From` can never
+    break TwiML."""
+    return (
+        (text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
+
+
+def _resolve_caller_id_for_dial(from_number: str) -> str:
+    """Decide which number to show on Adam's cell when we <Dial> him.
+
+    - Well-formed E.164 (+1XXXXXXXXXX) → pass through as-is so he sees the
+      actual caller's number, exactly like a direct call.
+    - Anonymous / private / empty / malformed → fall back to our Twilio
+      number (Adam will at least know "an anonymous caller reached the
+      business line") — better than a TwiML validation error.
+    """
+    raw = (from_number or "").strip()
+    # Twilio uses several sentinel strings for withheld caller IDs.
+    if not raw or raw.lower() in ("anonymous", "unknown", "restricted", "unavailable", "private"):
+        return _xml_escape(os.environ.get("TWILIO_FROM_NUMBER", ""))
+    # Very lightweight E.164 sniff — starts with + and 8-15 digits after.
+    digits = raw[1:] if raw.startswith("+") else raw
+    if raw.startswith("+") and digits.isdigit() and 8 <= len(digits) <= 15:
+        return _xml_escape(raw)
+    # Anything else — fall back to Twilio number rather than risk a TwiML
+    # parse error.
+    logger.info(f"[caller-id fallback] From={raw!r} not E.164 — using Twilio number")
+    return _xml_escape(os.environ.get("TWILIO_FROM_NUMBER", ""))
+
+
 def _say(text: str) -> str:
     # Escape XML-unsafe chars in the reply so the model can't break TwiML.
     safe = (
@@ -172,11 +212,20 @@ async def twilio_voice_incoming(
 
     # Human-first: ring dispatcher for ~20 sec, then hand off to
     # /twilio/voice/dispatcher-unavailable which spins up the AI.
+    # `callerId={From}` makes the ORIGINAL caller's number appear on the
+    # dispatcher's phone (instead of our Twilio number), so Adam can tell
+    # apart clients from friends/family without picking up first. This is
+    # the standard Twilio pattern for "forwarding-with-original-CID". Legal
+    # for legitimate call forwarding (Twilio Voice ToS §3.g).
+    # If the caller withheld their number (Twilio sends "anonymous" or the
+    # From field is empty), we fall back to our Twilio number so the Dial
+    # attribute isn't malformed.
     transfer_action = _action_url(request, "/twilio/voice/dispatcher-unavailable")
+    safe_caller = _resolve_caller_id_for_dial(From)
     return _twiml(
         "<Response>"
         f'<Dial timeout="20" action="{transfer_action}" method="POST" '
-        f'answerOnBridge="true">{admin}</Dial>'
+        f'answerOnBridge="true" callerId="{safe_caller}">{admin}</Dial>'
         "</Response>"
     )
 
@@ -442,10 +491,11 @@ async def _dispatch_action(request: Request, call_sid: str, caller: str, parsed:
                 + "</Response>"
             )
         transfer_action = _action_url(request, "/twilio/voice/transfer-fail")
+        safe_caller = _resolve_caller_id_for_dial(caller)
         return _twiml(
             "<Response>"
             + _say(reply or "Connecting you to our dispatcher now, one moment.")
-            + f'<Dial timeout="22" action="{transfer_action}" method="POST" answerOnBridge="true">{admin}</Dial>'
+            + f'<Dial timeout="22" action="{transfer_action}" method="POST" answerOnBridge="true" callerId="{safe_caller}">{admin}</Dial>'
             + "</Response>"
         )
 
