@@ -99,7 +99,7 @@ export default function QuoteRequestDialog({
   vehicleType,
   defaultTripType = "",
   vehicleOptions = null,
-  supportPhone = "(650) 410-0687",
+  supportPhone = "(650) 672-3520",
 }) {
   const [vehicle, setVehicle] = useState(vehicleType || "");
   const [form, setForm] = useState({

@@ -9,7 +9,7 @@ import SubScreen from "@/components/SubScreen";
 import { submitHelpRequest } from "@/api";
 import { colors, radius } from "@/theme";
 
-const SUPPORT_PHONE = "+16504100687";
+const SUPPORT_PHONE = "+16506723520";
 const SUPPORT_EMAIL = "support@turanelitelimo.com";
 
 export default function HelpScreen() {
@@ -38,7 +38,7 @@ export default function HelpScreen() {
             <Pressable testID="call-support" onPress={() => Linking.openURL(`tel:${SUPPORT_PHONE}`)} style={({ pressed }) => [s.quickBtn, pressed && { opacity: 0.85 }]}>
               <Phone size={20} color={colors.gold} />
               <Text style={s.quickLabel}>Call us</Text>
-              <Text style={s.quickSub}>(650) 410-0687</Text>
+              <Text style={s.quickSub}>(650) 672-3520</Text>
             </Pressable>
             <Pressable testID="email-support" onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)} style={({ pressed }) => [s.quickBtn, pressed && { opacity: 0.85 }]}>
               <Mail size={20} color={colors.gold} />

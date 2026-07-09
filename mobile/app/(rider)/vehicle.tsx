@@ -111,7 +111,7 @@ export default function VehiclePicker() {
   };
 
   const selectedQ = quotes.find(q => q.vehicle_type === selected);
-  const callDispatch = () => Linking.openURL("tel:+16504100687");
+  const callDispatch = () => Linking.openURL("tel:+16506723520");
 
   // Quote-request modal: opened from the per-card "Request Quote" button on
   // call-only vehicles (Party Bus, Stretch Limo, Sprinter). Mirrors the web

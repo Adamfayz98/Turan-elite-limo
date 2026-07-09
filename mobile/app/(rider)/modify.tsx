@@ -69,7 +69,7 @@ export default function ModifyTrip() {
     if (isPaid) {
       Alert.alert(
         "Trip already paid",
-        "This reservation is paid. To make changes, please call dispatch at (650) 410-0687 so we can rebalance the fare and process any refund.",
+        "This reservation is paid. To make changes, please call dispatch at (650) 672-3520 so we can rebalance the fare and process any refund.",
       );
       return;
     }
@@ -136,7 +136,7 @@ export default function ModifyTrip() {
           <View style={s.paidWarn}>
             <Sparkles size={14} color={colors.gold} />
             <Text style={s.paidWarnTxt}>
-              This trip is paid. Call <Text style={s.paidLink}>(650) 410-0687</Text> to make changes.
+              This trip is paid. Call <Text style={s.paidLink}>(650) 672-3520</Text> to make changes.
             </Text>
           </View>
         )}

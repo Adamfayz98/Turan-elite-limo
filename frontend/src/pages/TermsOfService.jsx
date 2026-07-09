@@ -63,7 +63,7 @@ const SECTIONS = [
       <>
         <p>By providing your mobile phone number and checking the SMS consent box at booking or quote request, you expressly consent to receive SMS messages from TuranEliteLimo for booking confirmations, trip status updates, driver dispatch and pickup notifications, ETA changes, post-trip receipts, and quote responses. Optionally, you may also opt in to promotional SMS in a separate, non-pre-checked checkbox.</p>
         <p className="mt-3">Message frequency varies based on your booking activity (typically 2–5 messages per booking). Message and data rates from your wireless carrier may apply. Reply <strong>STOP</strong> to opt out at any time, or <strong>HELP</strong> for support. Full SMS terms, opt-out, frequency, and privacy details are in our <a href="/privacy" className="text-[#D4AF37]">Privacy Policy, Section 3a</a>.</p>
-        <p className="mt-3">Opting out of transactional SMS does not cancel an existing reservation. To change or cancel an active booking, use the management link emailed at booking time or call (650) 410-0687.</p>
+        <p className="mt-3">Opting out of transactional SMS does not cancel an existing reservation. To change or cancel an active booking, use the management link emailed at booking time or call (650) 672-3520.</p>
       </>
     ),
   },
@@ -89,7 +89,7 @@ const SECTIONS = [
       <p>
         TuranEliteLimo · Bay Area, California<br />
         Email: <a href="mailto:support@turanelitelimo.com" className="text-[#D4AF37]">support@turanelitelimo.com</a><br />
-        Phone: (650) 410-0687
+        Phone: (650) 672-3520
       </p>
     ),
   },

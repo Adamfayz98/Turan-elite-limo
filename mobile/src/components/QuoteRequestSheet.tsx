@@ -115,7 +115,7 @@ function PickerSheet({
   );
 }
 
-export default function QuoteRequestSheet({ visible, vehicleType, onClose, supportPhone = "(650) 410-0687" }: Props) {
+export default function QuoteRequestSheet({ visible, vehicleType, onClose, supportPhone = "(650) 672-3520" }: Props) {
   const [form, setForm] = useState({
     full_name: "",
     phone: "",

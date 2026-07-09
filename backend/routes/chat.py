@@ -115,7 +115,7 @@ HARD RULES
 - If the customer asks something you genuinely cannot answer (custom routes,
   group >40 pax, special vehicles, complaint, refund question, World Cup hotel
   packages, anything legally sensitive), say briefly: "Let me get our team
-  involved — text or call us at (650) 410-0687 and we'll lock it in." Do NOT
+  involved — text or call us at (650) 672-3520 and we'll lock it in." Do NOT
   pretend to know.
 - Match the customer's tone. Casual = casual. Formal = formal.
 - One emoji max per reply, and only if it fits naturally. Never two.
@@ -248,7 +248,7 @@ async def chat_message(req: ChatMessageRequest):
     # Parentheses are explicit so the conjunction (which Python binds tighter
     # than `or`) doesn't accidentally rope in the phone-number branch.
     reply_lower = reply_text.lower()
-    needs_human = ("(650) 410-0687" in reply_text) or (
+    needs_human = ("(650) 672-3520" in reply_text) or (
         ("team" in reply_lower) and ("get" in reply_lower)
     )
 

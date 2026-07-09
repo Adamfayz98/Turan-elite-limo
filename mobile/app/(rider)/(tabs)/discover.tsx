@@ -102,7 +102,7 @@ export default function HomeTab() {
   const goBook = () => router.push("/(rider)/(tabs)/home");
   const goProfile = () => router.push("/(rider)/(tabs)/profile");
   const goDriver = () => router.push("/(driver)/auth");
-  const callDispatch = () => Linking.openURL("tel:+16504100687");
+  const callDispatch = () => Linking.openURL("tel:+16506723520");
   const openWebsite = () => Linking.openURL("https://www.turanelitelimo.com");
   const openAnnouncementCta = (url?: string) => { if (url) Linking.openURL(url); };
 
@@ -332,7 +332,7 @@ export default function HomeTab() {
             </Pressable>
             <Pressable testID="home-call-footer" onPress={callDispatch} style={s.footerLink} hitSlop={6}>
               <Phone size={11} color={colors.gold} />
-              <Text style={s.footerLinkTxt}>(650) 410-0687</Text>
+              <Text style={s.footerLinkTxt}>(650) 672-3520</Text>
             </Pressable>
           </View>
           <Pressable testID="home-driver-link" onPress={goDriver} hitSlop={6} style={s.driverLink}>

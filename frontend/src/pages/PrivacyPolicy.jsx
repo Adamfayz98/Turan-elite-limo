@@ -46,7 +46,7 @@ const SECTIONS = [
         </ul>
         <p className="mt-3"><strong>Message frequency:</strong> typically 2–5 messages per booking for transactional, up to 4 per month for promotional. Total monthly volume depends on your booking activity.</p>
         <p className="mt-3"><strong>Message &amp; data rates:</strong> Standard message and data rates from your wireless carrier may apply. TuranEliteLimo does not charge for SMS.</p>
-        <p className="mt-3"><strong>Opt-out:</strong> Reply <strong>STOP</strong> to any TuranEliteLimo SMS at any time to unsubscribe from that message category. You will receive a final confirmation message and no further SMS in that category. Opting out of transactional SMS does not cancel your trip — please call (650) 410-0687 to manage active bookings.</p>
+        <p className="mt-3"><strong>Opt-out:</strong> Reply <strong>STOP</strong> to any TuranEliteLimo SMS at any time to unsubscribe from that message category. You will receive a final confirmation message and no further SMS in that category. Opting out of transactional SMS does not cancel your trip — please call (650) 672-3520 to manage active bookings.</p>
         <p className="mt-3"><strong>Help:</strong> Reply <strong>HELP</strong> to any TuranEliteLimo SMS for support information, or email <a href="mailto:support@turanelitelimo.com" className="text-[#D4AF37]">support@turanelitelimo.com</a>.</p>
         <p className="mt-3"><strong>Carrier disclaimer:</strong> Carriers (AT&amp;T, T-Mobile, Verizon, etc.) are not liable for delayed or undelivered messages.</p>
         <p className="mt-3"><strong>Privacy of SMS data:</strong> Mobile information collected for SMS will not be shared with third parties or affiliates for marketing or promotional purposes. Information sharing is limited to the SMS service providers (e.g., Twilio) strictly necessary to deliver the messages you&apos;ve requested.</p>
@@ -110,7 +110,7 @@ const SECTIONS = [
       <p>
         TuranEliteLimo · Bay Area, California, USA<br />
         Email: <a href="mailto:support@turanelitelimo.com" className="text-[#D4AF37]">support@turanelitelimo.com</a><br />
-        Phone: (650) 410-0687
+        Phone: (650) 672-3520
       </p>
     ),
   },

@@ -137,7 +137,7 @@ export default function AppDownload() {
         {[
           { h: "Live quotes", b: "See every charge before you confirm. No surge. No surprises." },
           { h: "Real-time tracking", b: "Watch your chauffeur arrive on a live map. ETA always visible." },
-          { h: "24/7 dispatch", b: "Text or call (650) 410-0687 anytime. Real humans, real fast." },
+          { h: "24/7 dispatch", b: "Text or call (650) 672-3520 anytime. Real humans, real fast." },
         ].map((f) => (
           <div key={f.h} className="space-y-2">
             <h3 className="text-[#D4AF37] text-lg">{f.h}</h3>

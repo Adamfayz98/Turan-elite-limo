@@ -164,7 +164,7 @@ async def customer_forgot_password(payload: CustomerForgotPasswordRequest):
                   If you didn't ask to reset your password, you can safely ignore this email. The link will expire on its own.
                 </p>
                 <p style="color:rgba(255,255,255,0.3);font-size:11px;line-height:1.5;margin-top:24px;border-top:1px solid rgba(255,255,255,0.08);padding-top:16px;">
-                  TuranEliteLimo · Bay Area &amp; Northern California · (650) 410-0687
+                  TuranEliteLimo · Bay Area &amp; Northern California · (650) 672-3520
                 </p>
               </div>
             </div>
@@ -762,7 +762,7 @@ async def customer_jwt_modify_booking(
     if b.get("payment_status") == "paid":
         raise HTTPException(
             status_code=409,
-            detail="This reservation is already paid. To make changes, please call dispatch at (650) 410-0687 so we can rebalance the fare and process any refund.",
+            detail="This reservation is already paid. To make changes, please call dispatch at (650) 672-3520 so we can rebalance the fare and process any refund.",
         )
 
     update_doc: dict = {}

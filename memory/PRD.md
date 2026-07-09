@@ -2,6 +2,19 @@
 
 > Last refreshed: July 7, 2026 — iter 55 (Promo overcharge recurrence — root cause fixed)
 
+## Iter 58 — Site-wide phone number swap to Twilio (Feb 9, 2026)
+
+**Purpose:** Route ALL inbound customer calls through Twilio (`+1-650-672-3520`) so the AI Receptionist + call logging see every call, since the user's Verizon lines were tied up during earlier testing.
+
+- Swapped `(650) 410-0687` → `(650) 672-3520` (and `+16504100687` → `+16506723520`) across **36 files**:
+  - **Web (21):** Navbar, Footer, LandingPage, WorldCup2026, PayBooking, ManageBooking, PostTrip, QuoteOfferConfirm, PrivacyPolicy, TermsOfService, AppDownload, ContactForm, CancellationPolicy, Coverage, FleetPicker, FloatingChatWidget, QuoteRequestDialog, SeoStructuredData, BookingForm placeholder, admin/QuoteRequestsTab broker-outreach SMS, `public/index.html` JSON-LD schema.
+  - **Backend (9):** `email_service.py` (SUPPORT_PHONE default + all tel: links), `server.py`, `pdf_service.py`, `routes/admin.py`, `routes/customer.py`, `routes/driver.py`, `routes/payments.py`, `routes/chat.py` (system prompt + escalation regex), `tests/test_iteration30_jwt_modify_booking.py` (assertion).
+  - **Mobile (6):** `app/index.tsx`, `app/(rider)/help.tsx`, `app/(rider)/vehicle.tsx`, `app/(rider)/modify.tsx`, `app/(rider)/(tabs)/discover.tsx`, `src/components/QuoteRequestSheet.tsx`. *Requires new EAS build for stores.*
+- **Intentionally NOT touched:** `backend/tests/test_iter44_public_booking_phone.py` (asserts a customer-seed phone, not dispatch), `test_reports/*`, `memory/*` markdown docs (App Store copy, A2P texts — update on next submission), and the compiled `frontend/public/m/_expo/` bundle (auto-regenerates).
+- AI Receptionist code (`ai_receptionist.py`, `routes/twilio_voice.py`) doesn't hardcode the display number, so all previous fixes (speech hints, promo-matched quote math, 8s silence timeout, human-first `<Dial>` flow) remain intact.
+- Verified live in preview: header/footer render `(650) 672-3520`, zero occurrences of the old number in `document.body.innerText`.
+
+
 ## Iter 57.2 — Route-map fix, long-trip advisor, AI caller memory (Feb 8, 2026)
 
 **1. Fixed the "blank/black route map on long distances" bug** (`/app/frontend/src/components/RouteMap.jsx`)
