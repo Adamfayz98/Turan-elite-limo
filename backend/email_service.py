@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 resend.api_key = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "support@turanelitelimo.com")
-SUPPORT_PHONE = os.environ.get("SUPPORT_PHONE", "(650) 672-3520")
+SUPPORT_PHONE = os.environ.get("SUPPORT_PHONE", "(650) 410-0687")
 ADMIN_SMS_GATEWAY = os.environ.get("ADMIN_SMS_GATEWAY", "").strip()
 COMPANY_NAME = "TuranEliteLimo"
 
@@ -240,7 +240,7 @@ def render_request_received_email(booking: dict, manage_url: Optional[str] = Non
 
         <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
           Need to change something before we confirm? Reply to this email or call
-          <a href="tel:+16506723520" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>.
+          <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>.
           We're here to help.
         </td></tr>
         <tr><td style="padding:16px 32px 24px 32px;color:#555;font-size:11px;">
@@ -401,7 +401,7 @@ def render_confirmation_email(booking: dict, payment_url: Optional[str] = None, 
         {render_cancellation_policy_html(booking.get('service_type') == 'Airport Transfer')}
 
         <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
-          Questions or changes? Call <a href="tel:+16506723520" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>
+          Questions or changes? Call <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>
           or email <a href="mailto:{SUPPORT_EMAIL}" style="color:#D4AF37;text-decoration:none;">{SUPPORT_EMAIL}</a>.
         </td></tr>
         <tr><td style="padding:16px 32px 24px 32px;color:#555;font-size:11px;">
@@ -489,7 +489,7 @@ def render_payment_received_pending_email(booking: dict, amount: float, manage_u
 
         <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
           Need to change something? Reply to this email or call
-          <a href="tel:+16506723520" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>.
+          <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>.
         </td></tr>
       </table>
     </td></tr>
@@ -572,7 +572,7 @@ def render_card_on_file_email(booking: dict, amount: float, manage_url: Optional
 
         <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
           Need to change something? Reply to this email or call
-          <a href="tel:+16506723520" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>.
+          <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>.
         </td></tr>
       </table>
     </td></tr>
@@ -604,7 +604,7 @@ def render_payment_receipt_email(booking: dict, amount: float) -> str:
           </p>
         </td></tr>
         <tr><td style="padding:0 32px 24px;color:#888;font-size:12px;">
-          Questions? Call <a href="tel:+16506723520" style="color:#D4AF37;">{SUPPORT_PHONE}</a>.
+          Questions? Call <a href="tel:+16504100687" style="color:#D4AF37;">{SUPPORT_PHONE}</a>.
         </td></tr>
       </table>
     </td></tr>
@@ -689,7 +689,7 @@ def render_cancellation_email(
         </td></tr>
 
         <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;color:#888;font-size:12px;line-height:1.6;">
-          Questions? Call <a href="tel:+16506723520" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>
+          Questions? Call <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">{SUPPORT_PHONE}</a>
           or email <a href="mailto:{SUPPORT_EMAIL}" style="color:#D4AF37;text-decoration:none;">{SUPPORT_EMAIL}</a>.
         </td></tr>
         <tr><td style="padding:16px 32px 24px 32px;color:#555;font-size:11px;">
@@ -961,7 +961,7 @@ def render_wait_time_charge_email(
             grace window; on-time pickups never trigger this.
           </p>
           <p style="margin:0;font-size:13px;color:#888;">
-            Questions? Reply to this email or call <a href="tel:+16506723520" style="color:#0a0a0a;">(650) 672-3520</a>.
+            Questions? Reply to this email or call <a href="tel:+16504100687" style="color:#0a0a0a;">(650) 410-0687</a>.
           </p>
         </td></tr>
         <tr><td style="padding:18px 32px;border-top:1px solid #eee;color:#888;font-size:11px;text-align:center;">
@@ -1013,7 +1013,7 @@ def render_damage_charge_email(booking: dict, amount: float, reason: str) -> str
             within 48 hours and we'll review.
           </p>
           <p style="margin:0;font-size:13px;color:#888;">
-            Questions? Reply to this email or call <a href="tel:+16506723520" style="color:#0a0a0a;">(650) 672-3520</a>.
+            Questions? Reply to this email or call <a href="tel:+16504100687" style="color:#0a0a0a;">(650) 410-0687</a>.
           </p>
         </td></tr>
         <tr><td style="padding:18px 32px;border-top:1px solid #eee;color:#888;font-size:11px;text-align:center;">
@@ -1078,7 +1078,7 @@ def render_mid_trip_stop_charge_email(booking: dict, stop: dict) -> str:
             the deviation from your originally-scheduled route.
           </p>
           <p style="margin:0;font-size:13px;color:#888;">
-            Questions? Reply to this email or call <a href="tel:+16506723520" style="color:#0a0a0a;">(650) 672-3520</a>.
+            Questions? Reply to this email or call <a href="tel:+16504100687" style="color:#0a0a0a;">(650) 410-0687</a>.
           </p>
         </td></tr>
         <tr><td style="padding:18px 32px;border-top:1px solid #eee;color:#888;font-size:11px;text-align:center;">
@@ -1190,7 +1190,7 @@ def render_chauffeur_assigned_email(booking: dict, manage_url: Optional[str] = N
         {manage_btn}
 
         <tr><td style="padding:30px 32px;color:#666;font-size:12px;line-height:1.6;text-align:center;border-top:1px solid #1f1f1f;">
-          Questions? Reply to this email or call <a href="tel:+16506723520" style="color:#D4AF37;text-decoration:none;">(650) 672-3520</a>.<br>
+          Questions? Reply to this email or call <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none;">(650) 410-0687</a>.<br>
           <span style="color:#444;">TuranEliteLimo · Millbrae, CA</span>
         </td></tr>
       </table>

@@ -337,11 +337,11 @@ export default function PayBooking() {
                   <div className="font-serif text-2xl gold-text mt-1">Call for quote</div>
                 </div>
                 <a
-                  href="tel:+16506723520"
+                  href="tel:+16504100687"
                   onClick={() => trackPhoneCall({ source: "pay-call-for-quote" })}
                   className="inline-flex items-center gap-2 px-5 py-2.5 border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10 rounded-full text-sm"
                 >
-                  <PhoneIcon className="w-4 h-4" /> (650) 672‑3520
+                  <PhoneIcon className="w-4 h-4" /> (650) 410‑0687
                 </a>
               </div>
             ) : (
@@ -481,7 +481,7 @@ export default function PayBooking() {
         </div>
 
         <p className="text-center text-xs text-white/40 mt-8">
-          Questions? Call <a href="tel:+16506723520" className="text-[#D4AF37]">(650) 672‑3520</a>{" "}
+          Questions? Call <a href="tel:+16504100687" className="text-[#D4AF37]">(650) 410‑0687</a>{" "}
           or email <a href="mailto:support@turanelitelimo.com" className="text-[#D4AF37]">support@turanelitelimo.com</a>
         </p>
       </div>

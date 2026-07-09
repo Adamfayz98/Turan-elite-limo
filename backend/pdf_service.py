@@ -164,7 +164,7 @@ def _header_block(styles: dict, doc_kicker: str, doc_title: str, doc_id: str) ->
                            leading=10, textColor=DIM),
         ),
         Spacer(1, 2),
-        Paragraph("turanelitelimo.com  ·  (650) 672-3520  ·  support@turanelitelimo.com",
+        Paragraph("turanelitelimo.com  ·  (650) 410-0687  ·  support@turanelitelimo.com",
                   ParagraphStyle("BrandCt", fontName="Helvetica", fontSize=7.5,
                                  leading=10, textColor=DIM)),
     ]
@@ -437,7 +437,7 @@ def generate_invoice_pdf(
     story.append(Spacer(1, 18))
     story.append(HRFlowable(width="100%", thickness=0.5, color=GOLD, spaceAfter=4))
     story.append(Paragraph(
-        "Thank you for choosing TuranEliteLimo · turanelitelimo.com · (650) 672-3520 · support@turanelitelimo.com",
+        "Thank you for choosing TuranEliteLimo · turanelitelimo.com · (650) 410-0687 · support@turanelitelimo.com",
         ParagraphStyle("Footer", fontName="Helvetica", fontSize=7.5,
                        leading=10, textColor=DIM, alignment=TA_CENTER),
     ))
@@ -605,7 +605,7 @@ def generate_dispatch_pdf(
     story.append(Paragraph("DISPATCH CONTACT", styles["label"]))
     story.append(HRFlowable(width="100%", thickness=0.5, color=LINE, spaceBefore=2, spaceAfter=4))
     story.append(Paragraph(
-        "<b>Primary:</b> Adam · (650) 672-3520 · call or text · available 24/7 for active trips.&nbsp;&nbsp; "
+        "<b>Primary:</b> Adam · (650) 410-0687 · call or text · available 24/7 for active trips.&nbsp;&nbsp; "
         "<b>Email:</b> support@turanelitelimo.com.",
         styles["body"],
     ))
@@ -641,7 +641,7 @@ def generate_dispatch_pdf(
          "multi-stop route). Driver must not solicit, exchange contact information with, or attempt to retain clients "
          "outside this trip."),
         ("5. Damage & Incident Reporting",
-         "Any damage, spill, vomit, or interior issue must be photographed and reported to dispatch (Adam · 650-672-3520) "
+         "Any damage, spill, vomit, or interior issue must be photographed and reported to dispatch (Adam · 650-410-0687) "
          "within 1 hour of trip completion. Damage charges are processed via TuranEliteLimo's card-on-file and remitted "
          "to the affiliate per the existing affiliate agreement."),
         ("6. Confidentiality & Data Handling",
@@ -682,7 +682,7 @@ def generate_dispatch_pdf(
         "Driver in professional black attire",
         "Pickup time + cross-streets confirmed with dispatch 24 hrs prior",
         "ETA at pickup location: 5–10 min EARLY",
-        "Text Adam (650-672-3520) on arrival at pickup location",
+        "Text Adam (650-410-0687) on arrival at pickup location",
     ]:
         story.append(Paragraph(f"☐ &nbsp;&nbsp;{item}", styles["body"]))
 
@@ -701,7 +701,7 @@ def generate_dispatch_pdf(
     story.append(Spacer(1, 18))
     story.append(HRFlowable(width="100%", thickness=0.5, color=GOLD, spaceAfter=4))
     story.append(Paragraph(
-        f"Dispatch ID {dispatch_id} · TuranEliteLimo · turanelitelimo.com · (650) 672-3520",
+        f"Dispatch ID {dispatch_id} · TuranEliteLimo · turanelitelimo.com · (650) 410-0687",
         ParagraphStyle("Footer", fontName="Helvetica", fontSize=7.5,
                        leading=10, textColor=DIM, alignment=TA_CENTER),
     ))

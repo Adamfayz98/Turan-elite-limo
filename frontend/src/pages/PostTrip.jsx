@@ -391,7 +391,7 @@ export default function PostTrip() {
 
         <p className="text-center text-xs text-white/40 mt-10">
           Questions? Call{" "}
-          <a href="tel:+16506723520" className="text-[#D4AF37]">(650) 672‑3520</a>
+          <a href="tel:+16504100687" className="text-[#D4AF37]">(650) 410‑0687</a>
           {" or email "}
           <a href="mailto:support@turanelitelimo.com" className="text-[#D4AF37]">
             support@turanelitelimo.com

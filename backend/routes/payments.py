@@ -1194,7 +1194,7 @@ async def admin_charge_card_on_file(
   </div>
   <div style="margin-top:20px;padding-top:16px;border-top:1px solid #1c1c1c;color:#666;font-size:11px;line-height:1.7;">
     Card on file: {b.get('card_brand','card')} ending {b.get('card_last4','••••')}.<br>
-    Questions? Reply to this email or call (650) 672-3520.
+    Questions? Reply to this email or call (650) 410-0687.
   </div>
 </div></body></html>"""
             await send_email(

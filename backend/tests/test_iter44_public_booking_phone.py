@@ -15,7 +15,7 @@ def test_public_booking_returns_phone_field():
     data = r.json()
     # NEW field — must be present and equal seed value
     assert "phone" in data, "phone field missing from public booking response"
-    assert data["phone"] == "+16506723520"
+    assert data["phone"] == "+16504100687"
     # Existing fields that must continue to work
     assert data["email"] == "t@t.com"
     assert data["id"] == SEED_BID

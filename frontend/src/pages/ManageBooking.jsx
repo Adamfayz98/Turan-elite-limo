@@ -120,7 +120,7 @@ export default function ManageBooking() {
           <h1 className="font-serif text-3xl">Reservation not found</h1>
           <p className="text-white/60 mt-3 text-sm">
             This link may have expired or been mistyped. If you need help, please contact us at{" "}
-            <a href="tel:+16506723520" className="text-[#D4AF37]">(650) 672‑3520</a>.
+            <a href="tel:+16504100687" className="text-[#D4AF37]">(650) 410‑0687</a>.
           </p>
           <Link
             to="/"
@@ -148,12 +148,12 @@ export default function ManageBooking() {
           </span>
         </Link>
         <a
-          href="tel:+16506723520"
+          href="tel:+16504100687"
           className="hidden sm:inline-flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-white/60 hover:text-[#D4AF37]"
           data-testid="manage-call-link"
         >
           <PhoneCall className="w-3.5 h-3.5" />
-          (650) 672‑3520
+          (650) 410‑0687
         </a>
       </header>
 
@@ -298,7 +298,7 @@ export default function ManageBooking() {
 
         <div className="mt-10 text-center text-white/45 text-xs">
           Need to make a different change?
-          <a href="tel:+16506723520" className="ml-2 text-[#D4AF37] hover:underline">
+          <a href="tel:+16504100687" className="ml-2 text-[#D4AF37] hover:underline">
             <PhoneCall className="w-3 h-3 inline mr-1" /> Call us
           </a>
           <span className="mx-2 text-white/20">·</span>

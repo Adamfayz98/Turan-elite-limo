@@ -38,8 +38,8 @@ export default function ContactForm() {
       const detail = formatApiErrorDetail(err?.response?.data?.detail);
       const fallback =
         err?.response?.status >= 500
-          ? "Our server hiccuped — please call us at (650) 672-3520."
-          : "Couldn't send right now. Please try again or call (650) 672-3520.";
+          ? "Our server hiccuped — please call us at (650) 410-0687."
+          : "Couldn't send right now. Please try again or call (650) 410-0687.";
       toast.error(detail && detail !== "Something went wrong. Please try again." ? detail : fallback);
     } finally {
       setSubmitting(false);
@@ -70,7 +70,7 @@ export default function ContactForm() {
               <div>
                 <div className="text-xs uppercase tracking-[0.2em] text-white/50">24/7 Reservations</div>
                 <a href="tel:+15555555555" className="text-white text-lg hover:text-[#D4AF37] transition-colors">
-                  (650) 672‑3520
+                  (650) 410‑0687
                 </a>
               </div>
             </div>

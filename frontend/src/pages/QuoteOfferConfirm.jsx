@@ -198,7 +198,7 @@ export default function QuoteOfferConfirm() {
       <Shell>
         <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center" data-testid="quote-confirm-error">
           <div className="text-red-300 font-medium">{error}</div>
-          <a href="tel:+16506723520" className="inline-block mt-6 text-[#D4AF37] underline text-sm">Call us · (650) 672-3520</a>
+          <a href="tel:+16504100687" className="inline-block mt-6 text-[#D4AF37] underline text-sm">Call us · (650) 410-0687</a>
         </div>
       </Shell>
     );
@@ -408,7 +408,7 @@ export default function QuoteOfferConfirm() {
         {/* Trust strip */}
         <div className="mt-5 flex items-center justify-center gap-2 text-[11px] text-white/40">
           <ShieldCheck className="w-3.5 h-3.5" />
-          Secured by Stripe · Or call <a href="tel:+16506723520" className="text-[#D4AF37] ml-1">(650) 672-3520</a>
+          Secured by Stripe · Or call <a href="tel:+16504100687" className="text-[#D4AF37] ml-1">(650) 410-0687</a>
         </div>
 
         <div className="mt-10 text-[11px] text-white/35 text-center leading-relaxed">

@@ -86,7 +86,7 @@ export default function Navbar() {
             </a>
           )}
           <a
-            href="sms:+16506723520"
+            href="sms:+16504100687"
             data-testid="nav-text-button"
             className="flex items-center gap-2 px-4 py-2.5 border border-[#D4AF37]/30 text-[#D4AF37] hover:bg-[#D4AF37]/10 transition-all rounded-full text-sm font-medium"
             title="Text us for fast response"
@@ -95,13 +95,13 @@ export default function Navbar() {
             Text
           </a>
           <a
-            href="tel:+16506723520"
+            href="tel:+16504100687"
             onClick={() => trackPhoneCall({ source: "navbar" })}
             data-testid="nav-phone"
             className="flex items-center gap-2 text-sm text-white/80 hover:text-white"
           >
             <Phone className="w-4 h-4 text-[#D4AF37]" />
-            (650) 672‑3520
+            (650) 410‑0687
           </a>
           <a
             href="#booking"
@@ -138,7 +138,7 @@ export default function Navbar() {
             ))}
             <div className="flex gap-3 pt-2">
               <a
-                href="sms:+16506723520"
+                href="sms:+16504100687"
                 onClick={() => setOpen(false)}
                 data-testid="mobile-nav-text"
                 className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-[#D4AF37]/30 text-[#D4AF37] rounded-full text-sm font-medium"

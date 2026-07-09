@@ -320,7 +320,7 @@ async def driver_forgot_password(payload: DriverForgotPasswordRequest):
                   If you didn't ask to reset your password, you can safely ignore this email. The link will expire on its own.
                 </p>
                 <p style="color:rgba(255,255,255,0.3);font-size:11px;line-height:1.5;margin-top:24px;border-top:1px solid rgba(255,255,255,0.08);padding-top:16px;">
-                  TuranEliteLimo · Bay Area &amp; Northern California · (650) 672-3520
+                  TuranEliteLimo · Bay Area &amp; Northern California · (650) 410-0687
                 </p>
               </div>
             </div>

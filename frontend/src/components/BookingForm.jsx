@@ -1230,7 +1230,7 @@ export default function BookingForm() {
                 className={cn(inputCls, "mt-2")}
                 value={form.phone}
                 onChange={(e) => update("phone")(e.target.value)}
-                placeholder="(650) 672-3520"
+                placeholder="(650) 410-0687"
               />
               <p className="text-[10px] text-white/40 mt-1.5">
                 US numbers — we'll auto-add the +1 country code for SMS updates.
