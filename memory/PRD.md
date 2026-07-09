@@ -2,6 +2,31 @@
 
 > Last refreshed: July 7, 2026 — iter 55 (Promo overcharge recurrence — root cause fixed)
 
+## Iter 62 — Whisper flow: business CID + spoken caller ID (Feb 9, 2026)
+
+**Problem:** User loved that iter 61 gave him the client's number, but realized he WANTS the Twilio business number to appear as caller ID (so he can quickly tell "this is a business call" vs. friends/family), while still knowing the actual caller's number.
+
+**Fix — Twilio call-whisper flow:**
+- `<Dial callerId="{TWILIO_FROM_NUMBER}">` — his phone rings showing `(650) 672-3520` (business signal preserved).
+- Inside `<Dial>`, nested `<Number url="/twilio/voice/whisper?from={caller}">` — Twilio fetches this URL the moment he picks up.
+- New endpoint `/twilio/voice/whisper` (GET + POST) returns TwiML: `<Say>Client call, Turan Elite Limo. Caller number: area code 4 1 5, 5 5 5, 1 2 3 4. Connecting now.</Say>` — played ONLY to dispatcher; the caller hears ringback until the whisper finishes, then Twilio bridges automatically.
+- `_spoken_phone()` helper formats E.164 numbers as spaced digits ("area code 4 1 5, 5 5 5, 1 2 3 4") for natural Polly TTS pronunciation. Handles 10-digit / 11-digit US numbers + anonymous fallback.
+
+**Bonus outcomes:**
+- If dispatcher hangs up during the whisper (~3s), Twilio reports `DialCallStatus=completed, duration<5` → existing `dispatcher-unavailable` handler triggers AI takeover, so no lost calls.
+- Anonymous / private / withheld callers → whisper says "from a private number" — dispatcher still knows it's a client call.
+- `_resolve_caller_id_for_dial` kept in code as deprecated (rollback-friendly).
+
+Verified via curl:
+1. `/incoming` returns the wrapped `<Dial callerId="+16506723520"><Number url="…whisper?from=+14155551234">+14152999587</Number></Dial>` ✓
+2. `/whisper?from=+14155551234` reads "area code 4 1 5, 5 5 5, 1 2 3 4" ✓
+3. `/whisper?from=anonymous` falls back to "from a private number" ✓
+
+Also confirmed live: `TWILIO_AUTH_TOKEN` is now set correctly (32 chars, active account "Turan Elite Limo LLC"). Test SMS sent to admin phone with SID `SM7557f6…`, status `sent` — proves the full SMS pipeline works end-to-end in preview.
+
+Files: `backend/routes/twilio_voice.py`.
+
+
 ## Iter 61 — Caller-ID pass-through on `<Dial>` (Feb 9, 2026)
 
 **Problem** (user Feb 9 report): "When someone calls the Twilio number and it forwards to my cell, my phone always shows the Twilio number as the caller ID — so I can't tell whether it's a client or someone I know. Before call forwarding, every call showed a different number."

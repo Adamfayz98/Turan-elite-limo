@@ -63,26 +63,44 @@ def _xml_escape(text: str) -> str:
 
 
 def _resolve_caller_id_for_dial(from_number: str) -> str:
-    """Decide which number to show on Adam's cell when we <Dial> him.
-
-    - Well-formed E.164 (+1XXXXXXXXXX) → pass through as-is so he sees the
-      actual caller's number, exactly like a direct call.
-    - Anonymous / private / empty / malformed → fall back to our Twilio
-      number (Adam will at least know "an anonymous caller reached the
-      business line") — better than a TwiML validation error.
-    """
+    """DEPRECATED (iter 62) — kept only for backward compatibility. We now
+    show the Twilio number as callerId and use `<Number url=whisper>` to
+    tell the dispatcher who's calling. Left here so a rollback can flip
+    back easily."""
     raw = (from_number or "").strip()
-    # Twilio uses several sentinel strings for withheld caller IDs.
     if not raw or raw.lower() in ("anonymous", "unknown", "restricted", "unavailable", "private"):
         return _xml_escape(os.environ.get("TWILIO_FROM_NUMBER", ""))
-    # Very lightweight E.164 sniff — starts with + and 8-15 digits after.
     digits = raw[1:] if raw.startswith("+") else raw
     if raw.startswith("+") and digits.isdigit() and 8 <= len(digits) <= 15:
         return _xml_escape(raw)
-    # Anything else — fall back to Twilio number rather than risk a TwiML
-    # parse error.
-    logger.info(f"[caller-id fallback] From={raw!r} not E.164 — using Twilio number")
     return _xml_escape(os.environ.get("TWILIO_FROM_NUMBER", ""))
+
+
+def _spoken_phone(raw: str) -> str:
+    """Format a phone number for Polly TTS. Spaced digits read naturally
+    as individual numbers ("four one five, five five five, one two three
+    four") without any SSML gymnastics.
+
+    Examples:
+      +14155551234 → "area code 4 1 5, 5 5 5, 1 2 3 4"
+      4155551234   → "area code 4 1 5, 5 5 5, 1 2 3 4"
+      anonymous    → ""
+    """
+    if not raw:
+        return ""
+    r = raw.strip().lower()
+    if r in ("anonymous", "unknown", "restricted", "unavailable", "private"):
+        return ""
+    digits = "".join(c for c in raw if c.isdigit())
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]  # drop leading US country code
+    if len(digits) == 10:
+        area = " ".join(digits[0:3])
+        prefix = " ".join(digits[3:6])
+        line = " ".join(digits[6:])
+        return f"area code {area}, {prefix}, {line}"
+    # Non-US or malformed — just read whatever digits we have
+    return " ".join(digits)
 
 
 def _say(text: str) -> str:
@@ -212,22 +230,48 @@ async def twilio_voice_incoming(
 
     # Human-first: ring dispatcher for ~20 sec, then hand off to
     # /twilio/voice/dispatcher-unavailable which spins up the AI.
-    # `callerId={From}` makes the ORIGINAL caller's number appear on the
-    # dispatcher's phone (instead of our Twilio number), so Adam can tell
-    # apart clients from friends/family without picking up first. This is
-    # the standard Twilio pattern for "forwarding-with-original-CID". Legal
-    # for legitimate call forwarding (Twilio Voice ToS §3.g).
-    # If the caller withheld their number (Twilio sends "anonymous" or the
-    # From field is empty), we fall back to our Twilio number so the Dial
-    # attribute isn't malformed.
+    #
+    # Caller-ID strategy (Feb 9, iter 62): Show the Twilio business number
+    # on Adam's cell (so he KNOWS it's a business call, not friends/family)
+    # BUT still give him the caller's real number via a `whisper` — Twilio
+    # fetches the `<Number url=...>` TwiML the moment Adam picks up and plays
+    # it only to him (caller doesn't hear it). The whisper reads out the
+    # caller's number: "Call from area code 4-1-5, 5-5-5-1-2-3-4." Then
+    # Twilio automatically bridges the two parties. Adam gets both signals
+    # in <2 sec: this is business (from CID) + who's calling (from whisper).
+    from urllib.parse import quote
     transfer_action = _action_url(request, "/twilio/voice/dispatcher-unavailable")
-    safe_caller = _resolve_caller_id_for_dial(From)
+    twilio_number = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
+    whisper_url = _action_url(request, f"/twilio/voice/whisper?from={quote(From)}")
     return _twiml(
         "<Response>"
         f'<Dial timeout="20" action="{transfer_action}" method="POST" '
-        f'answerOnBridge="true" callerId="{safe_caller}">{admin}</Dial>'
+        f'answerOnBridge="true" callerId="{_xml_escape(twilio_number)}">'
+        f'<Number url="{_xml_escape(whisper_url)}">{admin}</Number>'
+        f'</Dial>'
         "</Response>"
     )
+
+
+@router.api_route("/twilio/voice/whisper", methods=["GET", "POST"])
+async def twilio_voice_whisper(request: Request):
+    """Whisper TwiML — played to the DISPATCHER only (not the caller) the
+    moment they answer the ringing call. Reads out the client's phone
+    number, then Twilio automatically bridges the two parties.
+
+    Twilio fetches this URL because we set `<Number url=".../whisper?from=...">`
+    inside the outer `<Dial>`. The `from` query param carries the client's
+    E.164 number (URL-encoded)."""
+    from_num = request.query_params.get("from", "")
+    spoken = _spoken_phone(from_num)
+    if spoken:
+        msg = (
+            f"Client call, Turan Elite Limo. Caller number: {spoken}. "
+            f"Connecting now."
+        )
+    else:
+        msg = "Client call, Turan Elite Limo, from a private number. Connecting now."
+    return _twiml("<Response>" + _say(msg) + "</Response>")
 
 
 @router.post("/twilio/voice/dispatcher-unavailable")
@@ -490,12 +534,20 @@ async def _dispatch_action(request: Request, call_sid: str, caller: str, parsed:
                 + _gather(gather_url, "Anything else I can help with?", _SPEECH_HINTS)
                 + "</Response>"
             )
+        # Same whisper flow as /twilio/voice/incoming (see iter 62 comment):
+        # dispatcher's phone shows the Twilio business number but Twilio
+        # plays a whisper announcing the caller's real number when he picks
+        # up, so he knows exactly who's on the line before he speaks.
+        from urllib.parse import quote
         transfer_action = _action_url(request, "/twilio/voice/transfer-fail")
-        safe_caller = _resolve_caller_id_for_dial(caller)
+        twilio_number = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
+        whisper_url = _action_url(request, f"/twilio/voice/whisper?from={quote(caller)}")
         return _twiml(
             "<Response>"
             + _say(reply or "Connecting you to our dispatcher now, one moment.")
-            + f'<Dial timeout="22" action="{transfer_action}" method="POST" answerOnBridge="true" callerId="{safe_caller}">{admin}</Dial>'
+            + f'<Dial timeout="22" action="{transfer_action}" method="POST" answerOnBridge="true" callerId="{_xml_escape(twilio_number)}">'
+            + f'<Number url="{_xml_escape(whisper_url)}">{admin}</Number>'
+            + '</Dial>'
             + "</Response>"
         )
 
