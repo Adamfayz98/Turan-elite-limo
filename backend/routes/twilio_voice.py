@@ -56,23 +56,54 @@ def _say(text: str) -> str:
     return f'<Say voice="{AI_VOICE}" language="{AI_LANG}">{safe}</Say>'
 
 
-def _gather(action_url: str, prompt_text: str | None = None) -> str:
+def _gather(action_url: str, prompt_text: str | None = None, hints: str = "") -> str:
     """`<Gather>` block with sensible speech-recognition defaults.
-    enhanced=true + speechModel=phone_call gives the best voice-line accuracy."""
+
+    - `enhanced=true` + `speechModel=phone_call` = the best telephony-line
+      accuracy Twilio offers.
+    - `hints` = comma-separated phrases we expect to hear. Massive accuracy
+      boost for proper nouns like vehicle names ("Luxury SUV",
+      "Executive Sedan") that the acoustic model would otherwise transcribe
+      as "luxury as you be" or "luxury issue" — which is why the user had
+      to repeat "Luxury SUV" three times on the first real call.
+    - `timeout=8` — silence window before we hang up on a caller (up from 5).
+      Elderly / hesitant callers commonly need a beat to think.
+    """
     inner = _say(prompt_text) if prompt_text else ""
+    hints_attr = f' hints="{hints}"' if hints else ""
     return (
         f'<Gather input="speech" action="{action_url}" method="POST" '
-        f'timeout="5" speechTimeout="auto" '
+        f'timeout="8" speechTimeout="auto"{hints_attr} '
         f'language="{AI_LANG}" enhanced="true" speechModel="phone_call">'
         f"{inner}"
         f"</Gather>"
     )
 
 
+# Central speech-hints vocabulary — every Gather uses this so the acoustic
+# model biases toward our domain (vehicle names, airport codes, Napa proper
+# nouns, action verbs like "text me the link"). Twilio caps hints at ~500
+# characters.
+_SPEECH_HINTS = (
+    "Executive Sedan, First Class, Luxury SUV, Sprinter, Party Bus, "
+    "Mini Coach, Sedan, SUV, "
+    "SFO, OAK, SJC, Napa, Sonoma, Monterey, Big Sur, Tahoe, Reno, Las Vegas, "
+    "airport, hotel, winery, downtown, "
+    "quote, price, book, booking, text me, link, "
+    "yes please, no thanks, hang up, speak to a person, human, dispatcher"
+)
+
+
 def _fallback_no_input() -> str:
-    """Played if Twilio's `<Gather>` gets no speech. Politely end the call."""
+    """Played if Twilio's `<Gather>` gets no speech at all. First silence
+    triggers a nudge (via /gather with empty SpeechResult); this fallback
+    is the SECOND-time-lucky path — offer a text alternative before we
+    hang up, so we don't lose the lead."""
     return (
-        _say("I didn't hear anything. Please call back or text this number and we'll help. Goodbye.")
+        _say(
+            "Still there? If it's easier, I can text you a booking link — "
+            "just say text me the link, or call back any time. Goodbye."
+        )
         + "<Hangup/>"
     )
 
@@ -134,7 +165,7 @@ async def twilio_voice_incoming(
         gather_url = _action_url(request, "/twilio/voice/gather")
         return _twiml(
             "<Response>"
-            + _gather(gather_url, greeting)
+            + _gather(gather_url, greeting, _SPEECH_HINTS)
             + _fallback_no_input()
             + "</Response>"
         )
@@ -207,7 +238,7 @@ async def twilio_voice_dispatcher_unavailable(
     gather_url = _action_url(request, "/twilio/voice/gather")
     return _twiml(
         "<Response>"
-        + _gather(gather_url, ai_greeting)
+        + _gather(gather_url, ai_greeting, _SPEECH_HINTS)
         + _fallback_no_input()
         + "</Response>"
     )
@@ -228,14 +259,56 @@ async def twilio_voice_gather(
     """Called each time Twilio has a speech transcript to hand us."""
     speech = (SpeechResult or "").strip()
     if not speech:
-        # Caller stayed silent. Nudge them once, then hang up if still nothing.
+        # Caller stayed silent. Track how many times in a row this has
+        # happened via a counter on the session doc. First silence → nudge.
+        # Second silence → offer text alternative + hang up (via
+        # `_fallback_no_input`). Prior code hung up on the FIRST silence,
+        # which felt abrupt (user complaint from the first real call).
+        try:
+            await db.voice_call_sessions.update_one(
+                {"call_sid": CallSid},
+                {"$inc": {"silence_count": 1}},
+                upsert=True,
+            )
+            sess = await db.voice_call_sessions.find_one(
+                {"call_sid": CallSid}, {"_id": 0, "silence_count": 1},
+            )
+            silence_count = int((sess or {}).get("silence_count") or 1)
+        except Exception:
+            silence_count = 1
         gather_url = _action_url(request, "/twilio/voice/gather")
+        if silence_count <= 1:
+            # First silence — polite retry, no hangup yet.
+            return _twiml(
+                "<Response>"
+                + _gather(
+                    gather_url,
+                    "Are you still there? I can quote a ride, text you a booking link, "
+                    "or take a message — just let me know.",
+                    _SPEECH_HINTS,
+                )
+                + _fallback_no_input()
+                + "</Response>"
+            )
+        # Second silence — try once more with a text-us offer, then hang up.
         return _twiml(
             "<Response>"
-            + _gather(gather_url, "Sorry, I didn't catch that. Could you say it again?")
+            + _gather(
+                gather_url,
+                "One more try — if you'd rather text us, just say text me and I'll send a booking link. "
+                "Otherwise I'll say goodbye.",
+                _SPEECH_HINTS,
+            )
             + _fallback_no_input()
             + "</Response>"
         )
+    # Reset silence counter on a real utterance.
+    try:
+        await db.voice_call_sessions.update_one(
+            {"call_sid": CallSid}, {"$set": {"silence_count": 0}}, upsert=True,
+        )
+    except Exception:
+        pass
     parsed = await ai_receptionist.get_ai_reply(
         db, call_sid=CallSid, caller_number=From, user_speech=speech,
     )
@@ -263,7 +336,7 @@ async def _dispatch_action(request: Request, call_sid: str, caller: str, parsed:
             return _twiml(
                 "<Response>"
                 + _say("Our dispatcher isn't available right this second. Let me text you a booking link instead.")
-                + _gather(gather_url, "Was there anything else I can help with?")
+                + _gather(gather_url, "Anything else I can help with?", _SPEECH_HINTS)
                 + "</Response>"
             )
         transfer_action = _action_url(request, "/twilio/voice/transfer-fail")
@@ -282,10 +355,18 @@ async def _dispatch_action(request: Request, call_sid: str, caller: str, parsed:
         vehicle = params.get("vehicle") or ""
         q = await ai_receptionist.compute_ai_quote(db, pickup, dropoff, vehicle)
         if q.get("ok"):
+            promo_bit = ""
+            if q.get("applied_promo"):
+                promo_bit = (
+                    f" This price includes our current {q['applied_promo']} discount "
+                    f"(original ${int(round(q['original_price']))})."
+                )
             context_fact = (
                 f"Quote result for {vehicle} from {pickup} to {dropoff}: "
-                f"{q.get('miles')} miles, price {q.get('spoken')}. "
-                f"Announce this price now and ask if they'd like the booking link texted."
+                f"{q.get('miles')} miles one-way, price is {q.get('spoken')}.{promo_bit} "
+                f"Announce this price now, add the standard 'this is an estimate, "
+                f"final price locks in when you book online' framing, and IMMEDIATELY "
+                f"offer to text the booking link. Do not stop after just the price."
             )
         else:
             context_fact = (
@@ -329,14 +410,14 @@ async def _dispatch_action(request: Request, call_sid: str, caller: str, parsed:
         return _twiml(
             "<Response>"
             + _say(reply or "I just texted you the link. Anything else I can help with?")
-            + _gather(gather_url, "Anything else?")
+            + _gather(gather_url, "Anything else I can help with?", _SPEECH_HINTS)
             + "</Response>"
         )
 
     # Default: speak_and_gather (or unknown action)
     return _twiml(
         "<Response>"
-        + _gather(gather_url, reply or "How else can I help?")
+        + _gather(gather_url, reply or "How else can I help?", _SPEECH_HINTS)
         + "</Response>"
     )
 
@@ -398,7 +479,7 @@ async def twilio_voice_transfer_fail(
     )
     return _twiml(
         "<Response>"
-        + _gather(gather_url, handoff)
+        + _gather(gather_url, handoff, _SPEECH_HINTS)
         + _fallback_no_input()
         + "</Response>"
     )

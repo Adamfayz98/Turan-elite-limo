@@ -68,12 +68,21 @@ You MUST respond with ONLY a JSON object, no prose outside the JSON. Schema:
   "params": { ...action-specific params... }
 }
 
+# Response rules — the "sounds like a real concierge" checklist
+1. **Echo back what you heard, then quote IMMEDIATELY.** Do NOT stall for date, passenger count, flight number, or anything else before quoting. As soon as the caller gives you pickup + drop-off + vehicle, call the `quote` action. Missing info can be filled in on the website when they click the booking link.
+2. **After every quote, ALWAYS end your reply with a call-to-action.** Never just state the price and stop. Say something like: "…would you like me to text you a booking link so you can lock it in?" or "…want me to check a different vehicle, or shall I text you the reservation link?"
+3. **NEVER hang up without offering the text link at least once.** If the caller sounds done ("okay, thanks, bye"), your final reply must offer the text once more: "Absolutely — I can also text the link right now if it helps. Otherwise, thanks for calling." Only THEN hang up on their next turn.
+4. **Always frame quotes as estimates.** Every price reply must include "…that's our estimate; the final price locks in when you book online." Or "…roughly $X — subject to final confirmation online."
+5. **If unsure what the caller said, offer specific choices — don't just say "sorry didn't catch that".** Instead: "Sorry, was that Sedan, SUV, or Sprinter?" or "Sorry — was that Napa, Sonoma, or Monterey?" Give them multiple-choice, not open-ended.
+6. **Confirm before texting.** Before you use `send_sms_link`, confirm: "I'll text the link to the number you're calling from — sounds good?" (Twilio gives us the caller's number automatically; we don't need to ask them for it.)
+7. **NEVER ask for the passenger name, email, or phone number** — the website booking form collects those. Just get pickup + drop-off + vehicle, quote, and text the link.
+
 Actions:
 - `speak_and_gather` — just say `reply` and listen for the next thing (default). params: {} (empty)
 - `quote` — you're about to compute a price. params: {"pickup":"...", "dropoff":"...", "vehicle":"Executive Sedan|First Class|Luxury SUV"}. The system will run the quote, then feed the result back into the next turn as a system message so you can announce the price.
 - `send_sms_link` — text the caller a booking or quote-request link. params: {"link_type":"book|quote_request", "pickup":"...", "dropoff":"...", "vehicle":"...", "notes":"..."}. All params optional. After sending, briefly confirm and hand off.
 - `transfer` — the caller has explicitly demanded a human despite already being told dispatch is unavailable. params: {} (empty). Use SPARINGLY.
-- `hangup` — end the call. Use only after saying goodbye. params: {}
+- `hangup` — end the call. Use ONLY after you've offered a text link at least once and the caller has clearly declined or wrapped up.
 
 # Tone
 Warm, unhurried, concierge-professional. Never say "Sure!" or "Awesome!" or "Great!" — that's a chatbot tell. Instead: "Of course.", "Absolutely.", "Understood.", "Right away.". Use the caller's first name only if they gave it. Never mention you're an AI unless directly asked. If asked, say "I'm the Turan Elite AI concierge — filling in while our team is on another line."
@@ -330,8 +339,23 @@ QUOTABLE_VEHICLES = {"Executive Sedan", "First Class", "Luxury SUV"}
 
 
 async def compute_ai_quote(db, pickup: str, dropoff: str, vehicle: str) -> dict:
-    """Return {price, spoken} for the AI. Uses the same math as /api/quote
-    but bypasses the HTTP layer for speed. Falls back gracefully."""
+    """Return {price, spoken} for the AI. Uses the SAME code path as
+    /api/quote (including auto-promo application) so the number the AI
+    announces matches what the customer sees on the website. Falls back
+    gracefully on any error.
+
+    History (Feb 2026 first-real-call QA):
+      - Older version rounded to nearest $5 for "natural voice" but that
+        introduced a ~$10 delta between what the AI said and what the
+        website showed — Adel called this out on the first real test call.
+        We now announce the EXACT dollars-only price ("three hundred
+        eighty-four") so the voice quote matches the browser quote line-
+        for-line.
+      - Older version bypassed the promo layer entirely. We now call the
+        same `_apply_auto_promo_to_quote_response` used by /api/quote so
+        broadly-applicable promos (auto-apply, non-first-ride-only) are
+        reflected in the spoken price.
+    """
     if vehicle not in QUOTABLE_VEHICLES:
         return {
             "ok": False,
@@ -339,8 +363,17 @@ async def compute_ai_quote(db, pickup: str, dropoff: str, vehicle: str) -> dict:
             "spoken": f"For the {vehicle}, our team builds a custom quote.",
         }
     try:
-        # Lazy import to avoid circulars — server.py owns these helpers.
-        from server import _load_pricing_map, _geocode, _haversine_miles, _load_settings, _build_quotes
+        # Lazy imports to avoid circulars — server.py owns these helpers.
+        from server import (
+            _load_pricing_map,
+            _geocode,
+            _haversine_miles,
+            _load_settings,
+            _build_quotes,
+            _apply_service_fee_to_quote_response,
+            _apply_auto_promo_to_quote_response,
+            QuoteResponse,
+        )
     except Exception as e:
         logger.warning(f"AI quote imports failed: {e}")
         return {"ok": False, "reason": "import_error"}
@@ -356,17 +389,56 @@ async def compute_ai_quote(db, pickup: str, dropoff: str, vehicle: str) -> dict:
             }
         miles = _haversine_miles(pk["lat"], pk["lon"], dp["lat"], dp["lon"])
         settings = await _load_settings()
-        quotes = _build_quotes(miles, pricing_map)
-        matching = next((q for q in quotes if q.vehicle_type == vehicle and q.price is not None), None)
+        raw_quotes = _build_quotes(miles, pricing_map)
+        qr = QuoteResponse(
+            distance_miles=round(miles, 1),
+            duration_minutes=None,
+            pickup_resolved=pickup,
+            dropoff_resolved=dropoff,
+            quotes=raw_quotes,
+        )
+        # Service fee + auto-promo, in the same order /api/quote applies them.
+        qr = _apply_service_fee_to_quote_response(qr, float(settings.service_fee_percent or 0))
+        try:
+            qr = await _apply_auto_promo_to_quote_response(qr)
+        except Exception as e:
+            logger.warning(f"AI quote auto-promo failed: {e}")
+
+        matching = next(
+            (q for q in qr.quotes if q.vehicle_type == vehicle and q.price is not None),
+            None,
+        )
         if not matching:
             return {"ok": False, "reason": "no_match", "spoken": "I couldn't produce that quote right now."}
-        base = float(matching.price)
-        fee_pct = float(settings.service_fee_percent or 0)
-        with_fee = round(base + base * fee_pct / 100.0, 2) if fee_pct > 0 else base
-        # Speak the rounded-to-the-nearest-$5 number so voice sounds natural.
-        friendly = int(round(with_fee / 5.0) * 5)
-        spoken = f"around ${friendly} for the {vehicle}"
-        return {"ok": True, "price": with_fee, "friendly_price": friendly, "spoken": spoken, "miles": round(miles, 1)}
+
+        # `price` is post-discount. `original_price` (if set) is pre-discount.
+        # `applied_promo` is a dict like {code, description, discount_type, value}.
+        price_now = float(matching.price)
+        original = float(matching.original_price or matching.price)
+        applied_promo_obj = matching.applied_promo or None
+        promo_code = applied_promo_obj.get("code") if isinstance(applied_promo_obj, dict) else None
+        # The AI will speak the exact dollar amount (no cents) — matches
+        # what the customer sees on the website, no more $5 rounding drift.
+        friendly = int(round(price_now))
+        if promo_code and abs(original - price_now) > 0.5:
+            orig_friendly = int(round(original))
+            spoken = (
+                f"about ${friendly} for the {vehicle}, "
+                f"after our current {promo_code} discount — "
+                f"that's down from ${orig_friendly}"
+            )
+        else:
+            spoken = f"about ${friendly} for the {vehicle}"
+        # Always include the estimate framing so the AI reads it aloud.
+        return {
+            "ok": True,
+            "price": price_now,
+            "original_price": original,
+            "friendly_price": friendly,
+            "applied_promo": promo_code,
+            "spoken": spoken,
+            "miles": round(miles, 1),
+        }
     except Exception as e:
         logger.warning(f"AI quote compute failed: {e}")
         return {"ok": False, "reason": "compute_error"}
