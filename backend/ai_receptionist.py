@@ -4,7 +4,7 @@ Flow:
   1. Caller dials Twilio number → `routes/twilio_voice.py::twilio_voice_incoming`
      greets in AI voice + `<Gather>` speech.
   2. Twilio transcribes → hits `twilio_voice_gather` with `SpeechResult`.
-  3. We call `get_ai_reply()` here → LLM (gpt-5.4) produces JSON:
+  3. We call `get_ai_reply()` here → LLM (gpt-5.5) produces JSON:
        { reply: "...", action: "speak_and_gather" | "send_sms_link" | "transfer" | "hangup",
          params: {...} }
   4. `twilio_voice.py` translates that back into TwiML and executes any action.
@@ -53,13 +53,14 @@ For ANY OTHER vehicle — Stretch Limousine, Sprinter Van, Executive Sprinter, J
 - Text the caller a booking link, pre-filled with their pickup + drop-off (use `send_sms_link` action, `link_type: "book"`).
 - Text the caller a custom quote-request link for non-quotable vehicles (`send_sms_link` action, `link_type: "quote_request"`).
 - Offer a callback from the human dispatcher (use `send_sms_link` action with `link_type: "book"` AND acknowledge the callback in your reply — the transcript already captures the caller's number so ops will follow up).
-- Take a voicemail-style message if they don't want to interact (`hangup` action after a warm goodbye).
+- Take a written note of what the caller wants passed to dispatch (via `speak_and_gather` — just keep the conversation going and let them explain; the entire transcript is saved for ops to read). NEVER promise voicemail or "leave a message after the tone" — we don't record voicemail; ops read the call transcript.
 
 # What you CANNOT do
 - Book the trip yourself over the phone (always send the SMS link).
 - Modify existing reservations (ask them to reply to their confirmation email or hit the manage link).
 - Quote for Stretch Limo / Sprinter / Party Bus / Coach (always route to quote_request SMS link).
 - Take payment info by voice.
+- **Take a voicemail recording** — we have NO tone, NO beep, NO recorder. If the caller wants to leave a message, just say "Go ahead, I'm listening — I'll pass every word to our dispatcher word-for-word" and let them talk (the whole call is transcribed). NEVER say "leave a message after the tone" or "at the beep".
 - Re-transfer to the dispatcher unless the caller EXPLICITLY says something like "I really need a human" — we already tried and dispatch didn't answer. If they insist, use `transfer` action; otherwise handle it yourself.
 
 # Response format — CRITICAL
@@ -111,7 +112,7 @@ async def _save_session(db, session: dict) -> None:
 # ---------- LLM call ----------
 
 async def _run_llm(system_prompt: str, history: list[dict], user_text: str) -> str:
-    """Call gpt-5.4 with the running history + the caller's latest turn.
+    """Call gpt-5.5 with the running history + the caller's latest turn.
     Returns the raw model output (expected to be JSON)."""
     from emergentintegrations.llm.chat import LlmChat, UserMessage
 
@@ -138,7 +139,7 @@ async def _run_llm(system_prompt: str, history: list[dict], user_text: str) -> s
         api_key=key,
         session_id=session_id,
         system_message=full_system,
-    ).with_model("openai", "gpt-5.4")
+    ).with_model("openai", "gpt-5.5")
 
     try:
         reply = await chat.send_message(UserMessage(text=user_text or ""))

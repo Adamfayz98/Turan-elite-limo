@@ -2,6 +2,21 @@
 
 > Last refreshed: July 7, 2026 — iter 55 (Promo overcharge recurrence — root cause fixed)
 
+## Iter 60 — AI Receptionist honesty, silent-hangup fix, model upgrade (Feb 9, 2026)
+
+User Feb 9 QA call surfaced 3 more bugs:
+
+**Bug A — AI claimed to send SMS but nothing arrived.** Root cause: `TWILIO_AUTH_TOKEN` is empty in preview `.env`, so `sms_service._client()` returned None → `send_sms()` was a silent no-op → old `_dispatch_action` STILL appended "sent SMS" to transcript AND spoke "I texted you". Fix: `send_sms_link` handler now branches on the returned Twilio SID. If SID is truthy → speaks the confirmation. If None → speaks the truth ("Hmm — I couldn't get that text out just now, sorry — please head to turanelitelimo.com to book, or I'll have dispatch call you back"). Also logs a bright `[AI honesty]` warning line. **User must set TWILIO_AUTH_TOKEN on both preview and production backend env vars** to actually deliver SMS.
+
+**Bug B — AI hung up right after "leave a message after the tone".** Root cause: SYSTEM_PROMPT had a "take a voicemail-style message (hangup after warm goodbye)" bullet, which the LLM misread as license to promise voicemail — but we have no `<Record>` verb, no beep, no recorder. Fix: rewrote that bullet + added explicit "What you CANNOT do" entry that forbids voicemail phrasing. AI now says "Go ahead, I'm listening — I'll pass every word to our dispatcher word-for-word" and stays in `speak_and_gather` so the message is captured in the transcript.
+
+**Bug C — Call ended after "anything else?"** Root cause: `send_sms_link` and default `speak_and_gather` TwiML blocks were missing `_fallback_no_input()`. If the caller stayed silent for 8s, Twilio's `<Gather>` finished with no verb after it → call ended. Fix: appended `_fallback_no_input()` to both blocks — matches the existing pattern used everywhere else. Now silence gets a warm "Still there? I can text you a link…" nudge before hangup.
+
+**LLM upgrade — gpt-5.4 → gpt-5.5.** User feedback: "even the lowest AI is smarter than this". The bigger issue was our prompt + missing config, not the model. Still upgraded to gpt-5.5 for tighter instruction-following. Verified live via `emergentintegrations` — the "yes please" → `send_sms_link` case now works on the first turn without needing the safety-net override.
+
+Files: `backend/ai_receptionist.py`, `backend/routes/twilio_voice.py`.
+
+
 ## Iter 59 — AI Receptionist promo copy + SMS confirmation-loop fix (Feb 9, 2026)
 
 **Bug 1 — AI was quoting the wrong promo:** Hardcoded system prompt line said "use code WELCOME for 20% off". User confirmed the live promo is 30% auto-applied (no code needed).

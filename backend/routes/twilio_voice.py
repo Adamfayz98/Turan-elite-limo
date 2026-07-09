@@ -500,21 +500,46 @@ async def _dispatch_action(request: Request, call_sid: str, caller: str, parsed:
                 f"drop-off are pre-filled: {url} "
                 "Reply STOP to opt out."
             )
-        # Log the SMS send + append to transcript
+        # Actually send + verify it left Twilio. `send_sms` returns None on any
+        # config problem (missing auth token, unregistered from-number, etc.)
+        # so we MUST branch on the SID — otherwise the AI cheerily tells the
+        # caller "I sent it" while nothing left the building (Feb 9 bug).
+        sms_sid = None
         try:
-            await sms_service.send_sms(caller, sms_body)
-            await ai_receptionist.append_turn(
-                db, call_sid, "system", f"sent SMS ({link_type}) to {caller}",
-                meta={"sms_link": url},
-            )
+            sms_sid = await sms_service.send_sms(caller, sms_body)
         except Exception as e:
-            logger.warning(f"AI receptionist SMS failed for {caller}: {e}")
+            logger.warning(f"AI receptionist SMS raised for {caller}: {e}")
+        try:
+            await ai_receptionist.append_turn(
+                db, call_sid, "system",
+                f"sent SMS ({link_type}) to {caller} — sid={sms_sid or 'FAILED'}",
+                meta={"sms_link": url, "sms_sid": sms_sid, "delivered": bool(sms_sid)},
+            )
+        except Exception:
+            pass
 
-        # Speak the confirmation, then keep listening in case they need more.
+        if sms_sid:
+            confirmation = reply or "The link is on its way — should arrive in a few seconds. Anything else I can help with?"
+        else:
+            # Be HONEST: SMS didn't leave Twilio. Read the link out loud is
+            # useless on a phone call, so pivot to spelling out what to do.
+            confirmation = (
+                "Hmm — I couldn't get that text out just now, sorry about that. "
+                "Please head to turanelitelimo.com to book, or hold on and I'll "
+                "have our dispatcher call you right back. Anything else in the meantime?"
+            )
+            logger.warning(
+                f"[AI honesty] SMS to {caller} for call_sid={call_sid} DID NOT SEND "
+                f"— telling caller the truth instead of claiming success"
+            )
+
+        # Speak the confirmation, then keep listening + fallback so a silent
+        # caller doesn't get a dead line.
         return _twiml(
             "<Response>"
-            + _say(reply or "I just texted you the link. Anything else I can help with?")
+            + _say(confirmation)
             + _gather(gather_url, "Anything else I can help with?", _SPEECH_HINTS)
+            + _fallback_no_input()
             + "</Response>"
         )
 
@@ -522,6 +547,7 @@ async def _dispatch_action(request: Request, call_sid: str, caller: str, parsed:
     return _twiml(
         "<Response>"
         + _gather(gather_url, reply or "How else can I help?", _SPEECH_HINTS)
+        + _fallback_no_input()
         + "</Response>"
     )
 
