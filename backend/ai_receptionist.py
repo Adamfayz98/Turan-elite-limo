@@ -42,8 +42,10 @@ You may quote prices ONLY for these three vehicles using the `quote` action:
 
 For ANY OTHER vehicle — Stretch Limousine, Sprinter Van, Executive Sprinter, Jet Sprinter, Party Bus, Mini Coach, Motor Coach — DO NOT quote a number. Instead say: "For the [vehicle], our team builds a custom quote since pricing depends on the route and duration. I'll text you a link to fill in a quick request." Then use action `send_sms_link` with `link_type: "quote_request"`.
 
-# Current promotions (mention proactively only if the caller is a NEW customer or asks about discounts)
-- **First-time riders**: 20% off with code **WELCOME**. Say "if this is your first ride with us, use code WELCOME for 20% off at checkout." This CANNOT be applied automatically over the phone — the customer applies it when booking online.
+# Current promotions
+- Our first-time-rider discount is **AUTO-APPLIED** at checkout — the caller never needs a promo code. The exact percentage and dollar-off amount are returned to you in every `quote` action result (see "Announcing a quote" below).
+- NEVER tell the caller to "use code X" or "enter a code at checkout". The discount already lives in the price you announce.
+- If the caller directly asks whether there are any promos, say: "Our first-time-rider discount is already baked into the quote I just gave you — nothing extra to enter."
 
 # What you CAN do
 - Answer questions about fleet, service area, airports, meet-and-greet, cancellation, pricing.
@@ -74,8 +76,9 @@ You MUST respond with ONLY a JSON object, no prose outside the JSON. Schema:
 3. **NEVER hang up without offering the text link at least once.** If the caller sounds done ("okay, thanks, bye"), your final reply must offer the text once more: "Absolutely — I can also text the link right now if it helps. Otherwise, thanks for calling." Only THEN hang up on their next turn.
 4. **Always frame quotes as estimates.** Every price reply must include "…that's our estimate; the final price locks in when you book online." Or "…roughly $X — subject to final confirmation online."
 5. **If unsure what the caller said, offer specific choices — don't just say "sorry didn't catch that".** Instead: "Sorry, was that Sedan, SUV, or Sprinter?" or "Sorry — was that Napa, Sonoma, or Monterey?" Give them multiple-choice, not open-ended.
-6. **Confirm before texting.** Before you use `send_sms_link`, confirm: "I'll text the link to the number you're calling from — sounds good?" (Twilio gives us the caller's number automatically; we don't need to ask them for it.)
-7. **NEVER ask for the passenger name, email, or phone number** — the website booking form collects those. Just get pickup + drop-off + vehicle, quote, and text the link.
+6. **When the caller says yes to a text, SEND IT IMMEDIATELY — do NOT ask again.** If your previous reply offered to text a booking link (e.g. "want me to text you a booking link?") and the caller's next utterance is any affirmative — "yes", "yeah", "sure", "please", "send it", "okay", "go ahead", "text me", "yes please" — your NEXT JSON response MUST have `action: "send_sms_link"` with the pickup/dropoff/vehicle you already have from the quote context. Do not confirm the phone number, do not re-ask, do not stall. Just send.
+7. **Announcing a quote — natural framing (no promo codes).** When the system feeds you a quote result, speak it like a human concierge. Template: "For the [vehicle], that's about $[final_price] — this includes our current [X]% first-time-rider discount, which is already applied. That's our estimate; the final price locks in when you book online." If NO promo was applied, just say the price plainly: "For the [vehicle], that's about $[price] — our estimate, final price locks in online." NEVER read out a promo code and NEVER tell the caller to "use code X".
+8. **NEVER ask for the passenger name, email, or phone number** — the website booking form collects those. Just get pickup + drop-off + vehicle, quote, and text the link.
 
 Actions:
 - `speak_and_gather` — just say `reply` and listen for the next thing (default). params: {} (empty)
@@ -417,18 +420,25 @@ async def compute_ai_quote(db, pickup: str, dropoff: str, vehicle: str) -> dict:
         original = float(matching.original_price or matching.price)
         applied_promo_obj = matching.applied_promo or None
         promo_code = applied_promo_obj.get("code") if isinstance(applied_promo_obj, dict) else None
+        promo_type = applied_promo_obj.get("discount_type") if isinstance(applied_promo_obj, dict) else None
+        promo_value = applied_promo_obj.get("value") if isinstance(applied_promo_obj, dict) else None
         # The AI will speak the exact dollar amount (no cents) — matches
         # what the customer sees on the website, no more $5 rounding drift.
         friendly = int(round(price_now))
-        if promo_code and abs(original - price_now) > 0.5:
-            orig_friendly = int(round(original))
-            spoken = (
-                f"about ${friendly} for the {vehicle}, "
-                f"after our current {promo_code} discount — "
-                f"that's down from ${orig_friendly}"
-            )
+        # Natural concierge phrasing — never mentions a promo CODE, just the
+        # human-readable "with our 30% first-time-rider discount already
+        # included" framing (matches how the user described the ideal
+        # response on the Feb 9 test call).
+        if applied_promo_obj and abs(original - price_now) > 0.5:
+            if promo_type == "percent" and promo_value:
+                disc_phrase = f"with our {int(round(float(promo_value)))}% first-time-rider discount already included"
+            else:
+                # Flat $ off promo — describe by dollar amount saved.
+                saved = int(round(original - price_now))
+                disc_phrase = f"with a ${saved} discount already applied"
+            spoken = f"${friendly} for the {vehicle}, {disc_phrase}"
         else:
-            spoken = f"about ${friendly} for the {vehicle}"
+            spoken = f"${friendly} for the {vehicle}"
         # Always include the estimate framing so the AI reads it aloud.
         return {
             "ok": True,

@@ -312,7 +312,109 @@ async def twilio_voice_gather(
     parsed = await ai_receptionist.get_ai_reply(
         db, call_sid=CallSid, caller_number=From, user_speech=speech,
     )
+    # SAFETY NET (Feb 9, 2026): If the caller clearly said YES to a text-link
+    # offer and the LLM STILL emitted anything other than send_sms_link (the
+    # confirmation-loop bug the user hit on the Feb 9 test call), override
+    # here so the SMS actually goes out. We use the LAST quote's params so
+    # pickup/dropoff/vehicle are preserved.
+    parsed = await _force_sms_if_affirmative_missed(CallSid, speech, parsed)
     return await _dispatch_action(request, CallSid, From, parsed)
+
+
+# Bare affirmatives that mean "yes send me the text" — matched
+# case-insensitively against the WHOLE caller utterance (after strip/punct).
+_AFFIRMATIVES = {
+    "yes", "yeah", "yep", "yup", "sure", "please", "okay", "ok", "k",
+    "yes please", "yeah please", "please do", "please yes", "yes yes",
+    "yes send it", "send it", "send", "send me", "send me it",
+    "text me", "text me the link", "text me it", "text it", "text it to me",
+    "text please", "yes text me", "yeah text me", "go ahead", "sounds good",
+    "sure thing", "yes send", "send the link", "yes send the link",
+    "yes text", "yes text me the link", "affirmative", "correct", "right",
+    "definitely", "absolutely", "of course", "for sure",
+}
+
+# Phrases in the PRIOR assistant reply that mean "I just offered a text link".
+_TEXT_OFFER_MARKERS = (
+    "text you the link", "text the link", "text you a booking",
+    "text you a link", "text you a quote", "text a booking link",
+    "text you a", "send you a link", "send you the link",
+    "would you like me to text", "should i text", "shall i text",
+    "text me", "book link", "reservation link", "booking link",
+    "would you like me to send", "want me to text",
+)
+
+
+def _looks_affirmative(text: str) -> bool:
+    t = (text or "").lower().strip().rstrip(".!?,")
+    if not t:
+        return False
+    if t in _AFFIRMATIVES:
+        return True
+    # Also match short "yes/yeah/sure/ok" as a prefix followed by anything
+    # short (e.g. "yes please send", "yeah go ahead").
+    for stem in ("yes ", "yeah ", "yep ", "sure ", "okay ", "ok ", "please "):
+        if t.startswith(stem) and len(t) <= 40:
+            return True
+    return False
+
+
+async def _force_sms_if_affirmative_missed(call_sid: str, speech: str, parsed: dict) -> dict:
+    """If the LLM ignored a clear 'yes send me the link', rewrite its
+    decision to `send_sms_link` using the last quote's params."""
+    if (parsed.get("action") or "").lower() == "send_sms_link":
+        return parsed  # LLM did the right thing
+    if not _looks_affirmative(speech):
+        return parsed
+    try:
+        sess = await db.voice_call_sessions.find_one(
+            {"call_sid": call_sid}, {"_id": 0, "history": 1},
+        ) or {}
+        history = sess.get("history") or []
+    except Exception:
+        return parsed
+    # `get_ai_reply` already appended the current turn's assistant reply as
+    # the LAST assistant entry. We want the one BEFORE it — the offer.
+    prior_assistant_content = ""
+    seen = 0
+    for turn in reversed(history):
+        if turn.get("role") == "assistant":
+            seen += 1
+            if seen == 2:
+                prior_assistant_content = (turn.get("content") or "").lower()
+                break
+    if not any(marker in prior_assistant_content for marker in _TEXT_OFFER_MARKERS):
+        return parsed  # AI wasn't just offering a text — leave alone
+    # Pull the most recent quote's params so we know what to pre-fill on the
+    # booking link.
+    quote_params = {}
+    for turn in reversed(history):
+        if turn.get("role") == "assistant" and (turn.get("action") or "").lower() == "quote":
+            quote_params = turn.get("params") or {}
+            break
+    logger.info(
+        f"[AI safety-net] Forcing send_sms_link for call_sid={call_sid} "
+        f"— caller said {speech!r} after text offer, LLM emitted "
+        f"{parsed.get('action')!r}"
+    )
+    try:
+        await ai_receptionist.append_turn(
+            db, call_sid, "system",
+            "safety-net: caller affirmed text offer but LLM did not emit send_sms_link — forcing it",
+            meta={"original_action": parsed.get("action")},
+        )
+    except Exception:
+        pass
+    return {
+        "reply": "Sending that link now — anything else I can help with?",
+        "action": "send_sms_link",
+        "params": {
+            "link_type": "book",
+            "pickup": quote_params.get("pickup", ""),
+            "dropoff": quote_params.get("dropoff", ""),
+            "vehicle": quote_params.get("vehicle", ""),
+        },
+    }
 
 
 async def _dispatch_action(request: Request, call_sid: str, caller: str, parsed: dict) -> Response:
@@ -355,18 +457,20 @@ async def _dispatch_action(request: Request, call_sid: str, caller: str, parsed:
         vehicle = params.get("vehicle") or ""
         q = await ai_receptionist.compute_ai_quote(db, pickup, dropoff, vehicle)
         if q.get("ok"):
-            promo_bit = ""
-            if q.get("applied_promo"):
-                promo_bit = (
-                    f" This price includes our current {q['applied_promo']} discount "
-                    f"(original ${int(round(q['original_price']))})."
-                )
+            # `spoken` is already the fully-formatted natural line built by
+            # compute_ai_quote — it contains price + discount phrasing but
+            # NEVER a promo code. We tell the AI to use it verbatim so we
+            # don't accidentally leak "WELCOME30" or ask the caller to "use
+            # a code at checkout" (Feb 9 user callout).
             context_fact = (
                 f"Quote result for {vehicle} from {pickup} to {dropoff}: "
-                f"{q.get('miles')} miles one-way, price is {q.get('spoken')}.{promo_bit} "
-                f"Announce this price now, add the standard 'this is an estimate, "
-                f"final price locks in when you book online' framing, and IMMEDIATELY "
-                f"offer to text the booking link. Do not stop after just the price."
+                f"{q.get('miles')} miles one-way. Announce this line verbatim: "
+                f"\"{q.get('spoken')}.\" Then add the estimate framing "
+                f"(\"that's our estimate; the final price locks in when you "
+                f"book online\") and IMMEDIATELY offer to text a booking link. "
+                f"DO NOT say any promo code out loud. DO NOT tell the caller "
+                f"to enter a code at checkout — the discount is already baked "
+                f"into the price."
             )
         else:
             context_fact = (

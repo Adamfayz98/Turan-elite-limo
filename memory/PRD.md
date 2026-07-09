@@ -2,11 +2,28 @@
 
 > Last refreshed: July 7, 2026 — iter 55 (Promo overcharge recurrence — root cause fixed)
 
-## Iter 58 — Site-wide phone number swap to Twilio (Feb 9, 2026)
+## Iter 59 — AI Receptionist promo copy + SMS confirmation-loop fix (Feb 9, 2026)
+
+**Bug 1 — AI was quoting the wrong promo:** Hardcoded system prompt line said "use code WELCOME for 20% off". User confirmed the live promo is 30% auto-applied (no code needed).
+  - Rewrote `SYSTEM_PROMPT` "Current promotions" section: NEVER read a promo code aloud, discount is auto-baked into the announced price.
+  - Rewrote spoken-quote formatter in `compute_ai_quote()` — new format: `"$228 for the Executive Sedan, with our 30% first-time-rider discount already included"` (was previously mentioning the promo code by name).
+  - Rewrote `context_fact` in `_dispatch_action` so it feeds the AI the ready-to-speak line and explicitly forbids code-mention.
+  - Percentage is 100% dynamic — pulled from `applied_promo.value` in the auto-promo layer.
+  - ⚠️ **DB flag:** the live `db.promos` collection currently has NO active `auto_apply=True` + `first_ride_only=False` promo. `WELCOME` is 20% but `auto_apply=False`. User must create a `WELCOME30` (or rename existing) promo with `auto_apply=True, discount_type=percent, value=30`. Until that promo exists, AI will just quote base price with no discount phrasing (verified).
+
+**Bug 2 — AI kept saying "sending the link" but never sent it:** Root cause was the "Confirm before texting" rule in the system prompt creating an infinite confirmation loop. LLM would emit `action=speak_and_gather` even after multiple "yes" affirmations.
+  - Rewrote rule 6: any bare affirmative after a text offer must produce `action="send_sms_link"` — no re-confirmation.
+  - Added **safety-net override** in `twilio_voice._force_sms_if_affirmative_missed`: after `get_ai_reply` returns, if caller's utterance matches ~40 affirmative variants AND the prior assistant turn contained text-offer markers ("text you the link", "would you like me to text", etc.), we force `action=send_sms_link` regardless of what the LLM said, reusing the last quote's pickup/dropoff/vehicle from session history.
+  - Verified with 3 synthetic scenarios: (a) affirmative after text offer → forced ✓, (b) non-affirmative ("what about a sedan") → not forced ✓, (c) affirmative after non-text-offer → not forced ✓.
+
+Files: `backend/ai_receptionist.py`, `backend/routes/twilio_voice.py`.
+
+
 
 **Purpose:** Route ALL inbound customer calls through Twilio (`+1-650-672-3520`) so the AI Receptionist + call logging see every call, since the user's Verizon lines were tied up during earlier testing.
 
 - Swapped `(650) 410-0687` → `(650) 672-3520` (and `+16504100687` → `+16506723520`) across **36 files**:
+## Iter 58 — Site-wide phone number swap to Twilio (Feb 9, 2026)
   - **Web (21):** Navbar, Footer, LandingPage, WorldCup2026, PayBooking, ManageBooking, PostTrip, QuoteOfferConfirm, PrivacyPolicy, TermsOfService, AppDownload, ContactForm, CancellationPolicy, Coverage, FleetPicker, FloatingChatWidget, QuoteRequestDialog, SeoStructuredData, BookingForm placeholder, admin/QuoteRequestsTab broker-outreach SMS, `public/index.html` JSON-LD schema.
   - **Backend (9):** `email_service.py` (SUPPORT_PHONE default + all tel: links), `server.py`, `pdf_service.py`, `routes/admin.py`, `routes/customer.py`, `routes/driver.py`, `routes/payments.py`, `routes/chat.py` (system prompt + escalation regex), `tests/test_iteration30_jwt_modify_booking.py` (assertion).
   - **Mobile (6):** `app/index.tsx`, `app/(rider)/help.tsx`, `app/(rider)/vehicle.tsx`, `app/(rider)/modify.tsx`, `app/(rider)/(tabs)/discover.tsx`, `src/components/QuoteRequestSheet.tsx`. *Requires new EAS build for stores.*
