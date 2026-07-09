@@ -857,7 +857,7 @@ Hard rules:
 - Output 1–4 short paragraphs. NO headings, NO bullet points, NO emoji-heavy formatting (one tasteful emoji max, only if it fits the occasion).
 - Target ≤ 320 characters total when possible. NEVER exceed 480 characters.
 - First-person voice as "Adam" — never refer to "we at Turan Elite" in third person.
-- Always end with the signature line: "— Adam · (650) 410-0687"
+- Always end with the signature line: "— Adam · (650) 672-3520"
 - Plain text only. No markdown.
 
 Tone by `sms_intent` field:
@@ -1437,7 +1437,7 @@ def _render_quote_offer_email(q: dict, confirm_url: str) -> str:
         <a href="{confirm_url}" style="display:inline-block;padding:16px 38px;background:#D4AF37;color:#0a0a0a;text-decoration:none;border-radius:999px;font-weight:700;font-size:14px;letter-spacing:0.02em;">
           ✓ Confirm &amp; Pay ${deposit:,.0f} Deposit →
         </a>
-        <div style="color:#666;font-size:11px;margin-top:14px;line-height:1.6;">Secure payment via Stripe · Or call us at (650) 410-0687</div>
+        <div style="color:#666;font-size:11px;margin-top:14px;line-height:1.6;">Secure payment via Stripe · Or call us at (650) 672-3520</div>
       </td></tr>
 
       <tr><td style="padding:24px 36px 30px 36px;color:#555;font-size:11px;line-height:1.7;text-align:center;border-top:1px solid #1c1c1c;margin-top:18px;">
@@ -1445,7 +1445,7 @@ def _render_quote_offer_email(q: dict, confirm_url: str) -> str:
         This quote is valid for 48 hours. After that, prices and availability may change.
       </td></tr>
     </table>
-    <div style="color:#444;font-size:10px;margin-top:18px;">TuranEliteLimo · Bay Area · (650) 410-0687 · turanelitelimo.com</div>
+    <div style="color:#444;font-size:10px;margin-top:18px;">TuranEliteLimo · Bay Area · (650) 672-3520 · turanelitelimo.com</div>
   </td></tr>
 </table>
 </body></html>"""
@@ -1867,7 +1867,7 @@ async def public_quote_offer_finalize(token: str, session_id: str, request: Requ
       </div>
     </td></tr>
     <tr><td style="padding:6px 36px 30px 36px;color:#666;font-size:11px;line-height:1.7;border-top:1px solid #1c1c1c;">
-      Questions? Call (650) 410-0687 or reply to this email.
+      Questions? Call (650) 672-3520 or reply to this email.
     </td></tr>
   </table></td></tr></table></body></html>"""
             await send_email(
@@ -2026,7 +2026,7 @@ async def admin_email_dispatch_pdf(
       {rate_line}
       <p style="margin:0 0 12px 0;">Please confirm receipt and that the vehicle is locked. Reply to this email with any
       questions or driver contact, and we'll loop you back.</p>
-      <p style="margin-top:18px;">Thanks,<br/>Adam · Turan Elite Limo · (650) 410-0687</p>
+      <p style="margin-top:18px;">Thanks,<br/>Adam · Turan Elite Limo · (650) 672-3520</p>
     </div>
     """
 
@@ -3226,7 +3226,7 @@ async def admin_invite_driver(driver_id: str, _: dict = Depends(require_admin)):
               Once signed in you'll see assigned trips with pickup/drop-off, live navigation, and one-tap status updates (En Route → Arrived → Trip Started → Completed).
             </p>
             <p style="color:rgba(255,255,255,0.45);font-size:12px;line-height:1.6;margin:0 0 22px;">
-              Questions? Reply to this email or text dispatch at <span style="color:#D4AF37;">(650) 410-0687</span>.
+              Questions? Reply to this email or text dispatch at <span style="color:#D4AF37;">(650) 672-3520</span>.
             </p>
 
             <p style="color:rgba(255,255,255,0.3);font-size:11px;line-height:1.5;margin-top:24px;border-top:1px solid rgba(255,255,255,0.08);padding-top:16px;">

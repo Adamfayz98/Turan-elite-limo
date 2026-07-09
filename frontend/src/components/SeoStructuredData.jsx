@@ -40,7 +40,7 @@ export default function SeoStructuredData() {
       url: "https://turanelitelimo.com",
       logo: "https://turanelitelimo.com/logo-mark.png",
       image: "https://turanelitelimo.com/logo-full.png",
-      telephone: "+1-650-410-0687",
+      telephone: "+1-650-672-3520",
       email: "support@turanelitelimo.com",
       priceRange: "$$$",
       currenciesAccepted: "USD",

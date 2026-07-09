@@ -18,7 +18,7 @@ const PAY_AFTER_VEHICLES = new Set(["Executive Sedan", "First Class", "Luxury SU
  * they'd like to reach out (form for desktop / younger riders, phone for
  * mobile / older riders).
  */
-export default function FleetPicker({ quote, selected, onSelect, supportPhone = "(650) 410-0687" }) {
+export default function FleetPicker({ quote, selected, onSelect, supportPhone = "(650) 672-3520" }) {
   const [quoteFor, setQuoteFor] = useState(null);
 
   const quoteByVehicle = (quote?.quotes || []).reduce((acc, q) => {

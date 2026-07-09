@@ -78,7 +78,7 @@ export default function Coverage() {
               </div>
               <div className="gold-divider my-8" />
               <p className="text-sm text-white/55 italic">
-                Don't see your city? We probably still serve it. Call <span className="text-[#D4AF37]">(650) 410-0687</span>.
+                Don't see your city? We probably still serve it. Call <span className="text-[#D4AF37]">(650) 672-3520</span>.
               </p>
             </div>
           </div>

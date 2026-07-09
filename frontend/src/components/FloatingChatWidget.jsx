@@ -112,7 +112,7 @@ export default function FloatingChatWidget() {
       setMessages([{ role: "assistant", content: data.opener, ts: now }]);
       return data.session_id;
     } catch (err) {
-      setErrorMsg("Chat is offline at the moment — please call (650) 410-0687.");
+      setErrorMsg("Chat is offline at the moment — please call (650) 672-3520.");
       return null;
     } finally {
       setBooting(false);
@@ -136,7 +136,7 @@ export default function FloatingChatWidget() {
         {
           role: "assistant",
           content:
-            "Sorry — I hit a hiccup. Please try again, or text us at (650) 410-0687 and a real human will help right away.",
+            "Sorry — I hit a hiccup. Please try again, or text us at (650) 672-3520 and a real human will help right away.",
           ts: new Date().toISOString(),
         },
       ]);

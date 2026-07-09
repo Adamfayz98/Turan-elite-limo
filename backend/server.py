@@ -537,7 +537,7 @@ async def create_booking(payload: BookingCreate, request: Request):
                 "code": "out_of_service_area",
                 "message": (
                     "We operate from the SF Bay Area and can't pick up at "
-                    "this location. Please call (650) 410-0687 for service "
+                    "this location. Please call (650) 672-3520 for service "
                     "outside the Bay Area."
                 ),
             },
@@ -1396,7 +1396,7 @@ async def quote_ride(payload: QuoteRequest):
                 "message": (
                     "Sorry — we operate from the San Francisco Bay Area and "
                     "can't pick up at this location. For service outside the "
-                    "Bay Area, please call us at (650) 410-0687 and we'll "
+                    "Bay Area, please call us at (650) 672-3520 and we'll "
                     "connect you with a partner operator in your region."
                 ),
             },
@@ -1562,7 +1562,7 @@ async def manage_view_booking(token: str):
         "quote_amount": b.get("quote_amount"),
         "paid_amount": b.get("paid_amount"),
         "cancellation_requested": b.get("cancellation_requested", False),
-        "support_phone": "+16504100687",
+        "support_phone": "+16506723520",
         "support_email": SUPPORT_EMAIL,
     }
 
@@ -3613,7 +3613,7 @@ def _render_invoice_email_html(inv: dict) -> str:
           <p style="color:#666;font-size:11px;margin:18px 0 0">Or copy this link: <br><span style="color:#888">{pay_url}</span></p>
         </td></tr>
         <tr><td style="padding:24px 32px;border-top:1px solid #1f1f1f;text-align:center">
-          <p style="color:#888;font-size:12px;margin:0">Questions? Reply to this email or call <a href="tel:+16504100687" style="color:#D4AF37;text-decoration:none">(650) 410-0687</a>.</p>
+          <p style="color:#888;font-size:12px;margin:0">Questions? Reply to this email or call <a href="tel:+16506723520" style="color:#D4AF37;text-decoration:none">(650) 672-3520</a>.</p>
         </td></tr>
       </table>
     </td></tr>

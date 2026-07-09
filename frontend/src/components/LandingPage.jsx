@@ -21,8 +21,8 @@ import PayAfterRideBadge from "@/components/PayAfterRideBadge";
  */
 
 const BOOK_URL = "/#booking";
-const PHONE = "(650) 410-0687";
-const TEL = "tel:+16504100687";
+const PHONE = "(650) 672-3520";
+const TEL = "tel:+16506723520";
 
 export default function LandingPage({
   testId,

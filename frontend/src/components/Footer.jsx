@@ -7,7 +7,7 @@ const SOCIALS = [
   { icon: Facebook, href: "https://www.facebook.com/turanelitelimo", label: "Facebook" },
   { icon: Instagram, href: "https://www.instagram.com/turanelitelimo", label: "Instagram" },
   { icon: Youtube, href: "https://www.youtube.com/@turanelitelimo", label: "YouTube" },
-  { icon: MessageCircle, href: "https://wa.me/16504100687", label: "WhatsApp" },
+  { icon: MessageCircle, href: "https://wa.me/16506723520", label: "WhatsApp" },
 ];
 
 const APP_STORE_URL = "https://apps.apple.com/us/app/turanelitelimo/id6771610380";
@@ -129,9 +129,9 @@ export default function Footer() {
             <div className="flex items-start gap-3 pt-2">
               <Phone className="w-4 h-4 text-[#D4AF37] mt-0.5 flex-shrink-0" />
               <div className="text-white/70">
-                <a href="tel:+16504100687" onClick={() => trackPhoneCall({ source: "footer" })} className="hover:text-[#D4AF37]">(650) 410‑0687</a>
+                <a href="tel:+16506723520" onClick={() => trackPhoneCall({ source: "footer" })} className="hover:text-[#D4AF37]">(650) 672‑3520</a>
                 <span className="text-white/40 mx-2">·</span>
-                <a href="sms:+16504100687" className="hover:text-[#D4AF37]" data-testid="footer-text-link">
+                <a href="sms:+16506723520" className="hover:text-[#D4AF37]" data-testid="footer-text-link">
                   Text us
                 </a>
               </div>

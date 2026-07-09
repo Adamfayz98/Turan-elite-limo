@@ -94,7 +94,7 @@ export default function CancellationPolicy({ airport = false, variant = "compact
           )}
 
           <p className="text-[11px] text-white/45 pt-1">
-            Manage or cancel in one click from your confirmation email, or call <span className="text-[#D4AF37]">(650) 410-0687</span>.
+            Manage or cancel in one click from your confirmation email, or call <span className="text-[#D4AF37]">(650) 672-3520</span>.
           </p>
         </div>
       )}

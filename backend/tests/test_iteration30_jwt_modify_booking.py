@@ -6,7 +6,7 @@ Covers the new JWT customer modify endpoint:
 Cases:
   1. 401 without JWT
   2. 404 for missing / cross-tenant bookings
-  3. 409 for paid bookings (message must mention dispatch phone (650) 410-0687)
+  3. 409 for paid bookings (message must mention dispatch phone (650) 672-3520)
   4. 400 for completed / cancelled bookings
   5. Success path: pricing-impacting change (pickup_location/dropoff_location/
      vehicle_type/pickup_datetime) -> response includes new_quote_amount &
@@ -166,8 +166,8 @@ class TestModifyStatePreconditions:
             assert r.status_code == 409, r.text
             text = r.text
             # Must mention the dispatch phone number (format-tolerant: check digits)
-            assert "650" in text and "410" in text and "0687" in text, \
-                f"409 message must mention (650) 410-0687, got: {text}"
+            assert "650" in text and "672" in text and "3520" in text, \
+                f"409 message must mention (650) 672-3520, got: {text}"
         finally:
             mongo.bookings.delete_one({"id": doc["id"]})
 
